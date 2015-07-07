@@ -14,15 +14,20 @@ static int stat_show(struct seq_file *s, void *v)
 	struct hmfs_stat_info *si;
 
 	mutex_lock(&hmfs_stat_mutex);
-	list_for_each_entry(si,&hmfs_stat_list,stat_list){
-		seq_printf(s,"This is debugfs");
+	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
+		seq_printf(s, "=============General Infomation=============\n");
+		seq_printf(s, "physical address:%u\n", si->sbi->phys_addr);
+		seq_printf(s, "virtual address:%u\n", si->sbi->virt_addr);
+		seq_printf(s, "initial size:%u\n", si->sbi->initsize);
+
 	}
 	mutex_unlock(&hmfs_stat_mutex);
 	return 0;
 }
 
-static int stat_open(struct inode *inode, struct file *file){
-	return single_open(file,stat_show,inode->i_private);
+static int stat_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, stat_show, inode->i_private);
 }
 
 static const struct file_operations stat_fops = {
@@ -36,14 +41,14 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_stat_info *si;
 
-	sbi->stat_info = kzalloc(sizeof(struct hmfs_stat_info),GFP_KERNEL);
-	if(!sbi->stat_info)
+	sbi->stat_info = kzalloc(sizeof(struct hmfs_stat_info), GFP_KERNEL);
+	if (!sbi->stat_info)
 		return -ENOMEM;
 
-	si=sbi->stat_info;
-
+	si = sbi->stat_info;
+	si->sbi = sbi;
 	mutex_lock(&hmfs_stat_mutex);
-	list_add_tail(&si->stat_list,&hmfs_stat_list);
+	list_add_tail(&si->stat_list, &hmfs_stat_list);
 	mutex_unlock(&hmfs_stat_mutex);
 
 	return 0;
@@ -51,7 +56,7 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_stat_info *si=sbi->stat_info;
+	struct hmfs_stat_info *si = sbi->stat_info;
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_del(&si->stat_list);
@@ -62,13 +67,14 @@ void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 
 void __init hmfs_create_root_stat(void)
 {
-	debugfs_root=debugfs_create_dir("hmfs",NULL);
-	if(debugfs_root)
-		debugfs_create_file("status",S_IRUGO,debugfs_root,NULL,&stat_fops);
+	debugfs_root = debugfs_create_dir("hmfs", NULL);
+	if (debugfs_root)
+		debugfs_create_file("status", S_IRUGO, debugfs_root, NULL,
+				    &stat_fops);
 }
 
 void hmfs_destroy_root_stat(void)
 {
 	debugfs_remove_recursive(debugfs_root);
-	debugfs_root=NULL;
+	debugfs_root = NULL;
 }
