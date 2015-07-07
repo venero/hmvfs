@@ -18,6 +18,12 @@ struct hmfs_sb_info {
 	struct hmfs_stat_info *stat_info;
 };
 
+struct hmfs_inode_info {
+	unsigned long flags;		/* use to pass per-file flags */
+};
+
+
+
 struct hmfs_stat_info {
 	struct list_head stat_list;
 	struct hmfs_sb_info *sbi;

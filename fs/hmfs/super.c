@@ -7,8 +7,17 @@
 #include <linux/ctype.h>	//isdigit()
 #include <uapi/linux/magic.h>
 
+#include "hmfs_fs.h" 		//TODO:add to include/linux
 #include "hmfs.h"
 
+
+static struct kmem_cache *hmfs_inode_cachep; 	//inode cachep
+
+
+
+/*
+ * For mount
+ */
 enum {
 	Opt_addr = 0, Opt_size, Opt_num_inodes,
 	Opt_mode, Opt_uid, Opt_gid
@@ -181,19 +190,57 @@ struct file_system_type hmfs_fs_type = {
 };
 
 /*
+ * sop
+ */
+
+static struct inode *hmfs_alloc_inode(struct super_block *sb)
+{
+	struct inode* vfs_inode = (struct inode *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO); //free me when unmount
+	//TODO inode initialization
+	if (!vfs_inode)
+		return NULL;
+
+	return vfs_inode;
+}
+
+static struct super_operations hmfs_sops = {
+	.alloc_inode	= hmfs_alloc_inode,
+	.drop_inode	= generic_drop_inode,
+};
+
+/*
  * Module Specific Info
- * TODO: add your pernonal info here
+ * TODO: add your personal info here
  */
 
 #define AUTHOR_INFO "Billy qweeah@sjtu.edu.cn"
 #define DEVICE_TYPE "hybrid in-memory filesystem"
 
+static int __init init_inodecache(void)
+{
+	hmfs_inode_cachep = kmem_cache_create("hmfs_inode_cache",
+			sizeof(struct hmfs_inode_info), 0, SLAB_RECLAIM_ACCOUNT, NULL);
+	if (hmfs_inode_cachep == NULL)
+		return -ENOMEM;
+	return 0;
+}
+
+
 int init_hmfs(void)
 {
-	register_filesystem(&hmfs_fs_type);
+	int err;
+
+	err = init_inodecache();
+	if (err)
+		goto fail;
+	err = register_filesystem(&hmfs_fs_type);
+	if (err)
+		goto fail;
 	hmfs_create_root_stat();
-	print("HMFS is loaded!");
 	return 0;
+fail:
+	return err;
+
 }
 
 void exit_hmfs(void)
