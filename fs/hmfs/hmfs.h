@@ -19,10 +19,8 @@ struct hmfs_sb_info {
 };
 
 struct hmfs_inode_info {
-	unsigned long flags;		/* use to pass per-file flags */
+	struct inode vfs_inode;	/* vfs inode */
 };
-
-
 
 struct hmfs_stat_info {
 	struct list_head stat_list;
@@ -37,6 +35,7 @@ void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
 
+#define TEST 1
 #ifdef TEST
 void printtty(const char *format, ...);
 #define print printtty		//print to TTY for debugging convience

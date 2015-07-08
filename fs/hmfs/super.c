@@ -7,13 +7,10 @@
 #include <linux/ctype.h>	//isdigit()
 #include <uapi/linux/magic.h>
 
-#include "hmfs_fs.h" 		//TODO:add to include/linux
+#include "hmfs_fs.h"		//TODO:add to include/linux
 #include "hmfs.h"
 
-
-static struct kmem_cache *hmfs_inode_cachep; 	//inode cachep
-
-
+static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
 
 /*
  * For mount
@@ -76,12 +73,13 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (remount)
 				goto bad_opt;	//remount on another area isn't allowed
 			phys_addr =
-			    (phys_addr_t) simple_strtoull(args[0].from, NULL,
-							  0);
+			    (phys_addr_t) simple_strtoull(args[0].from,
+							  NULL, 0);
 			if (phys_addr == 0
 			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
-				print("Invalid phys addr specification: %s\n",
-				      tokens[Opt_addr]);
+				print
+				    ("Invalid phys addr specification: %s\n",
+				     p);
 				goto bad_val;
 			}
 			//TODO: align
@@ -130,7 +128,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 	////TODO : this part will be move to hmfs_init
 	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
-	tprint("virtual address is: 0x%8u", sbi->virt_addr);
+	tprint("virtual address is: 0x%08u", sbi->virt_addr);
 	if (!sbi->virt_addr) {
 		retval = -EINVAL;
 		goto out;
@@ -195,17 +193,17 @@ struct file_system_type hmfs_fs_type = {
 
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
-	struct inode* vfs_inode = (struct inode *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO); //free me when unmount
+	struct hmfs_inode_info *fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO);	//free me when unmount
 	//TODO inode initialization
-	if (!vfs_inode)
+	if (!fi)
 		return NULL;
 
-	return vfs_inode;
+	return &(fi->vfs_inode);
 }
 
 static struct super_operations hmfs_sops = {
-	.alloc_inode	= hmfs_alloc_inode,
-	.drop_inode	= generic_drop_inode,
+	.alloc_inode = hmfs_alloc_inode,
+	.drop_inode = generic_drop_inode,
 };
 
 /*
@@ -219,12 +217,12 @@ static struct super_operations hmfs_sops = {
 static int __init init_inodecache(void)
 {
 	hmfs_inode_cachep = kmem_cache_create("hmfs_inode_cache",
-			sizeof(struct hmfs_inode_info), 0, SLAB_RECLAIM_ACCOUNT, NULL);
+					      sizeof(struct hmfs_inode_info), 0,
+					      SLAB_RECLAIM_ACCOUNT, NULL);
 	if (hmfs_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
 }
-
 
 int init_hmfs(void)
 {
@@ -238,7 +236,7 @@ int init_hmfs(void)
 		goto fail;
 	hmfs_create_root_stat();
 	return 0;
-fail:
+      fail:
 	return err;
 
 }
