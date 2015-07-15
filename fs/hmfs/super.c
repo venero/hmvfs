@@ -147,7 +147,7 @@ static int hmfs_format(struct super_block *sb)
 	area_addr <<= 1;	/* two copy of super block */
 	ssa_addr = area_addr;
 	ssa_pages_count =
-	    (pages_count + HMFS_PAGE_PER_SEG) >> HMFS_PAGE_PER_SEG_BITS;
+	    (pages_count + HMFS_PAGE_PER_SEG - 1) >> HMFS_PAGE_PER_SEG_BITS;
 	ssa_pages_count <<= 1;	/* summary summary block need two pages */
 
 	/* prepare main area */
@@ -181,7 +181,6 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_uid = cpu_to_le32(current_fsuid());
 	root_node->i.i_gid = cpu_to_le32(current_fsgid());
 #endif
-
 
 	root_node->i.i_size = cpu_to_le64(HMFS_PAGE_SIZE * 1);
 	root_node->i.i_blocks = cpu_to_le64(2);
@@ -342,7 +341,7 @@ static loff_t hmfs_max_size(void)
 {
 	loff_t res;
 
-	res=MAX_LFS_FILESIZE;
+	res = MAX_LFS_FILESIZE;
 	return res;
 }
 
