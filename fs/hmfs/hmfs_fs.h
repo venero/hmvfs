@@ -113,10 +113,10 @@ struct hmfs_node {
 	struct node_footer footer;
 } __attribute__ ((packed));
 
-#define align_page_right(addr) ((addr + HMFS_PAGE_SIZE - 1) & HMFS_PAGE_MASK)
-#define align_page_left(addr) (addr & HMFS_PAGE_MASK)
-#define align_segment_right(addr) ((addr + HMFS_SEGMENT_SIZE - 1) & HMFS_SEGMENT_MASK)
-#define align_segment_left(addr) (addr & HMFS_SEGMENT_MASK)
+#define align_page_right(addr) (((addr) + HMFS_PAGE_SIZE - 1) & HMFS_PAGE_MASK)
+#define align_page_left(addr) ((addr) & HMFS_PAGE_MASK)
+#define align_segment_right(addr) (((addr) + HMFS_SEGMENT_SIZE - 1) & HMFS_SEGMENT_MASK)
+#define align_segment_left(addr) ((addr) & HMFS_SEGMENT_MASK)
 
 /**
  * nat inode

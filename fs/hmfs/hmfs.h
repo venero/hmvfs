@@ -11,15 +11,14 @@ struct hmfs_sb_info {
 	unsigned long initsize;
 	unsigned long s_mount_opt;
 
-	/* basic file system units */
-	unsigned long total_node_count;		/* total node block count */
-	unsigned long total_valid_node_count;	/* valid node block count */
-	unsigned long total_valid_inode_count;	/* valid inode count */
+	unsigned long page_count;
+	unsigned long segment_count;
 
-	unsigned long user_block_count;		/* # of user blocks */
-	unsigned long total_valid_block_count;	/* # of valid blocks */
-	unsigned long alloc_valid_block_count;	/* # of allocated blocks */
-	unsigned long last_valid_block_count;		/* for recovery */
+	struct hmfs_checkpoint *cp;
+
+	unsigned long ssa_addr;
+	unsigned long main_addr_start;
+	unsigned long main_addr_end;
 
 	/**
 	 * statiatic infomation, for debugfs
@@ -43,7 +42,8 @@ static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
 {
 	return container_of(inode, struct hmfs_inode_info, vfs_inode);
 }
-static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)                                                                               
+
+static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
 }

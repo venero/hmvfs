@@ -19,7 +19,11 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "physical address:%u\n", si->sbi->phys_addr);
 		seq_printf(s, "virtual address:%u\n", si->sbi->virt_addr);
 		seq_printf(s, "initial size:%u\n", si->sbi->initsize);
-
+		seq_printf(s, "page count:%u\n", si->sbi->page_count);
+		seq_printf(s, "segment count:%u\n", si->sbi->segment_count);
+		seq_printf(s, "SSA start address:%u\n", si->sbi->ssa_addr);
+		seq_printf(s, "main area range:%u - %u\n",
+			   si->sbi->main_addr_start, si->sbi->main_addr_end);
 	}
 	mutex_unlock(&hmfs_stat_mutex);
 	return 0;
