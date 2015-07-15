@@ -2,16 +2,25 @@
 #include <linux/types.h>
 
 struct hmfs_sb_info {
+	struct super_block *sb;
+
 	/* 1. location info  */
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
-	/* 2. inner usage information [blocknode\list...] */
-	/* 3. s_lock for updating usage info   */
-	/* 4. mount options */
+
 	unsigned long initsize;
 	unsigned long s_mount_opt;
-	/* 5. ... */
-	 /**/ /**/
+
+	/* basic file system units */
+	unsigned long total_node_count;		/* total node block count */
+	unsigned long total_valid_node_count;	/* valid node block count */
+	unsigned long total_valid_inode_count;	/* valid inode count */
+
+	unsigned long user_block_count;		/* # of user blocks */
+	unsigned long total_valid_block_count;	/* # of valid blocks */
+	unsigned long alloc_valid_block_count;	/* # of allocated blocks */
+	unsigned long last_valid_block_count;		/* for recovery */
+
 	/**
 	 * statiatic infomation, for debugfs
 	 */
@@ -34,13 +43,3 @@ void __init hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
-
-#define TEST 1
-#ifdef TEST
-void printtty(const char *format, ...);
-#define print printtty		//print to TTY for debugging convience
-#define tprint printtty		//test print
-#else
-#define print printk
-#define tprint printk
-#endif
