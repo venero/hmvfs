@@ -171,7 +171,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 			  const char *dev_name, void *data)
 {
-	struct dentry *const entry;
+	struct dentry * entry;
 	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
 	if (IS_ERR(entry)) {
 		print("mounting failed!");
