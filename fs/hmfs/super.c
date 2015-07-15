@@ -1,10 +1,10 @@
-#include <linux/module.h>	//init/exit module
-#include <linux/kernel.h>	//
-#include <linux/parser.h>	//match_token
+#include <linux/module.h>	
+#include <linux/kernel.h>
+#include <linux/parser.h>
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
-#include <linux/ctype.h>	//isdigit()
+#include <linux/ctype.h>
 #include <uapi/linux/magic.h>
 #include <linux/crc16.h>
 #include <linux/sched.h>
@@ -303,6 +303,8 @@ static int hmfs_format(struct super_block *sb)
 	return retval;
 }
 
+static struct super_operations hmfs_sops;	//TODO:re-orgnize this declaration 
+
 static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 {
 	struct inode *root = NULL;
@@ -328,10 +330,10 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		retval = -EINVAL;
 		goto out;
 	}
-	//// this part
 
 	sb->s_magic = HMFS_SUPER_MAGIC;
-	//TODO:here we left some TO-DO works like : **sop**
+	sb->s_op = &hmfs_sops;
+	//TODO: further init sbi
 	root = new_inode(sb);
 	if (!root) {
 		printk("[HMFS] No space for root inode!!");
@@ -365,8 +367,8 @@ out:
 struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 			  const char *dev_name, void *data)
 {
-	struct dentry *const entry =
-	    mount_nodev(fs_type, flags, data, hmfs_fill_super);
+	struct dentry const *entry;
+	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
 	if (IS_ERR(entry)) {
 		printk("mounting failed!");
 	} else {
@@ -385,20 +387,80 @@ struct file_system_type hmfs_fs_type = {
 /*
  * sop
  */
+static void init_once(void *foo)
+{
+	struct hmfs_inode_info *fi = (struct hmfs_inode_info *)foo;
+
+	inode_init_once(&fi->vfs_inode);
+}
 
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
-	struct hmfs_inode_info *fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO);	//free me when unmount
-	//TODO inode initialization
+	struct hmfs_inode_info *fi;
+	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO);	//free me when unmount
 	if (!fi)
 		return NULL;
-
+	init_once((void *)fi);
+	/*TODO: hmfs specific inode_info init work */
 	return &(fi->vfs_inode);
+}
+
+static void hmfs_i_callback(struct rcu_head *head)
+{
+	struct inode *inode = container_of(head, struct inode, i_rcu);
+	kmem_cache_free(hmfs_inode_cachep, HMFS_I(inode));
+}
+
+static void hmfs_destroy_inode(struct inode *inode)
+{
+	call_rcu(&inode->i_rcu, hmfs_i_callback);
+}
+
+static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
+{
+	//TODO: write & update in-DRAM NAT to NVM
+	return 0;
+}
+
+static void hmfs_dirty_inode(struct inode *inode, int flags)
+{
+	//TODO: set inode dirty for future witeback
+	return;
+}
+
+static void hmfs_put_super(struct super_block *sb)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(sb);
+	//TODO:XXX 
+	//1. destroy stat
+	//2. iounmap
+	if (sbi->virt_addr) {
+		tprint("unmapping virtual address!");
+		hmfs_iounmap(sbi->virt_addr);
+	}
+	//3. free internal components
+	kfree(sbi);
+}
+
+int hmfs_sync_fs(struct super_block *sb, int sync)
+{
+	//TODO:XXX fsync **important**
+	//1. sync to NVM
+	//2. checkpoint
+	//...
+	return 0;
 }
 
 static struct super_operations hmfs_sops = {
 	.alloc_inode = hmfs_alloc_inode,
 	.drop_inode = generic_drop_inode,
+	.destroy_inode = hmfs_destroy_inode,
+	.write_inode = hmfs_write_inode,
+	.dirty_inode = hmfs_dirty_inode,
+//      .evict_inode = hmfs_evict_inode,
+	.put_super = hmfs_put_super,
+	.sync_fs = hmfs_sync_fs,
+
 };
 
 /*
@@ -406,8 +468,8 @@ static struct super_operations hmfs_sops = {
  * TODO: add your personal info here
  */
 
-#define AUTHOR_INFO "Billy qweeah@sjtu.edu.cn"
-#define DEVICE_TYPE "hybrid in-memory filesystem"
+#define AUTHOR_INFO "RADLAB SJTU"
+#define DEVICE_TYPE "Hybrid in-Memory File System"
 
 static int __init init_inodecache(void)
 {

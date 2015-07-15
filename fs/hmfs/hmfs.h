@@ -36,6 +36,18 @@ struct hmfs_stat_info {
 	struct hmfs_sb_info *sbi;
 };
 
+/*
+ * Inline functions
+ */
+static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
+{
+	return container_of(inode, struct hmfs_inode_info, vfs_inode);
+}
+static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)                                                                               
+{
+	return sb->s_fs_info;
+}
+
 /**
  * debug.c
  */
