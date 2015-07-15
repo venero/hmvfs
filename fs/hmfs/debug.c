@@ -16,13 +16,13 @@ static int stat_show(struct seq_file *s, void *v)
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
 		seq_printf(s, "=============General Infomation=============\n");
-		seq_printf(s, "physical address:%u\n", si->sbi->phys_addr);
-		seq_printf(s, "virtual address:%u\n", si->sbi->virt_addr);
-		seq_printf(s, "initial size:%u\n", si->sbi->initsize);
-		seq_printf(s, "page count:%u\n", si->sbi->page_count);
-		seq_printf(s, "segment count:%u\n", si->sbi->segment_count);
-		seq_printf(s, "SSA start address:%u\n", si->sbi->ssa_addr);
-		seq_printf(s, "main area range:%u - %u\n",
+		seq_printf(s, "physical address:%lu\n", (unsigned long)si->sbi->phys_addr);
+		seq_printf(s, "virtual address:%p\n", si->sbi->virt_addr);
+		seq_printf(s, "initial size:%lu\n", si->sbi->initsize);
+		seq_printf(s, "page count:%lu\n", si->sbi->page_count);
+		seq_printf(s, "segment count:%lu\n", si->sbi->segment_count);
+		seq_printf(s, "SSA start address:%lu\n", si->sbi->ssa_addr);
+		seq_printf(s, "main area range:%lu - %lu\n",
 			   si->sbi->main_addr_start, si->sbi->main_addr_end);
 	}
 	mutex_unlock(&hmfs_stat_mutex);
@@ -69,7 +69,7 @@ void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 	kfree(si);
 }
 
-void __init hmfs_create_root_stat(void)
+void hmfs_create_root_stat(void)
 {
 	debugfs_root = debugfs_create_dir("hmfs", NULL);
 	if (debugfs_root)

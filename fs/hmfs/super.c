@@ -173,8 +173,15 @@ static int hmfs_format(struct super_block *sb)
 
 	root_node->i.i_mode = cpu_to_le16(0x41ed);
 	root_node->i.i_links = cpu_to_le32(2);
+
+#ifdef CONFIG_UIDGID_STRICT_TYPE_CHECKS
 	root_node->i.i_uid = cpu_to_le32(current_fsuid().val);
 	root_node->i.i_gid = cpu_to_le32(current_fsgid().val);
+#else
+	root_node->i.i_uid = cpu_to_le32(current_fsuid());
+	root_node->i.i_gid = cpu_to_le32(current_fsgid());
+#endif
+
 
 	root_node->i.i_size = cpu_to_le64(HMFS_PAGE_SIZE * 1);
 	root_node->i.i_blocks = cpu_to_le64(2);

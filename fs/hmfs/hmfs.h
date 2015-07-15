@@ -51,7 +51,7 @@ static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 /**
  * debug.c
  */
-void __init hmfs_create_root_stat(void);
+void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
