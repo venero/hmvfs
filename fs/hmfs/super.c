@@ -124,6 +124,7 @@ static int hmfs_format(struct super_block *sb)
 	unsigned long data_segaddr, node_segaddr;
 	unsigned long root_node_addr, cp_addr;
 	unsigned long ssa_addr, sit_addr, nat_addr, main_addr;
+	unsigned long length;
 	u16 cp_checksum, sb_checksum;
 	struct hmfs_checkpoint *cp;
 	struct hmfs_node *root_node;
@@ -270,8 +271,8 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
 
-	cp_checksum =
-	    crc16(~0, (void *)cp, (void *)(&cp->checksum) - (void *)cp);
+	length = (void *)(&cp->checksum) - (void *)cp;
+	cp_checksum = crc16(~0, (void *)cp, length);
 	cp->checksum = cpu_to_le16(cp_checksum);
 
 	/* setup super block */
@@ -288,10 +289,17 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, main_blkaddr, main_addr);
 	set_struct(super, cp_page_addr, cp_addr);
 
+	length = (void *)(&super->checksum) - (void *)super;
 	sb_checksum =
 	    crc16(~0, (void *)super,
 		  (void *)(&super->checksum) - (void *)super);
 	set_struct(super, checksum, sb_checksum);
+
+	/* copy another super block */
+	area_addr = sizeof(struct hmfs_super_block);
+	area_addr = align_page_right(area_addr);
+	super = sbi->virt_addr + area_addr;
+	hmfs_memcpy(super, sbi->virt_addr, sizeof(struct hmfs_super_block));
 	return retval;
 }
 
