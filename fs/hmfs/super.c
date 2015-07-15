@@ -143,7 +143,7 @@ static int hmfs_format(struct super_block *sb)
 
 	/* prepare SSA area */
 	area_addr = sizeof(struct hmfs_super_block);
-	area_addr = align_page_right(area_addr + HMFS_PAGE_SIZE);
+	area_addr = align_page_right(area_addr);
 	area_addr <<= 1;	/* two copy of super block */
 	ssa_addr = area_addr;
 	ssa_pages_count =
