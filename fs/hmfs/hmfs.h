@@ -54,12 +54,12 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 	return HMFS_SB(inode->i_sb);
 }
 
-static inline void hmfs_lock_op(struct f2fs_sb_info *sbi)
+static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)
 {
 	down_read(&sbi->cp_rwsem);
 }
 
-static inline void hmfs_unlock_op(struct f2fs_sb_info *sbi)
+static inline void hmfs_unlock_op(struct hmfs_sb_info *sbi)
 {
 	up_read(&sbi->cp_rwsem);
 }
