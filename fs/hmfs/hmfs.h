@@ -6,6 +6,11 @@
  */
 #define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
 
+/* used for hmfs_inode_info->flags */
+enum {
+	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+};
+
 struct hmfs_sb_info {
 	struct super_block *sb;			/* pointer to VFS super block */
 	/* 1. location info  */
@@ -52,6 +57,11 @@ static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 {
 	return HMFS_SB(inode->i_sb);
+}
+
+static inline int is_inode_flag_set(struct hmfs_inode_info *fi, int flag)
+{
+	return test_bit(flag, &fi->flags);
 }
 
 static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)

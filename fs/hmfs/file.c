@@ -51,7 +51,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 //      If the inode itself is dirty, go to go_write straightly
 	if (!datasync && is_inode_flag_set(fi, FI_DIRTY_INODE)) {
-		update_inode_page(inode);
+//		TODO: [inode] update inode page
 		goto go_write;
 	}
 //      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
@@ -108,7 +108,7 @@ int truncate_hole(struct inode *inode, pgoff_t pg_start, pgoff_t pg_end)
 {
 	pgoff_t index;
 	int err;
-
+/*
 	for (index = pg_start; index < pg_end; index++) {
 		struct dnode_of_data dn;
 
@@ -124,6 +124,7 @@ int truncate_hole(struct inode *inode, pgoff_t pg_start, pgoff_t pg_end)
 			truncate_data_blocks_range(&dn, 1);
 		f2fs_put_dnode(&dn);
 	}
+*/
 	return 0;
 }
 
@@ -203,7 +204,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	off_end = (offset + len) & (PAGE_CACHE_SIZE - 1);
 
 	hmfs_lock_op(sbi);
-
+/*
 	for (index = pg_start; index <= pg_end; index++) {
 		struct dnode_of_data dn;
 
@@ -224,7 +225,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 		else
 			new_size += PAGE_CACHE_SIZE;
 	}
-
+*/
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
 		i_size_write(inode, new_size);
 		mark_inode_dirty(inode);
