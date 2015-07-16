@@ -3,6 +3,7 @@
 #include <linux/parser.h>	//match_token
 #include <linux/string.h>
 #include <linux/slab.h>
+#include <linux/magic.h>
 #include <linux/fs.h>
 #include <linux/ctype.h>	//isdigit()
 #include <uapi/linux/magic.h>
@@ -134,8 +135,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		retval = -EINVAL;
 		goto out;
 	}
-
-	sb->s_magic = HMFS_SUPER_MAGIC;
+//	vt
+//	sb->s_magic = HMFS_SUPER_MAGIC;
 	sb->s_op = &hmfs_sops;
 	//TODO: further init sbi
 	root = new_inode(sb);

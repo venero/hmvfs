@@ -11,8 +11,14 @@
 #include "hmfs.h"
 
 static const struct vm_operations_struct hmfs_file_vm_ops = {
-	.fault = filemap_fault,
+//		 .fault should be redefined
+//		 Ask qweeah: PMFS uses pmfs_get_xip_mem to get page, however, f2fs uses 'BUG()'. I don't know why.
+		 .fault = filemap_fault,
+
+//		 I have no idea what this is about.
 //      .map_pages      = filemap_map_pages,
+
+//		 .page_mkwrite should be redefined,
 //      .page_mkwrite   = hmfs_vm_page_mkwrite,
 };
 
@@ -225,12 +231,13 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 		else
 			new_size += PAGE_CACHE_SIZE;
 	}
-*/
+
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
 		i_size_write(inode, new_size);
 		mark_inode_dirty(inode);
 		update_inode_page(inode);
 	}
+	*/
 	hmfs_unlock_op(sbi);
 
 	return ret;
