@@ -61,7 +61,7 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 
 static inline int is_inode_flag_set(struct hmfs_inode_info *fi, int flag)
 {
-	return test_bit(flag, &fi->flags);
+	return test_bit(flag, &fi->i_flags);
 }
 
 static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)
