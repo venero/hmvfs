@@ -11,29 +11,29 @@
 #include "hmfs.h"
 
 static const struct vm_operations_struct hmfs_file_vm_ops = {
-	.fault		= filemap_fault,
-//	.map_pages	= filemap_map_pages,
-//	.page_mkwrite	= hmfs_vm_page_mkwrite,
+	.fault = filemap_fault,
+//      .map_pages      = filemap_map_pages,
+//      .page_mkwrite   = hmfs_vm_page_mkwrite,
 };
 
 static int hmfs_release_file(struct inode *inode, struct file *filp)
 {
-//	TODO: Separate atomic and volatile or not
-//	If we do separate /* some remained atomic pages should discarded */
-//	Else:
-//	set_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
+//      TODO: Separate atomic and volatile or not
+//      If we do separate /* some remained atomic pages should discarded */
+//      Else:
+//      set_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
 	filemap_fdatawrite(inode->i_mapping);
-//	clear_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
+//      clear_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
 	return 0;
 }
 
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
-//	TODO: Inline data
+//      TODO: Inline data
 
 	file_accessed(file);
 	vma->vm_ops = &hmfs_file_vm_ops;
-//	Ask Goku: Whether xip part should be coded by now
+//      Ask Goku: Whether xip part should be coded by now
 	return 0;
 }
 
@@ -41,49 +41,49 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-//	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-//	nid_t ino = inode->i_ino;
+//      struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+//      nid_t ino = inode->i_ino;
 	int ret = 0;
 
-//	TODO: In Place Update
-//	i.e., If dirty page number is below threshold, commit random write to page cache.
-//	[Inode Flag] HMFS Inode Info should contain # of dirty pages and sbi should contain min # of dirty pages for inode to write back.
+//      TODO: In Place Update
+//      i.e., If dirty page number is below threshold, commit random write to page cache.
+//      [Inode Flag] HMFS Inode Info should contain # of dirty pages and sbi should contain min # of dirty pages for inode to write back.
 
-//	If the inode itself is dirty, go to go_write straightly
+//      If the inode itself is dirty, go to go_write straightly
 	if (!datasync && is_inode_flag_set(fi, FI_DIRTY_INODE)) {
 		update_inode_page(inode);
 		goto go_write;
 	}
+//      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
 
-//	TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
+//      Prepare to write
+      go_write:
 
-//	Prepare to write
-go_write:
+//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
-//	TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
+//      TODO: [CP] Check if making check point is necessary
+//      There should be a boolean for each inode to indicate the need for CP.
 
-//	TODO: [CP] Check if making check point is necessary
-//	There should be a boolean for each inode to indicate the need for CP.
+      sync_nodes:
 
-sync_nodes:
+//      TODO: [Node] Make sure all the nodes in inode is up-to-date
 
-//	TODO: [Node] Make sure all the nodes in inode is up-to-date
-
-//	TODO: [Node] Write back all the dirty nodes in inode
-//	XXX: Write back is required to make this function work
-//	If an error occurs, goto out.
+//      TODO: [Node] Write back all the dirty nodes in inode
+//      XXX: Write back is required to make this function work
+//      If an error occurs, goto out.
 
 // TODO: [CP] Remove this dirty inode from dirty inode list of sbi
 
-//	TODO: [Inode Flag] Clear inode flags if necessary
+//      TODO: [Inode Flag] Clear inode flags if necessary
 
-//	TODO: [Segment] Flush sbi
+//      TODO: [Segment] Flush sbi
 
-out:
+      out:
 	return ret;
 }
 
-static void fill_zero(struct inode *inode, pgoff_t index, loff_t start, loff_t len)
+static void fill_zero(struct inode *inode, pgoff_t index, loff_t start,
+		      loff_t len)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct page *page;
@@ -91,19 +91,19 @@ static void fill_zero(struct inode *inode, pgoff_t index, loff_t start, loff_t l
 	if (!len)
 		return;
 
-//	TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
+//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
 	hmfs_lock_op(sbi);
-//	TODO: [Data] Get new data page
+//      TODO: [Data] Get new data page
 /*
 	page = get_new_data_page(inode, NULL, index, false);
 */
 	hmfs_unlock_op(sbi);
 
-//	TODO: [Segment] Put this page back
+//      TODO: [Segment] Put this page back
 }
 
-//	将inode的data page从start到end全部truncate
+//      将inode的data page从start到end全部truncate
 int truncate_hole(struct inode *inode, pgoff_t pg_start, pgoff_t pg_end)
 {
 	pgoff_t index;
@@ -126,7 +126,8 @@ int truncate_hole(struct inode *inode, pgoff_t pg_start, pgoff_t pg_end)
 	}
 	return 0;
 }
-//	在inode的offset开始开辟一个长度为len的hole
+
+//      在inode的offset开始开辟一个长度为len的hole
 static int punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	pgoff_t pg_start, pg_end;
@@ -140,21 +141,21 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	if (offset >= inode->i_size)
 		return ret;
 
-//	TODO: Consider inline data
+//      TODO: Consider inline data
 
-	pg_start = ((unsigned long long) offset) >> PAGE_CACHE_SHIFT;
-	pg_end = ((unsigned long long) offset + len) >> PAGE_CACHE_SHIFT;
+	pg_start = ((unsigned long long)offset) >> PAGE_CACHE_SHIFT;
+	pg_end = ((unsigned long long)offset + len) >> PAGE_CACHE_SHIFT;
 
 	off_start = offset & (PAGE_CACHE_SIZE - 1);
 	off_end = (offset + len) & (PAGE_CACHE_SIZE - 1);
-//	When start and end are in a same page
+//      When start and end are in a same page
 	if (pg_start == pg_end) {
-		fill_zero(inode, pg_start, off_start,
-						off_end - off_start);
+		fill_zero(inode, pg_start, off_start, off_end - off_start);
 	} else {
-//		Fill three parts
+//              Fill three parts
 		if (off_start)
-			fill_zero(inode, pg_start++, off_start,	PAGE_CACHE_SIZE - off_start);
+			fill_zero(inode, pg_start++, off_start,
+				  PAGE_CACHE_SIZE - off_start);
 		if (off_end)
 			fill_zero(inode, pg_end, 0, off_end);
 
@@ -163,11 +164,12 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len)
 			loff_t blk_start, blk_end;
 			struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
-//	TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
+//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
 			blk_start = pg_start << PAGE_CACHE_SHIFT;
 			blk_end = pg_end << PAGE_CACHE_SHIFT;
-			truncate_inode_pages_range(mapping, blk_start,blk_end - 1);
+			truncate_inode_pages_range(mapping, blk_start,
+						   blk_end - 1);
 
 			hmfs_lock_op(sbi);
 			ret = truncate_hole(inode, pg_start, pg_end);
@@ -177,7 +179,8 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	return ret;
 }
 
-static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len, int mode)
+static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
+			     int mode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t index, pg_start, pg_end;
@@ -185,16 +188,16 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len, int
 	loff_t off_start, off_end;
 	int ret = 0;
 
-//	TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
+//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
 	ret = inode_newsize_ok(inode, (len + offset));
 	if (ret)
 		return ret;
 
-//	TODO: Inline data
+//      TODO: Inline data
 
-	pg_start = ((unsigned long long) offset) >> PAGE_CACHE_SHIFT;
-	pg_end = ((unsigned long long) offset + len) >> PAGE_CACHE_SHIFT;
+	pg_start = ((unsigned long long)offset) >> PAGE_CACHE_SHIFT;
+	pg_end = ((unsigned long long)offset + len) >> PAGE_CACHE_SHIFT;
 
 	off_start = offset & (PAGE_CACHE_SIZE - 1);
 	off_end = (offset + len) & (PAGE_CACHE_SIZE - 1);
@@ -211,7 +214,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len, int
 		ret = f2fs_reserve_block(&dn, index);
 		if (ret)
 			break;
-noalloc:
+	      noalloc:
 		if (pg_start == pg_end)
 			new_size = offset + len;
 		else if (index == pg_start && off_start)
@@ -222,8 +225,7 @@ noalloc:
 			new_size += PAGE_CACHE_SIZE;
 	}
 
-	if (!(mode & FALLOC_FL_KEEP_SIZE) &&
-		i_size_read(inode) < new_size) {
+	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
 		i_size_write(inode, new_size);
 		mark_inode_dirty(inode);
 		update_inode_page(inode);
@@ -233,8 +235,9 @@ noalloc:
 	return ret;
 }
 
-//	Allocate space for file from offset to offset+len
-static long hmfs_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
+//      Allocate space for file from offset to offset+len
+static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
+			   loff_t len)
 {
 	struct inode *inode = file_inode(file);
 	long ret;
@@ -259,7 +262,7 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset, loff_t le
 	return ret;
 }
 
-//	Put i_generation of inode to user.
+//      Put i_generation of inode to user.
 static int hmfs_ioc_getversion(struct file *filp, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
@@ -270,8 +273,8 @@ static int hmfs_ioc_getversion(struct file *filp, unsigned long arg)
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
-//	TODO: Inode flag operations
-//	[Inode Flag]
+//      TODO: Inode flag operations
+//      [Inode Flag]
 /*
 	case HMFS_IOC_GETFLAGS:
 		return hmfs_ioc_getflags(filp, arg);
@@ -286,13 +289,13 @@ long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 const struct file_operations hmfs_file_operations = {
-	.open		= generic_file_open,
-//	There's no '.release' in f2fs of kernel 3.11
-	.release	= hmfs_release_file,
-	.mmap		= hmfs_file_mmap,
-	.fsync		= hmfs_sync_file,
-	.fallocate	= hmfs_fallocate,
-	.unlocked_ioctl	= hmfs_ioctl,
+	.open = generic_file_open,
+//      There's no '.release' in f2fs of kernel 3.11
+	.release = hmfs_release_file,
+	.mmap = hmfs_file_mmap,
+	.fsync = hmfs_sync_file,
+	.fallocate = hmfs_fallocate,
+	.unlocked_ioctl = hmfs_ioctl,
 /*
 	.splice_read	= generic_file_splice_read,
 	.splice_write	= iter_file_splice_write,
