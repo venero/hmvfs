@@ -1,7 +1,14 @@
+
+#ifndef _LINUX_HMFS_FS_H
+#define _LINUX_HMFS_FS_H
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
-#define HMFS_ROOT_INO			1
+#define HMFS_NAT_INO			0
+#define HMFS_SIT_INO			1
+#define HMFS_SSA_INO			2
+#define HMFS_ROOT_INO			3
 
 #define HMFS_DEF_CP_VER			0
 
@@ -16,6 +23,9 @@
 #define HMFS_SEGMENT_SIZE_BITS	21
 #define HMFS_SEGMENT_SIZE		(2 << HMFS_SEGMENT_SIZE_BITS)
 #define HMFS_SEGMENT_MASK		(~(HMFS_SEGMENT_SIZE - 1))
+
+/* This flag is used by sit and nat inode */
+#define GFP_HMFS_ZERO	(GFP_NOFS | __GFP_ZERO)
 
 #define set_struct_le64(sb, member, val)		(sb->member = cpu_to_le64(val))
 #define set_struct_le32(sb, member, val)		(sb->member = cpu_to_le32(val))
@@ -362,3 +372,17 @@ struct hmfs_checkpoint {
 
 	__le16 checksum;
 } __attribute__ ((packed));
+
+struct hmfs_checkpoint_info {
+	unsigned int version;
+
+	unsigned long cur_node_segno;
+	unsigned int cur_node_blkoff;
+
+	unsigned long cur_data_segno;
+	unsigned int cur_data_blkoff;
+
+	unsigned valid_inode_count;
+};
+
+#endif

@@ -133,7 +133,7 @@ static int hmfs_format(struct super_block *sb)
 	struct hmfs_dentry_block *dent_blk = NULL;
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
 
-	sbi = sb->s_fs_info;
+	sbi = HMFS_SB(sb);
 	super = sbi->virt_addr;
 
 	init_size = sbi->initsize;

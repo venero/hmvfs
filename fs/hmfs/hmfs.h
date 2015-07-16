@@ -1,3 +1,7 @@
+
+#ifndef _LINUX_HMFS_H
+#define _LINUX_HMFS_H
+
 #include <linux/slab.h>
 #include <linux/types.h>
 
@@ -35,6 +39,18 @@ struct hmfs_stat_info {
 	struct hmfs_sb_info *sbi;
 };
 
+extern const struct file_operations hmfs_file_operations;
+extern const struct file_operations hmfs_dir_operations;
+
+extern const struct inode_operations hmfs_file_inode_operations;
+extern const struct inode_operations hmfs_dir_inode_operations;
+extern const struct inode_operations hmfs_symlink_inode_operations;
+extern const struct inode_operations hmfs_special_inode_operations;
+
+extern const struct address_space_operations hmfs_dblock_aops;
+extern const struct address_space_operations hmfs_nat_aops;
+extern const struct address_space_operations hmfs_sit_aops;
+extern const struct address_space_operations hmfs_ssa_aops;
 /*
  * Inline functions
  */
@@ -48,10 +64,15 @@ static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 	return sb->s_fs_info;
 }
 
-/**
- * debug.c
- */
+/* define prototype function */
+
+/* inode.c */
+struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
+
+/* debug.c */
 void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
+
+#endif

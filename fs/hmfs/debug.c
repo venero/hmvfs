@@ -16,7 +16,8 @@ static int stat_show(struct seq_file *s, void *v)
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
 		seq_printf(s, "=============General Infomation=============\n");
-		seq_printf(s, "physical address:%lu\n", (unsigned long)si->sbi->phys_addr);
+		seq_printf(s, "physical address:%lu\n",
+			   (unsigned long)si->sbi->phys_addr);
 		seq_printf(s, "virtual address:%p\n", si->sbi->virt_addr);
 		seq_printf(s, "initial size:%lu\n", si->sbi->initsize);
 		seq_printf(s, "page count:%lu\n", si->sbi->page_count);
