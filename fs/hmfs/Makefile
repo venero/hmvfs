@@ -1,7 +1,7 @@
 KBUILD_EXTRA_SYMBOLS:=/data/jinzha/wheels/printtty/Module.symvers
 -include ./billy.mk
 obj-m += hmfs.o
-hmfs-objs := super.o debug.o
+hmfs-objs := super.o debug.o file.o
 
 all:
 	make -C /lib/modules/`uname -r`/build M=`pwd` modules
