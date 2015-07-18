@@ -1,7 +1,18 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
+/*
+ * ioctl commands
+ */
+#define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
+
+/* used for hmfs_inode_info->flags */
+enum {
+	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+};
+
 struct hmfs_sb_info {
+	struct super_block *sb;			/* pointer to VFS super block */
 	/* 1. location info  */
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
@@ -10,6 +21,7 @@ struct hmfs_sb_info {
 	/* 4. mount options */
 	unsigned long initsize;
 	unsigned long s_mount_opt;
+	struct rw_semaphore cp_rwsem;		/* blocking FS operations */
 	/* 5. ... */
 	 /**/ /**/
 	/**
@@ -20,6 +32,8 @@ struct hmfs_sb_info {
 
 struct hmfs_inode_info {
 	struct inode vfs_inode;	/* vfs inode */
+	atomic_t dirty_pages;		/* # of dirty pages */
+	unsigned long i_flags;		/* keep an inode flags for ioctl */
 };
 
 struct hmfs_stat_info {
@@ -37,6 +51,26 @@ static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
 static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)                                                                               
 {
 	return sb->s_fs_info;
+}
+
+static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
+{
+	return HMFS_SB(inode->i_sb);
+}
+
+static inline int is_inode_flag_set(struct hmfs_inode_info *fi, int flag)
+{
+	return test_bit(flag, &fi->i_flags);
+}
+
+static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)
+{
+	down_read(&sbi->cp_rwsem);
+}
+
+static inline void hmfs_unlock_op(struct hmfs_sb_info *sbi)
+{
+	up_read(&sbi->cp_rwsem);
 }
 
 /**
