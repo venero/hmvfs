@@ -2,8 +2,9 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/pagemap.h>
-
+#include "hmfs_fs.h"
 #include "hmfs.h"
+
 
 static LIST_HEAD(hmfs_stat_list);
 static struct dentry *debugfs_root;

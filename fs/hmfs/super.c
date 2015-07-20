@@ -10,7 +10,7 @@
 #include <linux/sched.h>
 #include <linux/cred.h>
 
-//#include "hmfs_fs.h"		//TODO:add to include/linux
+#include "hmfs_fs.h"		//TODO:add to include/linux
 #include "hmfs.h"
 
 static struct kmem_cache *hmfs_inode_cachep;	//inode cachep

@@ -188,7 +188,7 @@ struct hmfs_sit_journal {
 	struct hmfs_sit_entry entry;
 };
 
-inline void memset_nt(void *dest, uint32_t dword, size_t length)
+static void memset_nt(void *dest, uint32_t dword, size_t length)
 {
 	uint64_t dummy1, dummy2;
 	uint64_t qword = ((uint64_t) dword << 32) | dword;
@@ -322,7 +322,7 @@ enum FILE_TYPE {
 	HMFS_FT_MAX,
 };
 
-inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
+static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 {
 	memcpy(dest, src, length);
 }
@@ -369,7 +369,7 @@ struct hmfs_summary_block {
 	struct hmfs_summary entries[ENTRIES_IN_SUM];
 } __attribute__ ((packed));
 
-void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
+static void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
 			unsigned int version, unsigned int ofs_in_node,
 			unsigned char type)
 {
@@ -379,17 +379,17 @@ void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
 	summary->version = cpu_to_le32(version);
 }
 
-inline unsigned long get_summary_nid(struct hmfs_summary *summary)
+static inline unsigned long get_summary_nid(struct hmfs_summary *summary)
 {
 	return le64_to_cpu(summary->nid);
 }
 
-inline unsigned int get_summary_node_ofs(struct hmfs_summary *summary)
+static inline unsigned int get_summary_node_ofs(struct hmfs_summary *summary)
 {
 	return le32_to_cpu(summary->ofs_in_node);
 }
 
-inline unsigned char get_summary_type(struct hmfs_summary *summary)
+static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 {
 	unsigned int version;
 
@@ -397,7 +397,7 @@ inline unsigned char get_summary_type(struct hmfs_summary *summary)
 	return version & 0x0e;
 }
 
-inline unsigned int get_summary_version(struct hmfs_summary *summary)
+static inline unsigned int get_summary_version(struct hmfs_summary *summary)
 {
 	unsigned int version;
 
