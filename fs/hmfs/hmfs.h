@@ -3,6 +3,7 @@
 #define _LINUX_HMFS_H
 
 #include <linux/slab.h>
+#include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/radix-tree.h>
 #include <linux/pagemap.h>
@@ -45,9 +46,18 @@ struct hmfs_nm_info {
 	struct mutex build_lock;	/* lock for build free nids */
 };
 
-struct hmfs_sb_info {
-	struct super_block *sb;
+/*
+ * ioctl commands
+ */
+#define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
 
+/* used for hmfs_inode_info->flags */
+enum {
+	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+};
+
+struct hmfs_sb_info {
+	struct super_block *sb;			/* pointer to VFS super block */
 	/* 1. location info  */
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
@@ -64,6 +74,9 @@ struct hmfs_sb_info {
 	unsigned long main_addr_start;
 	unsigned long main_addr_end;
 
+	struct rw_semaphore cp_rwsem;		/* blocking FS operations */
+	/* 5. ... */
+	 /**/ /**/
 	/**
 	 * statiatic infomation, for debugfs
 	 */
@@ -76,6 +89,8 @@ struct hmfs_sb_info {
 
 struct hmfs_inode_info {
 	struct inode vfs_inode;	/* vfs inode */
+	atomic_t dirty_pages;		/* # of dirty pages */
+	unsigned long i_flags;		/* keep an inode flags for ioctl */
 };
 
 struct hmfs_stat_info {
@@ -124,6 +139,12 @@ static inline nid_t START_NID(nid_t nid)
 	return nid;
 }
 
+static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
+{
+	return HMFS_SB(inode->i_sb);
+}
+
+
 static inline struct hmfs_nm_info *NM_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->nm_info;
@@ -136,12 +157,30 @@ static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
 	return kmem_cache_create(name, size, 0, SLAB_RECLAIM_ACCOUNT, ctor);
 }
 
+static inline int is_inode_flag_set(struct hmfs_inode_info *fi, int flag)
+{
+	return test_bit(flag, &fi->i_flags);
+}
+
+static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)
+{
+	down_read(&sbi->cp_rwsem);
+}
+
+static inline void hmfs_unlock_op(struct hmfs_sb_info *sbi)
+{
+	up_read(&sbi->cp_rwsem);
+}
+
 /* define prototype function */
 
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 
-/* debug.c */
+
+/**
+ * debug.c
+ */
 void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);

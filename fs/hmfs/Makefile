@@ -1,4 +1,4 @@
-KBUILD_EXTRA_SYMBOLS:=/data/jinzha/wheels/printtty/Module.symvers
+//KBUILD_EXTRA_SYMBOLS:=/data/jinzha/wheels/printtty/Module.symvers
 -include ./billy.mk
 obj-m += hmfs.o
 hmfs-objs := super.o debug.o node.o inode.o checkpoint.o file.o data.o namei.o segment.o
