@@ -134,7 +134,7 @@ static int hmfs_format(struct super_block *sb)
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
 
 	sbi = HMFS_SB(sb);
-	super = sbi->virt_addr;
+	super = ADDR(sbi, 0);
 
 	init_size = sbi->initsize;
 	end_addr = align_segment_left(init_size);
@@ -165,7 +165,7 @@ static int hmfs_format(struct super_block *sb)
 
 	/* setup root inode */
 	root_node_addr = node_segaddr;
-	root_node = sbi->virt_addr + node_segaddr;
+	root_node = ADDR(sbi, node_segaddr);
 	node_blkoff += 1;
 	root_node->footer.nid = cpu_to_le64(HMFS_ROOT_INO);
 	root_node->footer.ino = cpu_to_le64(HMFS_ROOT_INO);
@@ -196,7 +196,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
 
 	data_blkoff += 1;
-	dent_blk = sbi->virt_addr + data_segaddr;
+	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = 0;
 	dent_blk->dentry[0].ino = cpu_to_le64(HMFS_ROOT_INO);
 	dent_blk->dentry[0].name_len = cpu_to_le16(1);
@@ -215,10 +215,10 @@ static int hmfs_format(struct super_block *sb)
 	sit_addr = node_segaddr + HMFS_PAGE_SIZE;
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * 2;
 	node_blkoff += 2;
-	memset_nt(sbi->virt_addr + sit_addr, 0, HMFS_PAGE_SIZE << 1);
+	memset_nt(ADDR(sbi, sit_addr), 0, HMFS_PAGE_SIZE << 1);
 
 	cp_addr = nat_addr + HMFS_PAGE_SIZE;
-	cp = sbi->virt_addr + cp_addr;
+	cp = ADDR(sbi, cp_addr);
 	node_blkoff += 1;
 
 	/* segment 0 is first node segment */
@@ -248,9 +248,8 @@ static int hmfs_format(struct super_block *sb)
 	nat_journals[0].entry.block_addr = root_node_addr;
 
 	/* update SSA */
-	node_summary_block = sbi->virt_addr + ssa_addr;
-	data_summary_block =
-	    (void *)node_summary_block + HMFS_SUMMARY_BLOCK_SIZE;
+	node_summary_block = ADDR(sbi, ssa_addr);
+	data_summary_block = ADDR(sbi, ssa_addr + HMFS_SUMMARY_BLOCK_SIZE);
 
 	make_summary_entry(&data_summary_block->entries[0], HMFS_ROOT_INO,
 			   HMFS_DEF_CP_VER, 0, SUM_TYPE_DATA);
@@ -302,12 +301,10 @@ static int hmfs_format(struct super_block *sb)
 	/* copy another super block */
 	area_addr = sizeof(struct hmfs_super_block);
 	area_addr = align_page_right(area_addr);
-	super = sbi->virt_addr + area_addr;
-	hmfs_memcpy(super, sbi->virt_addr, sizeof(struct hmfs_super_block));
+	super = ADDR(sbi, area_addr);
+	hmfs_memcpy(super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
 	return retval;
 }
-
-static struct super_operations hmfs_sops;	//TODO:re-orgnize this declaration 
 
 static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 {
@@ -345,113 +342,6 @@ static loff_t hmfs_max_size(void)
 	return res;
 }
 
-static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
-{
-	struct inode *root = NULL;
-	struct hmfs_sb_info *sbi = NULL;
-	struct hmfs_super_block *super = NULL;
-	int retval;
-	unsigned long end_addr;
-
-	/* sbi initialization */
-	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
-	if (sbi == NULL) {
-		printk("[HMFS] No space for sbi!!");
-		return -ENOMEM;
-	}
-
-	/* get phys_addr from @data&virt_addr from ioremap */
-	sb->s_fs_info = sbi;	//link sb and sbi:
-	if (hmfs_parse_options((char *)data, sbi, 0)) {
-		retval = -EINVAL;
-		goto out;
-	}
-	//TODO : this part will be move to hmfs_init
-	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
-	printk("virtual address is: 0x%08u", sbi->virt_addr);
-	if (!sbi->virt_addr) {
-		retval = -EINVAL;
-		goto out;
-	}
-
-	super = get_valid_super_block(sbi->virt_addr);
-	if (sbi->initsize || !super) {
-		printk(KERN_INFO "hmfs: format device\n");
-		hmfs_format(sb);
-	}
-	super = get_valid_super_block(sbi->virt_addr);
-	if (!super) {
-		printk(KERN_ERR "hmfs: error in format device\n");
-		retval = -EINVAL;
-		goto out;
-	}
-
-	sbi->page_count = le64_to_cpu(super->page_count);
-	sbi->segment_count = le64_to_cpu(super->segment_count);
-	sbi->ssa_addr = le64_to_cpu(super->ssa_blkaddr);
-	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
-	end_addr =
-	    sbi->main_addr_start +
-	    (sbi->segment_count << HMFS_SEGMENT_SIZE_BITS);
-	sbi->main_addr_end = align_segment_left(end_addr);
-
-	sb->s_magic = le32_to_cpu(super->magic);
-	sb->s_op = &hmfs_sops;
-	sb->s_maxbytes = hmfs_max_size();
-	sb->s_xattr = NULL;
-	sb->s_flags |= MS_NOSEC;
-
-	//TODO: further init sbi
-	root = new_inode(sb);
-	if (!root) {
-		printk("[HMFS] No space for root inode!!");
-		return -ENOMEM;
-	}
-
-	root->i_ino = 0;
-	root->i_sb = sb;
-	root->i_atime = root->i_ctime = root->i_mtime = CURRENT_TIME;
-	inode_init_owner(root, NULL, S_IFDIR);	//????
-
-	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
-	if (!sb->s_root) {
-		printk("[HMFS] No space for root dentry");
-		return -ENOMEM;
-	}
-	// create debugfs
-	hmfs_build_stats(sbi);
-
-	return 0;
-out:
-	//TODO:
-	if (sbi->virt_addr) {
-		printk("unmapping virtual address!");
-		hmfs_iounmap(sbi->virt_addr);
-	}
-	kfree(sbi);
-	return retval;
-}
-
-struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
-			  const char *dev_name, void *data)
-{
-	struct dentry *entry;
-	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
-	if (IS_ERR(entry)) {
-		printk("mounting failed!");
-	} else {
-		printk("hmfs mounted!");
-	}
-	return entry;
-}
-
-struct file_system_type hmfs_fs_type = {
-	.owner = THIS_MODULE,
-	.name = "hmfs",
-	.mount = hmfs_mount,
-	.kill_sb = kill_anon_super,
-};
-
 /*
  * sop
  */
@@ -465,7 +355,9 @@ static void init_once(void *foo)
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;
-	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep, GFP_NOFS | __GFP_ZERO);	//free me when unmount
+	/* free me when umount */
+	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
+							GFP_NOFS | __GFP_ZERO);
 	if (!fi)
 		return NULL;
 	init_once((void *)fi);
@@ -531,6 +423,119 @@ static struct super_operations hmfs_sops = {
 
 };
 
+static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
+{
+	struct inode *root = NULL;
+	struct hmfs_sb_info *sbi = NULL;
+	struct hmfs_super_block *super = NULL;
+	int retval;
+	unsigned long end_addr;
+
+	/* sbi initialization */
+	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
+	if (sbi == NULL) {
+		printk("[HMFS] No space for sbi!!");
+		return -ENOMEM;
+	}
+
+	/* get phys_addr from @data&virt_addr from ioremap */
+	sb->s_fs_info = sbi;	//link sb and sbi:
+	if (hmfs_parse_options((char *)data, sbi, 0)) {
+		retval = -EINVAL;
+		goto out;
+	}
+	//TODO : this part will be move to hmfs_init
+	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
+	printk("virtual address is: 0x%p", sbi->virt_addr);
+	if (!sbi->virt_addr) {
+		retval = -EINVAL;
+		goto out;
+	}
+
+	super = get_valid_super_block(sbi->virt_addr);
+	if (sbi->initsize || !super) {
+		printk(KERN_INFO "hmfs: format device\n");
+		hmfs_format(sb);
+	}
+	super = get_valid_super_block(sbi->virt_addr);
+	if (!super) {
+		printk(KERN_ERR "hmfs: error in format device\n");
+		retval = -EINVAL;
+		goto out;
+	}
+
+	sbi->page_count = le64_to_cpu(super->page_count);
+	sbi->segment_count = le64_to_cpu(super->segment_count);
+	sbi->ssa_addr = le64_to_cpu(super->ssa_blkaddr);
+	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
+	end_addr =
+	    sbi->main_addr_start +
+	    (sbi->segment_count << HMFS_SEGMENT_SIZE_BITS);
+	sbi->main_addr_end = align_segment_left(end_addr);
+
+	sb->s_magic = le32_to_cpu(super->magic);
+	sb->s_op = &hmfs_sops;
+	sb->s_maxbytes = hmfs_max_size();
+	sb->s_xattr = NULL;
+	sb->s_flags |= MS_NOSEC;
+
+	/* init checkpoint */
+	init_checkpoint_manager(sbi);
+
+	/* init nat */
+	build_node_manager(sbi);
+
+	//TODO: further init sbi
+	root = new_inode(sb);
+	if (!root) {
+		printk("[HMFS] No space for root inode!!");
+		return -ENOMEM;
+	}
+
+	root->i_ino = 0;
+	root->i_sb = sb;
+	root->i_atime = root->i_ctime = root->i_mtime = CURRENT_TIME;
+	inode_init_owner(root, NULL, S_IFDIR);	//????
+
+	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
+	if (!sb->s_root) {
+		printk("[HMFS] No space for root dentry");
+		return -ENOMEM;
+	}
+	// create debugfs
+	hmfs_build_stats(sbi);
+
+	return 0;
+out:
+	//TODO:
+	if (sbi->virt_addr) {
+		printk("unmapping virtual address!");
+		hmfs_iounmap(sbi->virt_addr);
+	}
+	kfree(sbi);
+	return retval;
+}
+
+struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
+			  const char *dev_name, void *data)
+{
+	struct dentry *entry;
+	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
+	if (IS_ERR(entry)) {
+		printk("mounting failed!");
+	} else {
+		printk("hmfs mounted!");
+	}
+	return entry;
+}
+
+struct file_system_type hmfs_fs_type = {
+	.owner = THIS_MODULE,
+	.name = "hmfs",
+	.mount = hmfs_mount,
+	.kill_sb = kill_anon_super,
+};
+
 /*
  * Module Specific Info
  * TODO: add your personal info here
@@ -556,6 +561,9 @@ int init_hmfs(void)
 	err = init_inodecache();
 	if (err)
 		goto fail;
+	err = create_node_manager_caches();
+	if (err)
+		goto fail;
 	err = register_filesystem(&hmfs_fs_type);
 	if (err)
 		goto fail;
@@ -570,6 +578,7 @@ void exit_hmfs(void)
 {
 	// TO BE FIXED
 	//  hmfs_destroy_stats(&sbi);
+	destroy_node_manager_caches();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
 	printk("HMFS is removed!");

@@ -2,6 +2,9 @@
 #ifndef _LINUX_HMFS_FS_H
 #define _LINUX_HMFS_FS_H
 
+#include <linux/fs.h>
+#include <linux/types.h>
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
@@ -128,16 +131,21 @@ struct hmfs_node {
 #define align_segment_right(addr) (((addr) + HMFS_SEGMENT_SIZE - 1) & HMFS_SEGMENT_MASK)
 #define align_segment_left(addr) ((addr) & HMFS_SEGMENT_MASK)
 
+enum JOURNAL_TYPE {
+	NAT_JOURNAL,
+	SIT_JOURNAL,
+	SSA_JOURNAL
+};
+
 /**
  * nat inode
  */
-#define NAT_ADDR_PER_INODE		64
-
+#define NAT_ADDR_PER_BLOCK		64
+#define NAT_ENTRY_PER_BLOCK		200
+#define NAT_TREE_MAX_HEIGHT		4
 struct hmfs_nat_inode {
 	u8 height;
-	u8 max_height;
-
-	__le64 addr[NAT_ADDR_PER_INODE];
+	__le64 root;
 };
 
 struct hmfs_nat_entry {
@@ -149,6 +157,10 @@ struct hmfs_nat_entry {
 struct hmfs_nat_journal {
 	__le64 nid;
 	struct hmfs_nat_entry entry;
+};
+
+struct hmfs_nat_block {
+	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
 };
 
 /*
@@ -175,7 +187,7 @@ struct hmfs_sit_journal {
 	struct hmfs_sit_entry entry;
 };
 
-inline void memset_nt(void *dest, uint32_t dword, size_t length)
+static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 {
 	uint64_t dummy1, dummy2;
 	uint64_t qword = ((uint64_t) dword << 32) | dword;
@@ -260,7 +272,7 @@ enum FILE_TYPE {
 	HMFS_FT_MAX,
 };
 
-inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
+static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 {
 	memcpy(dest, src, length);
 }
@@ -307,9 +319,9 @@ struct hmfs_summary_block {
 	struct hmfs_summary entries[ENTRIES_IN_SUM];
 } __attribute__ ((packed));
 
-void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
-			unsigned int version, unsigned int ofs_in_node,
-			unsigned char type)
+static void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
+			       unsigned int version, unsigned int ofs_in_node,
+			       unsigned char type)
 {
 	summary->nid = cpu_to_le64(nid);
 	summary->ofs_in_node = cpu_to_le32(ofs_in_node);
@@ -317,17 +329,17 @@ void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
 	summary->version = cpu_to_le32(version);
 }
 
-inline unsigned long get_summary_nid(struct hmfs_summary *summary)
+static inline unsigned long get_summary_nid(struct hmfs_summary *summary)
 {
 	return le64_to_cpu(summary->nid);
 }
 
-inline unsigned int get_summary_node_ofs(struct hmfs_summary *summary)
+static inline unsigned int get_summary_node_ofs(struct hmfs_summary *summary)
 {
 	return le32_to_cpu(summary->ofs_in_node);
 }
 
-inline unsigned char get_summary_type(struct hmfs_summary *summary)
+static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 {
 	unsigned int version;
 
@@ -335,7 +347,7 @@ inline unsigned char get_summary_type(struct hmfs_summary *summary)
 	return version & 0x0e;
 }
 
-inline unsigned int get_summary_version(struct hmfs_summary *summary)
+static inline unsigned int get_summary_version(struct hmfs_summary *summary)
 {
 	unsigned int version;
 
@@ -372,17 +384,5 @@ struct hmfs_checkpoint {
 
 	__le16 checksum;
 } __attribute__ ((packed));
-
-struct hmfs_checkpoint_info {
-	unsigned int version;
-
-	unsigned long cur_node_segno;
-	unsigned int cur_node_blkoff;
-
-	unsigned long cur_data_segno;
-	unsigned int cur_data_blkoff;
-
-	unsigned valid_inode_count;
-};
 
 #endif

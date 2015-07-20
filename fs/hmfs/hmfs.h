@@ -4,6 +4,46 @@
 
 #include <linux/slab.h>
 #include <linux/types.h>
+#include <linux/radix-tree.h>
+#include <linux/pagemap.h>
+
+typedef unsigned long nid_t;
+
+struct checkpoint_info {
+	unsigned int version;
+
+	unsigned long cur_node_segno;
+	unsigned int cur_node_blkoff;
+
+	unsigned long cur_data_segno;
+	unsigned int cur_data_blkoff;
+
+	unsigned valid_inode_count;
+
+	unsigned last_checkpoint_addr;
+
+	struct hmfs_checkpoint *cp;
+	struct page *cp_page;
+};
+
+struct hmfs_nm_info {
+	struct inode *nat_inode;
+	nid_t max_nid;		/* maximum possible node ids */
+	nid_t next_scan_nid;	/* the next nid to be scanned */
+
+	/* NAT cache management */
+	struct radix_tree_root nat_root;	/* root of the nat entry cache */
+	rwlock_t nat_tree_lock;	/* protect nat_tree_lock */
+	unsigned int nat_cnt;	/* the # of cached nat entries */
+	struct list_head nat_entries;	/* cached nat entry list (clean) */
+	struct list_head dirty_nat_entries;	/* cached nat entry list (dirty) */
+
+	/* free node ids management */
+	struct list_head free_nid_list;	/* a list for free nids */
+	spinlock_t free_nid_list_lock;	/* protect free nid list */
+	unsigned int fcnt;	/* the number of free node id */
+	struct mutex build_lock;	/* lock for build free nids */
+};
 
 struct hmfs_sb_info {
 	struct super_block *sb;
@@ -18,7 +58,7 @@ struct hmfs_sb_info {
 	unsigned long page_count;
 	unsigned long segment_count;
 
-	struct hmfs_checkpoint *cp;
+	struct checkpoint_info *cp_info;
 
 	unsigned long ssa_addr;
 	unsigned long main_addr_start;
@@ -28,6 +68,10 @@ struct hmfs_sb_info {
 	 * statiatic infomation, for debugfs
 	 */
 	struct hmfs_stat_info *stat_info;
+
+	struct hmfs_nm_info *nm_info;
+	struct inode *sit_inode;
+	struct inode *ssa_inode;
 };
 
 struct hmfs_inode_info {
@@ -64,6 +108,34 @@ static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 	return sb->s_fs_info;
 }
 
+static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
+{
+	return sbi->cp_info;
+}
+
+static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned logic_addr)
+{
+	return (sbi->virt_addr + logic_addr);
+}
+
+static inline nid_t START_NID(nid_t nid)
+{
+	//TODO
+	return nid;
+}
+
+static inline struct hmfs_nm_info *NM_I(struct hmfs_sb_info *sbi)
+{
+	return sbi->nm_info;
+}
+
+static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
+							size_t size,
+							void (*ctor) (void *))
+{
+	return kmem_cache_create(name, size, 0, SLAB_RECLAIM_ACCOUNT, ctor);
+}
+
 /* define prototype function */
 
 /* inode.c */
@@ -74,5 +146,22 @@ void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
+
+struct node_info;
+
+/* node.c */
+int build_node_manager(struct hmfs_sb_info *sbi);
+void destroy_node_manager(struct hmfs_sb_info *sbi);
+void get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
+int create_node_manager_caches(void);
+void destroy_node_manager_caches(void);
+
+/* checkpoint.c */
+int init_checkpoint_manager(struct hmfs_sb_info *sbi);
+int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
+int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
+			 nid_t nid, int alloc);
+struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info,
+				     int index);
 
 #endif

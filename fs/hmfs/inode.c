@@ -1,8 +1,9 @@
 #include "hmfs_fs.h"
-
+#include "hmfs.h"
 static int do_read_inode(struct inode *inode)
 {
 	//TODO
+	return 0;
 }
 
 static int is_meta_inode(unsigned long ino)
