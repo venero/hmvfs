@@ -1,9 +1,9 @@
-
 #ifndef _LINUX_HMFS_FS_H
 #define _LINUX_HMFS_FS_H
 
-#include <linux/fs.h>
+#include <linux/pagemap.h>
 #include <linux/types.h>
+#include <linux/fs.h>
 
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
@@ -43,6 +43,23 @@
 				case 2: set_struct_le16(sb, member, val); break; \
 				} \
 			} while(0)
+
+
+/*
+ * For directory operations
+ */
+#define HMFS_DOT_HASH		0
+#define HMFS_DDOT_HASH		HMFS_DOT_HASH
+#define HMFS_MAX_HASH		(~((0x3ULL) << 62))
+#define HMFS_HASH_COL_BIT	((0x1ULL) << 63)
+
+typedef __le32  hmfs_hash_t;
+
+/* One directory entry slot covers 8bytes-long file name */
+#define HMFS_SLOT_LEN		8
+#define HMFS_SLOT_LEN_BITS	3
+
+#define GET_DENTRY_SLOTS(x)	((x + HMFS_SLOT_LEN - 1) >> HMFS_SLOT_LEN_BITS)
 
 /*
  * For superblock
@@ -235,6 +252,9 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 /* MAX level for dir lookup */
 #define MAX_DIR_HASH_DEPTH	63
 
+/* MAX buckets in one level of dir */
+#define MAX_DIR_BUCKETS		(1 << ((MAX_DIR_HASH_DEPTH / 2) - 1))
+
 #define SIZE_OF_DIR_ENTRY	15	/* by byte */
 #define SIZE_OF_DENTRY_BITMAP	((NR_DENTRY_IN_BLOCK + BITS_PER_BYTE - 1) / \
 					BITS_PER_BYTE)
@@ -242,13 +262,59 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 				HMFS_SLOT_LEN) * \
 				NR_DENTRY_IN_BLOCK + SIZE_OF_DENTRY_BITMAP))
 
+/* for inline dir */
+#define HMFS_NAME_LEN		255
+#define HMFS_INLINE_XATTR_ADDRS	50	/* 200 bytes for inline xattrs */
+#define DEF_ADDRS_PER_INODE	923	/* Address Pointers in an Inode */
+#define DEF_NIDS_PER_INODE	5	/* Node IDs in an Inode */
+#define ADDRS_PER_INODE(fi)	addrs_per_inode(fi)
+
+//#define ADDRS_PER_BLOCK		1018	/* Address Pointers in a Direct Block */
+//#define NIDS_PER_BLOCK		1018	/* Node IDs in an Indirect Block */
+
+#define ADDRS_PER_PAGE(page, fi)	\
+	(IS_INODE(page) ? ADDRS_PER_INODE(fi) : ADDRS_PER_BLOCK)
+
+#define	NODE_DIR1_BLOCK		(DEF_ADDRS_PER_INODE + 1)
+#define	NODE_DIR2_BLOCK		(DEF_ADDRS_PER_INODE + 2)
+#define	NODE_IND1_BLOCK		(DEF_ADDRS_PER_INODE + 3)
+#define	NODE_IND2_BLOCK		(DEF_ADDRS_PER_INODE + 4)
+#define	NODE_DIND_BLOCK		(DEF_ADDRS_PER_INODE + 5)
+
+#define HMFS_INLINE_XATTR	0x01	/* file inline xattr flag */
+#define HMFS_INLINE_DATA	0x02	/* file inline data flag */
+#define HMFS_INLINE_DENTRY	0x04	/* file inline dentry flag */
+#define HMFS_DATA_EXIST		0x08	/* file inline data exist flag */
+#define HMFS_INLINE_DOTS	0x10	/* file having implicit dot dentries */
+
+
+#define MAX_INLINE_DATA		(sizeof(__le32) * (DEF_ADDRS_PER_INODE - \
+						HMFS_INLINE_XATTR_ADDRS - 1))
+
+#define NR_INLINE_DENTRY	(MAX_INLINE_DATA * BITS_PER_BYTE / \
+				((SIZE_OF_DIR_ENTRY + HMFS_SLOT_LEN) * \
+				BITS_PER_BYTE + 1))
+#define INLINE_DENTRY_BITMAP_SIZE	((NR_INLINE_DENTRY + \
+					BITS_PER_BYTE - 1) / BITS_PER_BYTE)
+#define INLINE_RESERVED_SIZE	(MAX_INLINE_DATA - \
+				((SIZE_OF_DIR_ENTRY + HMFS_SLOT_LEN) * \
+				NR_INLINE_DENTRY + INLINE_DENTRY_BITMAP_SIZE))
+
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
-	__le32 hash_code;	/* hash code of file name */
-	__le64 ino;		/* inode number */
-	__le16 name_len;	/* lengh of file name */
-	__u8 file_type;		/* file type */
+        __le32 hash_code;       /* hash code of file name */
+        __le64 ino;             /* inode number */
+        __le16 name_len;        /* lengh of file name */
+        __u8 file_type;         /* file type */
 } __attribute__ ((packed));
+
+/* inline directory entry structure */
+struct hmfs_inline_dentry {
+	__u8 dentry_bitmap[INLINE_DENTRY_BITMAP_SIZE];
+	__u8 reserved[INLINE_RESERVED_SIZE];
+	struct hmfs_dir_entry dentry[NR_INLINE_DENTRY];
+	__u8 filename[NR_INLINE_DENTRY][HMFS_SLOT_LEN];
+} __packed;
 
 /* 4KB-sized directory entry block */
 struct hmfs_dentry_block {
@@ -319,7 +385,7 @@ struct hmfs_summary_block {
 	struct hmfs_summary entries[ENTRIES_IN_SUM];
 } __attribute__ ((packed));
 
-static void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
+static inline void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
 			       unsigned int version, unsigned int ofs_in_node,
 			       unsigned char type)
 {
@@ -385,4 +451,4 @@ struct hmfs_checkpoint {
 	__le16 checksum;
 } __attribute__ ((packed));
 
-#endif
+#endif  /* _LINUX_HMFS_FS_H */
