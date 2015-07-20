@@ -8,6 +8,7 @@
 #include <linux/pagemap.h>
 
 #include "hmfs_fs.h"
+//#include "segment.h"
 
 #ifdef CONFIG_HMFS_CHECK_FS
 #define hmfs_bug_on(sbi, condition)	BUG_ON(condition)
@@ -32,12 +33,12 @@
 struct hmfs_dentry_ptr {
 	const void *bitmap;
 	struct hmfs_dir_entry *dentry;
-	__u8 (*filename)[HMFS_SLOT_LEN];
+	 __u8(*filename)[HMFS_SLOT_LEN];
 	int max;
 };
 
 static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
-					void *src, int type)
+				   void *src, int type)
 {
 	if (type == 1) {
 		struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
@@ -98,8 +99,8 @@ struct hmfs_nm_info {
 #define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
 
 struct hmfs_sb_info {
-	struct super_block *sb;			/* pointer to VFS super block */
-	/* 1. location info  */
+	struct super_block *sb;	/* pointer to VFS super block */
+
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
 
@@ -115,31 +116,32 @@ struct hmfs_sb_info {
 	unsigned long main_addr_start;
 	unsigned long main_addr_end;
 
-	struct rw_semaphore cp_rwsem;		/* blocking FS operations */
-	/* 5. ... */
-	 /**/ /**/
+	struct rw_semaphore cp_rwsem;	/* blocking FS operations */
 	/**
 	 * statiatic infomation, for debugfs
 	 */
 	struct hmfs_stat_info *stat_info;
 
 	struct hmfs_nm_info *nm_info;
+
+	struct hmfs_sm_info *sm_info;	/* segment manager */
+
 	struct inode *sit_inode;
 	struct inode *ssa_inode;
 };
 
 struct hmfs_inode_info {
 	struct inode vfs_inode;	/* vfs inode */
-	atomic_t dirty_pages;		/* # of dirty pages */
-	unsigned long i_flags;		/* keep an inode flags for ioctl */
-	unsigned char i_dir_level;/* use for dentry level for large dir */
-	hmfs_hash_t chash;		/* hash value of given file name */
+	atomic_t dirty_pages;	/* # of dirty pages */
+	unsigned long i_flags;	/* keep an inode flags for ioctl */
+	unsigned char i_dir_level;	/* use for dentry level for large dir */
+	hmfs_hash_t chash;	/* hash value of given file name */
 	unsigned int i_current_depth;	/* use only in directory structure */
-	unsigned int clevel;		/* maximum level of given file name */
-	/* Use below internally in hmfs*/
-	unsigned long flags;		/* use to pass per-file flags */
+	unsigned int clevel;	/* maximum level of given file name */
+	/* Use below internally in hmfs */
+	unsigned long flags;	/* use to pass per-file flags */
 	struct rw_semaphore i_sem;	/* protect fi info */
-	unsigned int i_pino;		/* parent inode number */
+	unsigned int i_pino;	/* parent inode number */
 };
 
 struct hmfs_stat_info {
@@ -159,7 +161,7 @@ enum {
 	FI_DELAY_IPUT,		/* used for the recovery */
 	FI_NO_EXTENT,		/* not to use the extent cache */
 	FI_INLINE_XATTR,	/* used for inline xattr */
-	FI_INLINE_DATA,		/* used for inline data*/
+	FI_INLINE_DATA,		/* used for inline data */
 	FI_INLINE_DENTRY,	/* used for inline dentry */
 	FI_APPEND_WRITE,	/* inode has appended data */
 	FI_UPDATE_WRITE,	/* inode has in-place-update data */
@@ -178,12 +180,11 @@ enum page_type {
 	META,
 	NR_PAGE_TYPE,
 	META_FLUSH,
-	INMEM,		/* the below types are used by tracepoints only. */
+	INMEM,			/* the below types are used by tracepoints only. */
 	INMEM_DROP,
 	IPU,
 	OPU,
 };
-
 extern const struct file_operations hmfs_file_operations;
 extern const struct file_operations hmfs_dir_operations;
 
@@ -261,6 +262,7 @@ static inline void hmfs_unlock_op(struct hmfs_sb_info *sbi)
 {
 	up_read(&sbi->cp_rwsem);
 }
+
 static inline struct hmfs_sb_info *HMFS_M_SB(struct address_space *mapping)
 {
 	return HMFS_I_SB(mapping->host);

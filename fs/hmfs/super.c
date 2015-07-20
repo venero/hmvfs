@@ -351,6 +351,7 @@ static void init_once(void *foo)
 
 	inode_init_once(&fi->vfs_inode);
 }
+
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;

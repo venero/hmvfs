@@ -5,7 +5,6 @@
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
-
 static LIST_HEAD(hmfs_stat_list);
 static struct dentry *debugfs_root;
 static DEFINE_MUTEX(hmfs_stat_mutex);

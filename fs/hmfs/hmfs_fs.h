@@ -44,7 +44,6 @@
 				} \
 			} while(0)
 
-
 /*
  * For directory operations
  */
@@ -53,7 +52,7 @@
 #define HMFS_MAX_HASH		(~((0x3ULL) << 62))
 #define HMFS_HASH_COL_BIT	((0x1ULL) << 63)
 
-typedef __le32  hmfs_hash_t;
+typedef __le32 hmfs_hash_t;
 
 /* One directory entry slot covers 8bytes-long file name */
 #define HMFS_SLOT_LEN		8
@@ -269,8 +268,8 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 #define DEF_NIDS_PER_INODE	5	/* Node IDs in an Inode */
 #define ADDRS_PER_INODE(fi)	addrs_per_inode(fi)
 
-//#define ADDRS_PER_BLOCK		1018	/* Address Pointers in a Direct Block */
-//#define NIDS_PER_BLOCK		1018	/* Node IDs in an Indirect Block */
+//#define ADDRS_PER_BLOCK               1018    /* Address Pointers in a Direct Block */
+//#define NIDS_PER_BLOCK                1018    /* Node IDs in an Indirect Block */
 
 #define ADDRS_PER_PAGE(page, fi)	\
 	(IS_INODE(page) ? ADDRS_PER_INODE(fi) : ADDRS_PER_BLOCK)
@@ -287,7 +286,6 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 #define HMFS_DATA_EXIST		0x08	/* file inline data exist flag */
 #define HMFS_INLINE_DOTS	0x10	/* file having implicit dot dentries */
 
-
 #define MAX_INLINE_DATA		(sizeof(__le32) * (DEF_ADDRS_PER_INODE - \
 						HMFS_INLINE_XATTR_ADDRS - 1))
 
@@ -302,10 +300,10 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
-        __le32 hash_code;       /* hash code of file name */
-        __le64 ino;             /* inode number */
-        __le16 name_len;        /* lengh of file name */
-        __u8 file_type;         /* file type */
+	__le32 hash_code;	/* hash code of file name */
+	__le64 ino;		/* inode number */
+	__le16 name_len;	/* lengh of file name */
+	__u8 file_type;		/* file type */
 } __attribute__ ((packed));
 
 /* inline directory entry structure */
@@ -385,9 +383,10 @@ struct hmfs_summary_block {
 	struct hmfs_summary entries[ENTRIES_IN_SUM];
 } __attribute__ ((packed));
 
-static inline void make_summary_entry(struct hmfs_summary *summary, unsigned long nid,
-			       unsigned int version, unsigned int ofs_in_node,
-			       unsigned char type)
+static inline void make_summary_entry(struct hmfs_summary *summary,
+				      unsigned long nid, unsigned int version,
+				      unsigned int ofs_in_node,
+				      unsigned char type)
 {
 	summary->nid = cpu_to_le64(nid);
 	summary->ofs_in_node = cpu_to_le32(ofs_in_node);
@@ -451,4 +450,4 @@ struct hmfs_checkpoint {
 	__le16 checksum;
 } __attribute__ ((packed));
 
-#endif  /* _LINUX_HMFS_FS_H */
+#endif /* _LINUX_HMFS_FS_H */

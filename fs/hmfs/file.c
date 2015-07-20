@@ -123,7 +123,7 @@ size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		offset &= ~PAGE_CACHE_MASK;
 	} while (copied < len);
 
-      out:
+out:
 	*ppos = pos + copied;
 	if (filp)
 		file_accessed(filp);
@@ -201,7 +201,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 //      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
 
 //      Prepare to write
-      go_write:
+go_write:
 
 //      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
