@@ -197,13 +197,13 @@ static int hmfs_format(struct super_block *sb)
 
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
-	dent_blk->dentry[0].hash_code = 0;
+	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
 	dent_blk->dentry[0].ino = cpu_to_le64(HMFS_ROOT_INO);
 	dent_blk->dentry[0].name_len = cpu_to_le16(1);
 	dent_blk->dentry[0].file_type = HMFS_FT_DIR;
 	hmfs_memcpy(dent_blk->filename[0], ".", 1);
 
-	dent_blk->dentry[1].hash_code = 0;
+	dent_blk->dentry[1].hash_code = HMFS_DDOT_HASH;
 	dent_blk->dentry[1].ino = cpu_to_le64(HMFS_ROOT_INO);
 	dent_blk->dentry[1].name_len = cpu_to_le16(2);
 	dent_blk->dentry[1].file_type = HMFS_FT_DIR;
@@ -351,6 +351,7 @@ static void init_once(void *foo)
 
 	inode_init_once(&fi->vfs_inode);
 }
+
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;
@@ -427,7 +428,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	struct inode *root = NULL;
 	struct hmfs_sb_info *sbi = NULL;
 	struct hmfs_super_block *super = NULL;
-	int retval;
+	int retval = 0;
 	unsigned long end_addr;
 
 	/* sbi initialization */
@@ -485,30 +486,36 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	build_node_manager(sbi);
 
 	//TODO: further init sbi
-	root = new_inode(sb);
-	if (!root) {
-		printk("[HMFS] No space for root inode!!");
-		return -ENOMEM;
+	root = hmfs_iget(sb, HMFS_ROOT_INO);
+
+	if (IS_ERR(root)) {
+		printk("[HMFS] No space for root inode!!\n");
+		retval = PTR_ERR(root);
+		goto free_node_manager;
 	}
 
-	root->i_ino = 0;
-	root->i_sb = sb;
-	root->i_atime = root->i_ctime = root->i_mtime = CURRENT_TIME;
-	inode_init_owner(root, NULL, S_IFDIR);	//????
+	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
+		printk(KERN_INFO "[HMFS] Invalid root inode!!\n");
+		goto free_root_inode;
+	}
 
 	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
 	if (!sb->s_root) {
-		printk("[HMFS] No space for root dentry");
-		return -ENOMEM;
+		printk("[HMFS] No space for root dentry\n");
+		goto free_root_inode;
 	}
 	// create debugfs
 	hmfs_build_stats(sbi);
 
 	return 0;
+free_root_inode:
+	iput(root);
+free_node_manager:
+	destroy_node_manager(sbi);
 out:
 	//TODO:
 	if (sbi->virt_addr) {
-		printk("unmapping virtual address!");
+		printk("unmapping virtual address!\n");
 		hmfs_iounmap(sbi->virt_addr);
 	}
 	kfree(sbi);

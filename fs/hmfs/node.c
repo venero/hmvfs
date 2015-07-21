@@ -106,7 +106,22 @@ retry:
 	}
 }
 
-void get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
+/*
+ * return node address in NVM by nid, would not allocate
+ * new node
+ */
+void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
+{
+	struct node_info ni;
+	int err;
+
+	err = get_node_info(sbi, nid, &ni);
+	if (err)
+		return ERR_PTR(err);
+	return ADDR(sbi, ni.blk_addr);
+}
+
+int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 {
 	struct checkpoint_info *cp_info = CURCP_I(sbi);
 	struct hmfs_nat_entry ne;
@@ -122,7 +137,7 @@ void get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
 		ni->version = e->ni.version;
-		return;
+		return 0;
 	}
 
 	/* search nat journals */
@@ -136,11 +151,13 @@ void get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in main area */
 	nat_block = get_current_nat_block(sbi, start_nid);
+	if (IS_ERR(nat_block))
+		return PTR_ERR(nat_block);
 	ne = nat_block->entries[nid - start_nid];
 	node_info_from_raw_nat(ni, &ne);
 cache:
 	//TODO: add nat cache
-	return;
+	return 0;
 }
 
 void destroy_node_manager(struct hmfs_sb_info *sbi)

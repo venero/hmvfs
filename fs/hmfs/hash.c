@@ -30,8 +30,8 @@ static void TEA_transform(unsigned int buf[4], unsigned int const in[])
 
 	do {
 		sum += DELTA;
-		b0 += ((b1 << 4)+a) ^ (b1+sum) ^ ((b1 >> 5)+b);
-		b1 += ((b0 << 4)+c) ^ (b0+sum) ^ ((b0 >> 5)+d);
+		b0 += ((b1 << 4) + a) ^ (b1 + sum) ^ ((b1 >> 5) + b);
+		b1 += ((b0 << 4) + c) ^ (b0 + sum) ^ ((b0 >> 5) + d);
 	} while (--n);
 
 	buf[0] += b0;
@@ -39,12 +39,12 @@ static void TEA_transform(unsigned int buf[4], unsigned int const in[])
 }
 
 static void str2hashbuf(const unsigned char *msg, size_t len,
-				unsigned int *buf, int num)
+			unsigned int *buf, int num)
 {
 	unsigned pad, val;
 	int i;
 
-	pad = (__u32)len | ((__u32)len << 8);
+	pad = (__u32) len | ((__u32) len << 8);
 	pad |= pad << 16;
 
 	val = pad;
@@ -76,7 +76,7 @@ extern hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info)
 	size_t len = name_info->len;
 
 	if ((len <= 2) && (name[0] == '.') &&
-		(name[1] == '.' || name[1] == '\0'))
+	    (name[1] == '.' || name[1] == '\0'))
 		return 0;
 
 	/* Initialize the default seed for the hash checksum functions */
@@ -98,4 +98,3 @@ extern hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info)
 	hmfs_hash = cpu_to_le32(hash & ~HMFS_HASH_COL_BIT);
 	return hmfs_hash;
 }
-

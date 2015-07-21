@@ -16,3 +16,11 @@ static inline void node_info_from_raw_nat(struct node_info *ni,
 	ni->ino = le64_to_cpu(ne->ino);
 	ni->blk_addr = le64_to_cpu(ne->block_addr);
 }
+
+static inline nid_t get_nid(struct hmfs_node *hn, int off, bool in_i)
+{
+	if (in_i) {
+		return le64_to_cpu(hn->i.i_nid[off - NODE_DIR1_BLOCK]);
+	}
+	return le64_to_cpu(hn->in.nid[off]);
+}

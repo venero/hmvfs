@@ -2,7 +2,43 @@
 #include "hmfs.h"
 static int do_read_inode(struct inode *inode)
 {
-	//TODO
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_node *rn;
+	struct hmfs_inode *hi;
+
+	if (check_nid_range(sbi, inode->i_ino)) {
+		printk(KERN_INFO "[HMFS] Invalid inode number:%lu\n",
+		       inode->i_ino);
+		return -EINVAL;
+	}
+
+	hi = get_node(sbi, inode->i_ino);
+
+	if (IS_ERR(hi))
+		return PTR_ERR(hi);
+
+	inode->i_mode = le16_to_cpu(hi->i_mode);
+	i_uid_write(inode, le32_to_cpu(hi->i_uid));
+	i_gid_write(inode, le32_to_cpu(hi->i_gid));
+	set_nlink(inode, le32_to_cpu(hi->i_links));
+	inode->i_size = le64_to_cpu(hi->i_size);
+	inode->i_blocks = le64_to_cpu(hi->i_blocks);
+
+	inode->i_atime.tv_sec = le64_to_cpu(hi->i_atime);
+	inode->i_ctime.tv_sec = le64_to_cpu(hi->i_ctime);
+	inode->i_mtime.tv_sec = le64_to_cpu(hi->i_mtime);
+	inode->i_atime.tv_nsec = 0;
+	inode->i_mtime.tv_nsec = 0;
+	inode->i_ctime.tv_nsec = 0;
+	inode->i_generation = le32_to_cpu(hi->i_generation);
+
+	//TODO: deal with device file
+
+	fi->i_current_depth = le32_to_cpu(hi->i_current_depth);
+	fi->i_flags = le32_to_cpu(hi->i_flags);
+	fi->flags = 0;
+	fi->i_pino = le32_to_cpu(hi->i_pino);
 	return 0;
 }
 
