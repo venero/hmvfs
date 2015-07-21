@@ -28,14 +28,6 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 
 	nm_i->max_nid = hmfs_max_nid();
-	INIT_LIST_HEAD(&nm_i->free_nid_list);
-	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
-	INIT_LIST_HEAD(&nm_i->nat_entries);
-	INIT_LIST_HEAD(&nm_i->dirty_nat_entries);
-
-	mutex_init(&nm_i->build_lock);
-	spin_lock_init(&nm_i->free_nid_list_lock);
-	rwlock_init(&nm_i->nat_tree_lock);
 
 	return 0;
 }
