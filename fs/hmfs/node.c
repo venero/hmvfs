@@ -49,17 +49,18 @@ int build_node_manager(struct hmfs_sb_info *sbi)
 	info = kzalloc(sizeof(struct hmfs_nm_info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
+	sbi->nm_info = info;
+
+	err = init_node_manager(sbi);
+	if (err)
+		return err;
+
 	info->nat_inode = hmfs_iget(sb, HMFS_NAT_INO);
 
 	if (IS_ERR(info->nat_inode)) {
 		kfree(info);
 		return PTR_ERR(info->nat_inode);
 	}
-	sbi->nm_info = info;
-
-	err = init_node_manager(sbi);
-	if (err)
-		return err;
 
 	return 0;
 }

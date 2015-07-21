@@ -472,6 +472,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	    sbi->main_addr_start +
 	    (sbi->segment_count << HMFS_SEGMENT_SIZE_BITS);
 	sbi->main_addr_end = align_segment_left(end_addr);
+	sbi->sb = sb;
 
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
