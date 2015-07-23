@@ -482,10 +482,12 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	/* init checkpoint */
 	init_checkpoint_manager(sbi);
-
+printk(KERN_ERR"init checkpoint\n");
 	/* init nat */
-	build_node_manager(sbi);
-
+	retval=build_node_manager(sbi);
+	if(retval)
+		goto out;
+printk(KERN_ERR"init node\n");
 	//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
@@ -501,6 +503,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
+printk(KERN_ERR"s_root:%p\n",sb->s_root);
 	if (!sb->s_root) {
 		printk("[HMFS] No space for root dentry\n");
 		goto free_root_inode;
@@ -533,6 +536,9 @@ struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 	} else {
 		printk("hmfs mounted!");
 	}
+BUG_ON(!entry);
+	struct super_block *sb=entry->d_sb;
+BUG_ON(!sb);
 	return entry;
 }
 

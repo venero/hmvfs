@@ -14,10 +14,11 @@ static int do_read_inode(struct inode *inode)
 	}
 
 	hi = get_node(sbi, inode->i_ino);
-
+printk(KERN_ERR"hi:%p\n",hi);
 	if (IS_ERR(hi))
 		return PTR_ERR(hi);
 
+printk(KERN_ERR"hi2:%p\n",hi);
 	inode->i_mode = le16_to_cpu(hi->i_mode);
 	i_uid_write(inode, le32_to_cpu(hi->i_uid));
 	i_gid_write(inode, le32_to_cpu(hi->i_gid));
@@ -25,6 +26,7 @@ static int do_read_inode(struct inode *inode)
 	inode->i_size = le64_to_cpu(hi->i_size);
 	inode->i_blocks = le64_to_cpu(hi->i_blocks);
 
+printk(KERN_ERR"hi3:%p\n",hi);
 	inode->i_atime.tv_sec = le64_to_cpu(hi->i_atime);
 	inode->i_ctime.tv_sec = le64_to_cpu(hi->i_ctime);
 	inode->i_mtime.tv_sec = le64_to_cpu(hi->i_mtime);
@@ -44,7 +46,7 @@ static int do_read_inode(struct inode *inode)
 
 static int is_meta_inode(unsigned long ino)
 {
-	return ino >= 3;
+	return ino <HMFS_ROOT_INO;
 }
 
 /* allocate an inode */
@@ -55,16 +57,21 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 	int ret;
 
 	inode = iget_locked(sb, ino);
+printk("ino:%lu state 1\n",ino);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
+printk("ino:%lu state 2\n",ino);
 	if (!(inode->i_state & I_NEW))
 		return inode;
 
+printk("ino:%lu state 3\n",ino);
 	if (is_meta_inode(ino))
 		goto make_now;
 
+printk("ino:%lu state 4\n",ino);
 	ret = do_read_inode(inode);
+printk("ret:%d\n",ret);
 	if (ret)
 		goto bad_inode;
 	if (S_ISREG(inode->i_mode)) {
@@ -83,7 +90,7 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_op = &hmfs_special_inode_operations;
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 	}
-
+goto out;
 make_now:
 	if (ino == HMFS_NAT_INO) {
 		inode->i_mapping->a_ops = &hmfs_nat_aops;
@@ -98,7 +105,7 @@ make_now:
 		ret = -EIO;
 		goto bad_inode;
 	}
-
+out:
 	unlock_new_inode(inode);
 	return inode;
 bad_inode:

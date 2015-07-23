@@ -45,16 +45,21 @@ int build_node_manager(struct hmfs_sb_info *sbi)
 
 	err = init_node_manager(sbi);
 	if (err)
-		return err;
+	{
+		goto free_nm;
+	}		
 
 	info->nat_inode = hmfs_iget(sb, HMFS_NAT_INO);
 
 	if (IS_ERR(info->nat_inode)) {
-		kfree(info);
-		return PTR_ERR(info->nat_inode);
+err=PTR_ERR(info->nat_inode);
+	goto free_nm;
 	}
 
 	return 0;
+free_nm:
+	kfree(info);
+	return err;
 }
 
 static struct hmfs_nat_block *get_current_nat_block(struct hmfs_sb_info *sbi,
@@ -126,6 +131,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in nat cache */
 	e = __lookup_nat_cache(nm_i, nid);
+printk(KERN_ERR"lookup in nat cache:%d\n",nid);
 	if (e) {
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
@@ -135,6 +141,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search nat journals */
 	i = lookup_journal_in_cp(cp_info, NAT_JOURNAL, nid, 0);
+printk(KERN_ERR"lookup in cp cache:%d\n",nid);
 	if (i >= 0) {
 		ne = nat_in_journal(cp_info, i);
 		node_info_from_raw_nat(ni, &ne);
@@ -144,8 +151,10 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in main area */
 	nat_block = get_current_nat_block(sbi, start_nid);
+printk(KERN_ERR"lookup in block:%d\n",nid);
 	if (IS_ERR(nat_block))
 		return PTR_ERR(nat_block);
+printk(KERN_ERR"lookup right:%d\n",nid);
 	ne = nat_block->entries[nid - start_nid];
 	node_info_from_raw_nat(ni, &ne);
 cache:
