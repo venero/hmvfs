@@ -189,13 +189,18 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			ofs_in_node = dn.ofs_in_node;
 			init = false;
 		}
-		if (dn.level) {
+		if (!dn.level) {
 			BUG_ON(dn.inode_block == NULL);
 			addr = dn.inode_block->i_addr[ofs_in_node++];
+struct hmfs_node* hnn=dn.inode_block;
+printk("ino fdb:%d\n",hnn->footer.nid);
 		} else {
 			BUG_ON(dn.node_block == NULL);
 			addr = dn.node_block->addr[ofs_in_node++];
+struct hmfs_node* hnn=dn.node_block;
+printk("ino fdb:%d\n",hnn->footer.nid);
 		}
+printk("get data blocks:%d:%lu\n",i,addr);
 		blocks[*size] = ADDR(sbi, addr);
 		*size = *size + 1;
 	}

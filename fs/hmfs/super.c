@@ -194,7 +194,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_dir_level = DEF_DIR_LEVEL;
 
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
-
+printk("data_segaddr:%lu\n",data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;

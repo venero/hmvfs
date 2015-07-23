@@ -806,6 +806,7 @@ bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
 		if (bit_pos >= d->max)
 			break;
 
+printk("get fill\n");
 		de = &d->dentry[bit_pos];
 		if (de->file_type < HMFS_FT_MAX)
 			d_type = hmfs_filetype_table[de->file_type];
@@ -843,7 +844,7 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	//TODO after add inline.c here will be valid
 	//if (hmfs_has_inline_dentry(inode))
 	//      return hmfs_read_inline_dir(file, ctx);
-
+printk("npages:%d\n",npages);
 	for (; n < npages; n++) {
 		//TODO after add data.c here will be valid
 		//dentry_page = get_lock_data_page(inode, n);
