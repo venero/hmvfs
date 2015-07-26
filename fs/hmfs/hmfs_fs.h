@@ -71,11 +71,17 @@ struct hmfs_super_block {
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
 	__le64 page_count;	/* total # of user blocks */
 	__le64 segment_count;	/* total # of segments */
+
+	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le32 segment_count_nat;	/* # of segments for NAT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
+
 	__le64 cp_page_addr;	/* start block address of checkpoint */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
+
+	__le64 sit_root; 	/* ino of sit file root node */
 
 	__le16 checksum;
 } __packed;
@@ -184,6 +190,7 @@ struct hmfs_nat_block {
  */
 #define SIT_ADDR_PER_INODE		64
 #define SIT_VBLOCK_MAP_SIZE	64
+#define SIT_ENTRY_PER_BLOCK (SIT_VBLOCK_MAP_SIZE / sizeof(struct hmfs_sit_entry))
 
 struct hmfs_sit_node {
 	u8 height;
@@ -197,6 +204,11 @@ struct hmfs_sit_entry {
 	__le64 mtime;		/* segment age for cleaning */
 	__le16 vblocks;		/* reference above */
 } __attribute__ ((packed));
+
+struct hmfs_sit_block {
+	struct hmfs_sit_entry entries[SIT_ENTRY_PER_BLOCK];
+} __packed;
+
 
 struct hmfs_sit_journal {
 	__le64 segno;

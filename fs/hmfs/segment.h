@@ -1,30 +1,55 @@
 #include "hmfs.h"
 typedef u64 block_t;		//bits per NVM page address 
 
+#define hmfs_bitmap_size(nr)			\
+	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
 #define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
+
+/* constant macro */
+#define NULL_SEGNO			((unsigned int)(~0))
+#define SIT_ENTRY_OFFSET(sit_i, segno)					\
+	(segno % sit_i->sents_per_block)
+#define SIT_BLOCK_OFFSET(sit_i, segno)					\
+	(segno / SIT_ENTRY_PER_BLOCK)
+
+struct seg_entry {
+	unsigned short valid_blocks;	/* # of valid blocks */
+	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
+
+	unsigned char type;		/* segment type like CURSEG_XXX_TYPE */
+	unsigned long long mtime;	/* modification time of the segment */
+};
 
 struct sit_info {
 	const struct segment_allocation *s_ops;
 
-	block_t sit_base_addr;	/* start block address of SIT area */
-	block_t sit_blocks;	/* # of blocks used by SIT area */
+	block_t sit_root;	/* root node address of SIT file */
+	block_t sit_blocks;	/* # of blocks used by SIT file */
 	block_t written_valid_blocks;	/* # of valid blocks in main area */
 	char *sit_bitmap;	/* SIT bitmap pointer */
 	unsigned int bitmap_size;	/* SIT bitmap size */
 
+	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
+	unsigned int dirty_sentries;		/* # of dirty sentries */
 	unsigned int sents_per_block;	/* # of SIT entries per block */
 	struct mutex sentry_lock;	/* to protect SIT cache */
 	struct seg_entry *sentries;	/* SIT segment-level cache */
-	struct sec_entry *sec_entries;	/* SIT section-level cache */
 };
 
 struct free_segmap_info {
 	unsigned int start_segno;	/* start segment number logically */
 	unsigned int free_segments;	/* # of free segments */
-//      unsigned int free_sections;     /* # of free sections */
 	rwlock_t segmap_lock;	/* free segmap lock */
 	unsigned long *free_segmap;	/* free segment bitmap */
-//      unsigned long *free_secmap;     /* free section bitmap */
+};
+/* for active log information */
+struct curseg_info {
+	struct mutex curseg_mutex;	/* lock for consistency */
+	struct hmfs_summary_block *sum_blk;     /* cached summary block */
+	//unsigned char alloc_type;               /* current allocation type */
+	unsigned int segno;	/* current segment number */
+	unsigned short next_blkoff;	/* next block offset to write */
+	unsigned int next_segno;	/* preallocated segment */
 };
 
 struct hmfs_sm_info {
@@ -44,20 +69,22 @@ struct hmfs_sm_info {
 	unsigned int reserved_segments;	/* # of reserved segments */
 	unsigned int ovp_segments;	/* # of overprovision segments */
 };
-/* for active log information */
-struct curseg_info {
-	struct mutex curseg_mutex;	/* lock for consistency */
-	//TODO:add=>struct hmfs_summary_block *sum_blk;     /* cached summary block */
-	//unsigned char alloc_type;               /* current allocation type */
-	unsigned int segno;	/* current segment number */
-	unsigned short next_blkoff;	/* next block offset to write */
-	unsigned int next_segno;	/* preallocated segment */
-};
 
 static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->sm_info;
 }
+static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
+{
+	return (struct sit_info *)(SM_I(sbi)->sit_info);
+}
+static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
+						unsigned int segno)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	return &sit_i->sentries[segno];
+}
+
 
 static inline struct curseg_info *CURSEG_I(struct hmfs_sb_info *sbi)
 {

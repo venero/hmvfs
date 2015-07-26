@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/radix-tree.h>
 #include <linux/pagemap.h>
+#include <linux/bitops.h>
 
 #include "hmfs_fs.h"
 //#include "segment.h"
@@ -200,6 +201,10 @@ extern const struct address_space_operations hmfs_ssa_aops;
 /*
  * Inline functions
  */
+static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
+{
+        return (struct hmfs_super_block *)(sbi->virt_addr);
+} 
 static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
 {
 	return container_of(inode, struct hmfs_inode_info, vfs_inode);
@@ -304,6 +309,11 @@ void destroy_node_manager(struct hmfs_sb_info *sbi);
 void get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
+
+/* segment.c*/
+int build_segment_manager(struct hmfs_sb_info *);
+void destroy_segment_manager(struct hmfs_sb_info *);
+
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
