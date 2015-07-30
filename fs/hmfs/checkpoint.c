@@ -34,7 +34,8 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cp->last_checkpoint_addr = cp_addr;
 	cp->cp = kmap(new_hmfs_cp_page);
 	cp->cp_page = new_hmfs_cp_page;
-
+	printk(KERN_INFO "current-cp:%d-%d %d-%d\n", cp->cur_node_segno,
+	       cp->cur_node_blkoff, cp->cur_data_segno, cp->cur_data_blkoff);
 	//FIXME: copy all sit journals and nat journals to DRAM
 	for (i = 0; i < NUM_SIT_JOURNALS_IN_CP; ++i)
 		cp->cp->sit_journals[i] = hmfs_cp->sit_journals[i];
@@ -49,7 +50,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct checkpoint_info *cp = sbi->cp_info;
-	struct hmfs_checkpoint *hmfs_cp = cp->cp;
 
 	kunmap(cp->cp_page);
 	kfree(cp);

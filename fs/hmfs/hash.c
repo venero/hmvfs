@@ -66,7 +66,7 @@ static void str2hashbuf(const unsigned char *msg, size_t len,
 		*buf++ = pad;
 }
 
-extern hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info)
+hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info)
 {
 	__u32 hash;
 	hmfs_hash_t hmfs_hash;

@@ -20,7 +20,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 {
 	struct inode *inode = file->f_mapping->host;
 	//TODO:loff_t maxsize = inode->i_sb->s_maxbytes;
-	loff_t maxsize = 0xffffffff;
+	loff_t maxsize = hmfs_max_size();
 	loff_t eof = i_size_read(inode);
 	switch (whence) {
 	case SEEK_END:		//size of the file plus offset [bytes]
@@ -49,8 +49,8 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	return vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
 }
 
-size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
-			  loff_t * ppos)
+ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
+			   loff_t * ppos)
 {
 	/* from do_XIP_mapping_read */
 	struct inode *inode = filp->f_inode;
@@ -60,14 +60,14 @@ size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	size_t copied = 0, error = 0;
 
 	pos = *ppos;
-	index = pos >> PAGE_CACHE_SHIFT;	//TODO: shift is HMFS_BLK_SHIFT
-	offset = pos & ~PAGE_CACHE_MASK;	//^
+	index = pos >> HMFS_PAGE_SIZE_BITS;	//TODO: shift is HMFS_BLK_SHIFT
+	offset = pos & ~HMFS_PAGE_MASK;	//^
 
 	isize = i_size_read(inode);
 	if (!isize)
 		goto out;
 
-	end_index = (isize - 1) >> PAGE_CACHE_SHIFT;
+	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
 	/*
 	 * nr : read length for this loop
 	 * offset : start inner-blk offset this loop
@@ -77,15 +77,16 @@ size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	 */
 	do {
 		unsigned long nr, left;
-		void *xip_mem;
+		void *xip_mem[1];
 		int zero = 0;
+		int size;
 
 		/* nr is the maximum number of bytes to copy from this page */
-		nr = PAGE_CACHE_SIZE;	//HMFS_SIZE
+		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
 		if (index >= end_index) {
 			if (index > end_index)
 				goto out;
-			nr = ((isize - 1) & ~PAGE_CACHE_MASK) + 1;
+			nr = ((isize - 1) & ~HMFS_PAGE_MASK) + 1;
 			if (nr <= offset) {
 				goto out;
 			}
@@ -95,9 +96,11 @@ size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 			nr = len - copied;
 
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
-		//[index] --> (NID)-->(ino) --> [xip_mem]
+		error =
+		    get_data_blocks(inode, index, index + 1, xip_mem, &size,
+				    RA_END);
 
-		if (unlikely(error)) {
+		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {
 				/* sparse */
 				zero = 1;
@@ -108,7 +111,8 @@ size_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		/* copy to user space */
 		if (!zero)
 			left =
-			    __copy_to_user(buf + copied, xip_mem + offset, nr);
+			    __copy_to_user(buf + copied, xip_mem[0] + offset,
+					   nr);
 		else
 			left = __clear_user(buf + copied, nr);
 
@@ -132,19 +136,103 @@ out:
 
 }
 
+static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
+				     size_t count, loff_t pos, loff_t * ppos)
+{
+	struct inode *inode = filp->f_inode;
+	long status = 0;
+	size_t bytes;
+	ssize_t written = 0;
+
+	do {
+		unsigned long index;
+		unsigned long offset;
+		size_t copied;
+		void *xip_mem;
+
+		offset = pos & ~HMFS_PAGE_MASK;
+		index = pos >> HMFS_PAGE_SIZE_BITS;
+		bytes = HMFS_PAGE_SIZE - offset;
+		if (bytes > count)
+			bytes = count;
+
+		xip_mem = get_new_data_block(inode, index);
+		if (unlikely(IS_ERR(xip_mem)))
+			break;
+
+		copied =
+		    bytes - __copy_from_user_nocache(xip_mem + offset, buf,
+						     bytes);
+
+		if (likely(copied > 0)) {
+			status = copied;
+
+			if (status >= 0) {
+				written += status;
+				count -= status;
+				pos += status;
+				buf += status;
+			}
+		}
+		if (unlikely(copied != bytes))
+			if (status >= 0)
+				status = -EFAULT;
+		if (status < 0)
+			break;
+	} while (count);
+	*ppos = pos;
+
+	if (pos > inode->i_size) {
+		i_size_write(inode, pos);
+		hmfs_update_isize(inode);
+	}
+	return written ? written : status;
+
+}
+
 ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 			    size_t len, loff_t * ppos)
 {
+	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = filp->f_inode;
-	mutex_lock(&inode->i_mutex);
-	//TODO:
-	//1. address translation
-	//2. space allocation
-	//3. do real writting(__hmfs_xip_file_write)
-	//4. undo fails
-	mutex_unlock(&inode->i_mutex);
+	size_t count = 0, ret;
+	loff_t pos;
 
-	return len;
+	mutex_lock(&inode->i_mutex);
+
+	if (!access_ok(VERIFY_READ, buf, len)) {
+		ret = -EFAULT;
+		goto out_up;
+	}
+
+	pos = *ppos;
+	count = len;
+
+	current->backing_dev_info = mapping->backing_dev_info;
+
+	ret = generic_write_checks(filp, &pos, &count, S_ISBLK(inode->i_mode));
+	if (ret)
+		goto out_backing;
+	if (count == 0)
+		goto out_backing;
+
+	ret = file_remove_suid(filp);
+	if (ret)
+		goto out_backing;
+
+	ret = file_update_time(filp);
+	if (ret)
+		goto out_backing;
+
+	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
+
+	ret = __hmfs_xip_file_write(filp, buf, count, pos, ppos);
+out_backing:
+	current->backing_dev_info = NULL;
+out_up:
+	mutex_unlock(&inode->i_mutex);
+	return ret;
+
 }
 
 //verno
