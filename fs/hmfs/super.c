@@ -194,7 +194,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_dir_level = DEF_DIR_LEVEL;
 
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
-printk("data_segaddr:%lu\n",data_segaddr);
+	printk(KERN_INFO "data segaddr:%lu\n", data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
@@ -270,9 +270,9 @@ printk("data_segaddr:%lu\n",data_segaddr);
 	set_struct(cp, user_block_count, user_pages_count);
 	set_struct(cp, valid_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, free_segment_count, (user_segments_count - 2));
-	set_struct(cp, cur_node_segno, 0);
+	set_struct(cp, cur_node_segno, node_segaddr >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(cp, cur_node_blkoff, node_blkoff);
-	set_struct(cp, cur_data_segno, 1);
+	set_struct(cp, cur_data_segno, data_segaddr >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
 
@@ -334,14 +334,6 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	return NULL;
 }
 
-static loff_t hmfs_max_size(void)
-{
-	loff_t res;
-
-	res = MAX_LFS_FILESIZE;
-	return res;
-}
-
 /*
  * sop
  */
@@ -358,10 +350,16 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	/* free me when umount */
 	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
 							GFP_NOFS | __GFP_ZERO);
+	printk(KERN_INFO "alloc inode\n");
 	if (!fi)
 		return NULL;
 	init_once((void *)fi);
 	/*TODO: hmfs specific inode_info init work */
+	fi->i_current_depth = 1;
+	set_inode_flag(fi, FI_NEW_INODE);
+	printk(KERN_INFO "new inode:%d\n",
+	       is_inode_flag_set(HMFS_I(&fi->vfs_inode), FI_NEW_INODE));
+	printk(KERN_INFO "new inode:%d\n", is_inode_flag_set(fi, FI_NEW_INODE));
 	return &(fi->vfs_inode);
 }
 
@@ -482,12 +480,12 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	/* init checkpoint */
 	init_checkpoint_manager(sbi);
-printk(KERN_ERR"init checkpoint\n");
+	printk(KERN_ERR "[HMFS] Init checkpoint manager\n");
 	/* init nat */
-	retval=build_node_manager(sbi);
-	if(retval)
+	retval = build_node_manager(sbi);
+	if (retval)
 		goto out;
-printk(KERN_ERR"init node\n");
+	printk(KERN_ERR "[HMFS] Init node manager\n");
 	//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
@@ -503,7 +501,7 @@ printk(KERN_ERR"init node\n");
 	}
 
 	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
-printk(KERN_ERR"s_root:%p\n",sb->s_root);
+	printk(KERN_ERR "s_root:%p\n", sb->s_root);
 	if (!sb->s_root) {
 		printk("[HMFS] No space for root dentry\n");
 		goto free_root_inode;
@@ -536,9 +534,6 @@ struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 	} else {
 		printk("hmfs mounted!");
 	}
-BUG_ON(!entry);
-	struct super_block *sb=entry->d_sb;
-BUG_ON(!sb);
 	return entry;
 }
 

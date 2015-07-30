@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/radix-tree.h>
 #include <linux/pagemap.h>
+#include <linux/backing-dev.h>
 
 #include "hmfs_fs.h"
 
@@ -24,6 +25,8 @@
 #endif
 
 #define MAX_DIR_RA_PAGES	4	/* maximum ra pages of dir */
+
+#define HMFS_DEF_FILE_MODE	0664
 
 /*
  * For INODE and NODE manager
@@ -171,6 +174,15 @@ enum DATA_RA_TYPE {
 	RA_END,			/* get data block to end */
 };
 
+enum ADDR_TYPE {
+	NULL_ADDR = 0,
+	NEW_ADDR = -1,
+};
+
+enum READ_DNODE_TYPE {
+	ALLOC_NODE,
+	LOOKUP_NODE,
+};
 /*
  * this structure is used as one of function parameters.
  * all the information are dedicated to a given direct node block determined
@@ -257,7 +269,7 @@ static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
 
 static inline int is_inode_flag_set(struct hmfs_inode_info *fi, int flag)
 {
-	return test_bit(flag, &fi->i_flags);
+	return test_bit(flag, &fi->flags);
 }
 
 static inline void hmfs_lock_op(struct hmfs_sb_info *sbi)
@@ -292,10 +304,33 @@ static inline void clear_inode_flag(struct hmfs_inode_info *fi, int flag)
 		clear_bit(flag, &fi->flags);
 }
 
+static inline unsigned long cal_page_addr(unsigned long segno,
+					  unsigned int blkoff)
+{
+	return (segno << HMFS_SEGMENT_SIZE_BITS) +
+	    (blkoff << HMFS_PAGE_SIZE_BITS);
+}
+
+static inline loff_t hmfs_max_size(void)
+{
+	loff_t res = 0;
+	res = NORMAL_ADDRS_PER_INODE;
+	res += 2 * ADDRS_PER_BLOCK;
+	res += 2 * ADDRS_PER_BLOCK * NIDS_PER_BLOCK;
+	res += NIDS_PER_BLOCK * NIDS_PER_BLOCK * ADDRS_PER_BLOCK;
+	res = (res << HMFS_PAGE_SIZE_BITS);
+
+	if (res > MAX_LFS_FILESIZE)
+		res = MAX_LFS_FILESIZE;
+	return res;
+}
+
 /* define prototype function */
 
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
+void hmfs_update_isize(struct inode *inode);
+int sync_hmfs_inode(struct inode *inode);
 
 /* debug.c */
 void hmfs_create_root_stat(void);
@@ -312,6 +347,9 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
 void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
+void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
+bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * uid, nid_t * ino);
+void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, nid_t ino);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -324,7 +362,30 @@ struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info,
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
-int get_dnode_of_data(struct dnode_of_data *dn, int index);
+void *get_new_data_block(struct inode *inode, int block);
+int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
+
+/* dir.c */
+int __hmfs_add_link(struct inode *inode, const struct qstr *name,
+		    struct inode *child);
+struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child);
+struct hmfs_dir_entry *hmfs_parent_dir(struct inode *inode, struct page **page);
+unsigned long hmfs_inode_by_name(struct inode *inode, struct qstr *name);
+void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry,
+		   struct page *, struct inode *);
+void hmfs_delete_entry(struct hmfs_dir_entry *, struct page *, struct inode *,
+		       struct inode *);
+int hmfs_make_empty(struct inode *, struct inode *);
+bool hmfs_empty_dir(struct inode *);
+
+/* hash.c */
+hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
+
+static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
+{
+	return __hmfs_add_link(dentry->d_parent->d_inode, &dentry->d_name,
+			       inode);
+}
 
 static inline void hmfs_put_page(struct page *page, int unlock)
 {
