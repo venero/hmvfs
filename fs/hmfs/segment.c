@@ -44,7 +44,6 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	//reset_curseg(sbi, type, 1); 
 }
 
-
 void allocate_new_segments(struct hmfs_sb_info *sbi)
 {
 	struct curseg_info *curseg;
@@ -57,15 +56,14 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 	//TODO:locate_dirty_segment(sbi, old_curseg);
 }
 
-static void *get_current_sit_page(struct hmfs_sb_info *sbi,
-					unsigned int segno)
+static void *get_current_sit_page(struct hmfs_sb_info *sbi, unsigned int segno)
 {
 	//**TODO** : sbi->seg_root ==> ino 
-	return (void*) le64_to_cpu(HMFS_RAW_SUPER(sbi)->sit_root); //FIXME : return NID of segment
+	return (void *)le64_to_cpu(HMFS_RAW_SUPER(sbi)->sit_root);	//FIXME : return NID of segment
 }
 
 static inline void seg_info_from_raw_sit(struct seg_entry *se,
-					struct hmfs_sit_entry *rs)
+					 struct hmfs_sit_entry *rs)
 {
 	se->valid_blocks = le64_to_cpu(rs->vblocks);
 	//TODO se->ckpt_valid_blocks = GET_SIT_VBLOCKS(rs);
@@ -75,7 +73,7 @@ static inline void seg_info_from_raw_sit(struct seg_entry *se,
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
-		unsigned int segno)
+					unsigned int segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	write_lock(&free_i->segmap_lock);
@@ -84,7 +82,6 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 	}
 	write_unlock(&free_i->segmap_lock);
 }
-
 
 /*
  * routines for build segment manager
@@ -115,21 +112,20 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		sit_i->sentries[start].cur_valid_map
-			= kzalloc(SIT_VBLOCK_MAP_SIZE, GFP_KERNEL);
+		    = kzalloc(SIT_VBLOCK_MAP_SIZE, GFP_KERNEL);
 		//TODO: checkpoint
 		if (!sit_i->sentries[start].cur_valid_map)
 			return -ENOMEM;
 	}
 
 	/* get information related with SIT */
-	sit_segs = le32_to_cpu(raw_super->segment_count_sit) >> 1;
+	sit_segs = le32_to_cpu(raw_super->segment_count_sit);
 
 	//TODO: allocate bitmap according to checkpoint design
 	/* setup SIT bitmap from ckeckpoint pack */
 	//bitmap_size = __bitmap_size(sbi, SIT_BITMAP);
 	//src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
 
-	
 	dst_bitmap = kmemdup(src_bitmap, bitmap_size, GFP_KERNEL);
 	if (!dst_bitmap)
 		return -ENOMEM;
@@ -168,28 +164,32 @@ static int build_free_segmap(struct hmfs_sb_info *sbi)
 	memset(free_i->free_segmap, 0xff, bitmap_size);
 
 	/* init free segmap information */
-	free_i->start_segno = (unsigned int) (sm_info->main_blkaddr >> HMFS_PAGE_PER_SEG_BITS); 
+	free_i->start_segno =
+	    (unsigned int)(sm_info->main_blkaddr >> HMFS_PAGE_PER_SEG_BITS);
 	free_i->free_segments = 0;
 	rwlock_init(&free_i->segmap_lock);
 	return 0;
 }
+
 static int build_curseg(struct hmfs_sb_info *sbi)
 {
 	struct curseg_info *array;
 	int i;
 
-	array = kzalloc(sizeof(*array), GFP_KERNEL);
+	array = kzalloc(sizeof(*array) * NR_CURSEG_TYPE, GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
 	SM_I(sbi)->curseg_array = array;
 
-	mutex_init(&array->curseg_mutex);
-	array->sum_blk = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
-	if (!array->sum_blk)
-		return -ENOMEM;
-	array->segno = NULL_SEGNO;
-	array->next_blkoff = 0;
+	for (i = 0; i < NR_CURSEG_TYPE; i++) {
+		mutex_init(&array[i].curseg_mutex);
+		array[i].sum_blk = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
+		if (!array[i].sum_blk)
+			return -ENOMEM;
+		array[i].segno = NULL_SEGNO;
+		array[i].next_blkoff = 0;
+	}
 	//TODO : retore strategy
 	//return restore_curseg_summaries(sbi);
 	return 0;
@@ -206,9 +206,9 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 		struct seg_entry *se = &sit_i->sentries[start];
 		struct hmfs_sit_block *sit_blk;
 		struct hmfs_sit_entry sit;
-		void* page;
+		void *page;
 		int i;
-		
+
 		//XXX : neednt check summay cuz no journal inside
 
 		page = get_current_sit_page(sbi, start);
@@ -236,8 +236,6 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 	struct curseg_info *curseg_t = CURSEG_I(sbi);
 	__set_test_and_inuse(sbi, curseg_t->segno);
 }
-
-
 
 int build_segment_manager(struct hmfs_sb_info *sbi)
 {
@@ -283,4 +281,64 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
+static void destroy_dirty_segmap(struct hmfs_sb_info *sbi)
+{
+	//FIXME
+	//normal file block will be discarded,
+	//but dirty nat/sit file block should be WB
+}
 
+static void destroy_curseg(struct hmfs_sb_info *sbi)
+{
+	struct curseg_info *array = SM_I(sbi)->curseg_array;
+	int i;
+
+	if (!array)
+		return;
+	SM_I(sbi)->curseg_array = NULL;
+	for (i = 0; i < NR_CURSEG_TYPE; i++)
+		kfree(array[i].sum_blk);
+	kfree(array);
+}
+
+static void destroy_free_segmap(struct hmfs_sb_info *sbi)
+{
+	struct free_segmap_info *free_i = SM_I(sbi)->free_info;
+	if (!free_i)
+		return;
+	SM_I(sbi)->free_info = NULL;
+	kfree(free_i->free_segmap);
+	kfree(free_i);
+}
+
+static void destroy_sit_info(struct hmfs_sb_info *sbi)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned int start;
+
+	if (!sit_i)
+		return;
+
+	if (sit_i->sentries) {
+		for (start = 0; start < TOTAL_SEGS(sbi); start++) {
+			kfree(sit_i->sentries[start].cur_valid_map);
+		}
+	}
+	vfree(sit_i->sentries);
+	kfree(sit_i->dirty_sentries_bitmap);
+
+	SM_I(sbi)->sit_info = NULL;
+	kfree(sit_i->sit_bitmap);
+	kfree(sit_i);
+}
+
+void destroy_segment_manager(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	destroy_dirty_segmap(sbi);
+	destroy_curseg(sbi);
+	destroy_free_segmap(sbi);
+	destroy_sit_info(sbi);
+	sbi->sm_info = NULL;
+	kfree(sm_info);
+}

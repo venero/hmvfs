@@ -1,6 +1,10 @@
 #include "hmfs.h"
 typedef u64 block_t;		//bits per NVM page address 
 
+#define	NR_CURSEG_DATA_TYPE	(1)
+#define NR_CURSEG_NODE_TYPE	(1)
+#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
+
 #define hmfs_bitmap_size(nr)			\
 	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
 #define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
@@ -16,7 +20,7 @@ struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
 	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
 
-	unsigned char type;		/* segment type like CURSEG_XXX_TYPE */
+	unsigned char type;	/* segment type like CURSEG_XXX_TYPE */
 	unsigned long long mtime;	/* modification time of the segment */
 };
 
@@ -30,7 +34,7 @@ struct sit_info {
 	unsigned int bitmap_size;	/* SIT bitmap size */
 
 	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
-	unsigned int dirty_sentries;		/* # of dirty sentries */
+	unsigned int dirty_sentries;	/* # of dirty sentries */
 	unsigned int sents_per_block;	/* # of SIT entries per block */
 	struct mutex sentry_lock;	/* to protect SIT cache */
 	struct seg_entry *sentries;	/* SIT segment-level cache */
@@ -45,7 +49,7 @@ struct free_segmap_info {
 /* for active log information */
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
-	struct hmfs_summary_block *sum_blk;     /* cached summary block */
+	struct hmfs_summary_block *sum_blk;	/* cached summary block */
 	//unsigned char alloc_type;               /* current allocation type */
 	unsigned int segno;	/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
@@ -74,17 +78,18 @@ static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->sm_info;
 }
+
 static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
 {
 	return (struct sit_info *)(SM_I(sbi)->sit_info);
 }
+
 static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
-						unsigned int segno)
+					      unsigned int segno)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	return &sit_i->sentries[segno];
 }
-
 
 static inline struct curseg_info *CURSEG_I(struct hmfs_sb_info *sbi)
 {
