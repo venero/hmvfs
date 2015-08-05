@@ -178,18 +178,20 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *array;
 	int i;
 
-	array = kzalloc(sizeof(*array), GFP_KERNEL);
+	array = kzalloc(sizeof(*array) * NR_CURSEG_TYPE, GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
 	SM_I(sbi)->curseg_array = array;
 
-	mutex_init(&array->curseg_mutex);
-	array->sum_blk = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
-	if (!array->sum_blk)
-		return -ENOMEM;
-	array->segno = NULL_SEGNO;
-	array->next_blkoff = 0;
+	for(i=0;i<NR_CURSEG_TYPE;i++){
+		mutex_init(&array[i].curseg_mutex);
+		array[i].sum_blk = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
+		if (!array[i].sum_blk)
+			return -ENOMEM;
+		array[i].segno = NULL_SEGNO;
+		array[i].next_blkoff = 0;
+	}
 	//TODO : retore strategy
 	//return restore_curseg_summaries(sbi);
 	return 0;
@@ -283,4 +285,64 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
+static void destroy_dirty_segmap(struct hmfs_sb_info *sbi)
+{
+	//FIXME
+	//normal file block will be discarded,
+	//but dirty nat/sit file block should be WB
+}
+static void destroy_curseg(struct hmfs_sb_info *sbi)
+{
+	struct curseg_info *array = SM_I(sbi)->curseg_array;
+	int i;
+
+	if (!array)
+		return;
+	SM_I(sbi)->curseg_array = NULL;
+	for (i = 0; i < NR_CURSEG_TYPE; i++)
+		kfree(array[i].sum_blk);
+	kfree(array);
+}
+
+static void destroy_free_segmap(struct hmfs_sb_info *sbi)
+{
+	struct free_segmap_info *free_i = SM_I(sbi)->free_info;
+	if (!free_i)
+		return;
+	SM_I(sbi)->free_info = NULL;
+	kfree(free_i->free_segmap);
+	kfree(free_i);
+}
+
+static void destroy_sit_info(struct hmfs_sb_info *sbi)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned int start;
+
+	if (!sit_i)
+		return;
+
+	if (sit_i->sentries) {
+		for (start = 0; start < TOTAL_SEGS(sbi); start++) {
+			kfree(sit_i->sentries[start].cur_valid_map);
+		}
+	}
+	vfree(sit_i->sentries);
+	kfree(sit_i->dirty_sentries_bitmap);
+
+	SM_I(sbi)->sit_info = NULL;
+	kfree(sit_i->sit_bitmap);
+	kfree(sit_i);
+}
+
+void destroy_segment_manager(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	destroy_dirty_segmap(sbi);
+	destroy_curseg(sbi);
+	destroy_free_segmap(sbi);
+	destroy_sit_info(sbi);
+	sbi->sm_info = NULL;
+	kfree(sm_info);
+}
 

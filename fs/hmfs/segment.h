@@ -1,6 +1,11 @@
 #include "hmfs.h"
 typedef u64 block_t;		//bits per NVM page address 
 
+#define	NR_CURSEG_DATA_TYPE	(1)
+#define NR_CURSEG_NODE_TYPE	(1)
+#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
+
+
 #define hmfs_bitmap_size(nr)			\
 	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
 #define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
