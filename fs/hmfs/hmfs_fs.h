@@ -60,7 +60,7 @@ struct hmfs_super_block {
 	__le64 main_blkaddr;	/* start block address of main area */
 
 	__le16 checksum;
-} __packed;
+} __attribute__ ((packed));
 
 /**
  * hmfs inode
@@ -150,7 +150,7 @@ enum JOURNAL_TYPE {
 struct hmfs_nat_inode {
 	u8 height;
 	__le64 root;
-};
+} __attribute__ ((packed));
 
 struct hmfs_nat_entry {
 	__le64 ino;		/* inode number */
@@ -161,11 +161,11 @@ struct hmfs_nat_entry {
 struct hmfs_nat_journal {
 	__le64 nid;
 	struct hmfs_nat_entry entry;
-};
+} __attribute__ ((packed));
 
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
-};
+} __attribute__ ((packed));
 
 /*
  * sit inode
@@ -178,7 +178,7 @@ struct hmfs_sit_node {
 	u8 max_height;
 
 	__le64 addr[SIT_ADDR_PER_INODE];
-};
+} __attribute__ ((packed));
 
 struct hmfs_sit_entry {
 	__u8 valid_map[SIT_VBLOCK_MAP_SIZE];	/* bitmap for valid blocks */
@@ -189,7 +189,7 @@ struct hmfs_sit_entry {
 struct hmfs_sit_journal {
 	__le64 segno;
 	struct hmfs_sit_entry entry;
-};
+} __attribute__ ((packed));
 
 /*
  * For directory operations
@@ -275,7 +275,7 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
  * ex) data_blkaddr = (block_t)(nodepage_start_address + ofs_in_node)
  */
 #define ENTRIES_IN_SUM		512
-
+#define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
 	__le64 nid;		/* parent node id */
@@ -393,9 +393,12 @@ struct hmfs_checkpoint {
 	__le16 cur_data_blkoff;
 
 	__le64 valid_inode_count;	/* Total number of valid inodes */
+	__le64 valid_node_count;	/* total number of valid nodes */
 
 	__le64 sit_addr;	/* sit file physical address bias */
 	__le64 nat_addr;	/* nat file physical address bias */
+
+	__le64 next_scan_nid;
 
 	/* SIT and NAT version bitmap */
 	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];

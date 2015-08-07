@@ -113,25 +113,25 @@ bad_opt:
 
 static int hmfs_format(struct super_block *sb)
 {
+	u64 pages_count, user_segments_count, user_pages_count;
+	u64 init_size;
+	u64 area_addr, end_addr;
+	u64 ssa_pages_count;
+	u64 data_segaddr, node_segaddr;
+	u64 root_node_addr, cp_addr;
+	u64 ssa_addr, sit_addr, nat_addr, main_addr;
+	int retval = 0;
+	int data_blkoff, node_blkoff;
+	int length;
 	struct hmfs_super_block *super;
 	struct hmfs_sb_info *sbi;
-	int retval = 0;
-	unsigned long pages_count, user_segments_count, user_pages_count;
-	unsigned long init_size;
-	unsigned long area_addr, end_addr;
-	unsigned long ssa_pages_count;
-	unsigned long data_blkoff, node_blkoff;
-	unsigned long data_segaddr, node_segaddr;
-	unsigned long root_node_addr, cp_addr;
-	unsigned long ssa_addr, sit_addr, nat_addr, main_addr;
-	unsigned long length;
-	u16 cp_checksum, sb_checksum;
 	struct hmfs_checkpoint *cp;
 	struct hmfs_node *root_node;
 	struct hmfs_sit_journal *sit_journals;
 	struct hmfs_nat_journal *nat_journals;
 	struct hmfs_dentry_block *dent_blk = NULL;
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
+	u16 cp_checksum, sb_checksum;
 
 	sbi = HMFS_SB(sb);
 	super = ADDR(sbi, 0);
@@ -148,7 +148,7 @@ static int hmfs_format(struct super_block *sb)
 	ssa_addr = area_addr;
 	ssa_pages_count =
 	    (pages_count + HMFS_PAGE_PER_SEG - 1) >> HMFS_PAGE_PER_SEG_BITS;
-	ssa_pages_count <<= 1;	/* summary summary block need two pages */
+	ssa_pages_count <<= (SUM_SIZE_BITS - HMFS_PAGE_SIZE_BITS);
 
 	/* prepare main area */
 	area_addr += (ssa_pages_count << HMFS_PAGE_SIZE_BITS);
@@ -194,7 +194,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_dir_level = DEF_DIR_LEVEL;
 
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
-	printk(KERN_INFO "data segaddr:%lu\n", data_segaddr);
+	printk(KERN_INFO "data segaddr:%lu\n", (unsigned long)data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
@@ -212,12 +212,13 @@ static int hmfs_format(struct super_block *sb)
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
 	/* setup init nat sit */
-	sit_addr = node_segaddr + HMFS_PAGE_SIZE;
-	nat_addr = node_segaddr + HMFS_PAGE_SIZE * 2;
-	node_blkoff += 2;
-	memset_nt(ADDR(sbi, sit_addr), 0, HMFS_PAGE_SIZE << 1);
+	sit_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
+	node_blkoff++;
+	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
+	node_blkoff++;
+	memset_nt(ADDR(sbi, sit_addr), 0, HMFS_PAGE_SIZE * 2);
 
-	cp_addr = nat_addr + HMFS_PAGE_SIZE;
+	cp_addr = nat_addr + HMFS_PAGE_SIZE * 1;
 	cp = ADDR(sbi, cp_addr);
 	node_blkoff += 1;
 
@@ -225,8 +226,9 @@ static int hmfs_format(struct super_block *sb)
 	sit_journals = cp->sit_journals;
 	nat_journals = cp->nat_journals;
 
-	sit_journals[0].segno = cpu_to_le64(0);
-	memset(sit_journals[0].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
+	sit_journals[0].segno =
+	    cpu_to_le64(node_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	memset_nt(sit_journals[0].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
 	set_bit(0, (void *)sit_journals[0].entry.valid_map);	/* root inode */
 	set_bit(1, (void *)sit_journals[0].entry.valid_map);	/* sit inode */
 	set_bit(2, (void *)sit_journals[0].entry.valid_map);	/* nat inode */
@@ -235,8 +237,9 @@ static int hmfs_format(struct super_block *sb)
 	sit_journals[0].entry.mtime = cpu_to_le64(get_seconds());
 
 	/* segment 1 is first data segment */
-	sit_journals[1].segno = cpu_to_le64(1);
-	memset(sit_journals[1].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
+	sit_journals[1].segno =
+	    cpu_to_le64(data_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	memset_nt(sit_journals[1].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
 	set_bit(0, (void *)sit_journals[1].entry.valid_map);
 	sit_journals[1].entry.vblocks = cpu_to_le64(data_blkoff);
 	sit_journals[1].entry.mtime = cpu_to_le64(get_seconds());
@@ -275,6 +278,9 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, cur_data_segno, data_segaddr >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
+	/* sit, nat, root */
+	set_struct(cp, valid_node_count, 3);
+	set_struct(cp, next_scan_nid, 4);
 
 	length = (void *)(&cp->checksum) - (void *)cp;
 	cp_checksum = crc16(~0, (void *)cp, length);
@@ -308,9 +314,9 @@ static int hmfs_format(struct super_block *sb)
 
 static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 {
+	int length;
 	struct hmfs_super_block *super_1, *super_2;
 	u16 checksum, real_checksum;
-	unsigned long length;
 
 	super_1 = start_addr;
 	length = (void *)(&super_1->checksum) - (void *)super_1;
@@ -322,7 +328,7 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	}
 
 	super_2 =
-	    (void *)super_1 + align_page_right(sizeof(struct hmfs_super_block));
+	    start_addr + align_page_right(sizeof(struct hmfs_super_block));
 	checksum = crc16(~0, (void *)super_2, length);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
@@ -350,16 +356,14 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	/* free me when umount */
 	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
 							GFP_NOFS | __GFP_ZERO);
-	printk(KERN_INFO "alloc inode\n");
+
 	if (!fi)
 		return NULL;
 	init_once((void *)fi);
 	/*TODO: hmfs specific inode_info init work */
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
-	printk(KERN_INFO "new inode:%d\n",
-	       is_inode_flag_set(HMFS_I(&fi->vfs_inode), FI_NEW_INODE));
-	printk(KERN_INFO "new inode:%d\n", is_inode_flag_set(fi, FI_NEW_INODE));
+	rwlock_init(&fi->i_lock);
 	return &(fi->vfs_inode);
 }
 
@@ -389,15 +393,18 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	//TODO:XXX 
-	//1. destroy stat
-	//2. iounmap
+
+	hmfs_destroy_stats(sbi);
+	destroy_node_manager(sbi);
+	destroy_checkpoint_manager(sbi);
+
+	sb->s_fs_info = NULL;
+	kfree(sbi);
+
 	if (sbi->virt_addr) {
 		printk("unmapping virtual address!");
 		hmfs_iounmap(sbi->virt_addr);
 	}
-	//3. free internal components
-	kfree(sbi);
 }
 
 int hmfs_sync_fs(struct super_block *sb, int sync)
@@ -442,7 +449,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		retval = -EINVAL;
 		goto out;
 	}
-	//TODO : this part will be move to hmfs_init
+
 	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
 	printk("virtual address is: 0x%p", sbi->virt_addr);
 	if (!sbi->virt_addr) {
@@ -454,8 +461,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (sbi->initsize || !super) {
 		printk(KERN_INFO "hmfs: format device\n");
 		hmfs_format(sb);
+		super = get_valid_super_block(sbi->virt_addr);
 	}
-	super = get_valid_super_block(sbi->virt_addr);
 	if (!super) {
 		printk(KERN_ERR "hmfs: error in format device\n");
 		retval = -EINVAL;
@@ -471,6 +478,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	    (sbi->segment_count << HMFS_SEGMENT_SIZE_BITS);
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
+	sbi->summary_blk = ADDR(sbi, sbi->ssa_addr);
 
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
@@ -479,12 +487,14 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sb->s_flags |= MS_NOSEC;
 
 	/* init checkpoint */
-	init_checkpoint_manager(sbi);
+	retval = init_checkpoint_manager(sbi);
+	if (retval)
+		goto out;
 	printk(KERN_ERR "[HMFS] Init checkpoint manager\n");
 	/* init nat */
 	retval = build_node_manager(sbi);
 	if (retval)
-		goto out;
+		goto free_cp_mgr;
 	printk(KERN_ERR "[HMFS] Init node manager\n");
 	//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
@@ -501,7 +511,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
-	printk(KERN_ERR "s_root:%p\n", sb->s_root);
 	if (!sb->s_root) {
 		printk("[HMFS] No space for root dentry\n");
 		goto free_root_inode;
@@ -514,6 +523,8 @@ free_root_inode:
 	iput(root);
 free_node_manager:
 	destroy_node_manager(sbi);
+free_cp_mgr:
+	destroy_checkpoint_manager(sbi);
 out:
 	//TODO:
 	if (sbi->virt_addr) {
@@ -585,17 +596,14 @@ fail:
 void exit_hmfs(void)
 {
 	// TO BE FIXED
-	//  hmfs_destroy_stats(&sbi);
 	destroy_node_manager_caches();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
 	printk("HMFS is removed!");
 }
 
-// Module Init/Exit
 module_init(init_hmfs);
 module_exit(exit_hmfs);
-// Module Information
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR(AUTHOR_INFO);
 MODULE_DESCRIPTION(DEVICE_TYPE);

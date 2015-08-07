@@ -5,20 +5,18 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	nid_t ino;
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	struct hmfs_inode_info *i_info;
 	struct inode *inode;
+	nid_t ino;
 	int err;
 	bool nid_free = false;
-	struct hmfs_inode_info *i_info;
 
 	inode = new_inode(sb);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
-	printk(KERN_INFO "new inode:%d\n",
-	       is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE));
-
-	if (!alloc_nid(sbi, &ino, NULL)) {
+	if (!alloc_nid(sbi, &ino)) {
 		err = -ENOSPC;
 		goto fail;
 	}
@@ -54,6 +52,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
+	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version);
 	err = sync_hmfs_inode(inode);
 	printk(KERN_INFO "allocate new inode:%lu, result:%d\n", inode->i_ino,
 	       err);
@@ -61,6 +60,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		return inode;
 out:
 	clear_nlink(inode);
+	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	unlock_new_inode(inode);
 fail:
 	make_bad_inode(inode);
@@ -79,15 +79,15 @@ static struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	int err = 0;
 
 	inode = hmfs_new_inode(dir, mode);
-	printk(KERN_INFO "add link:%d\n", PTR_ERR(inode));
+	printk(KERN_INFO "add link:%lu\n", PTR_ERR(inode));
 	if (IS_ERR(inode))
 		return inode;
+	hmfs_inode_write_lock(dentry->d_parent->d_inode);
 	err = hmfs_add_link(dentry, inode);
+	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
 	printk(KERN_INFO "instantiate:%d\n", err);
 	if (err)
 		goto out;
-	d_instantiate(dentry, inode);
-	unlock_new_inode(inode);
 	return inode;
 out:
 	clear_nlink(inode);
@@ -113,6 +113,9 @@ static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 	init_special_inode(inode, inode->i_mode, rdev);
 	inode->i_op = &hmfs_special_inode_operations;
 
+	d_instantiate(dentry, inode);
+	unlock_new_inode(inode);
+
 	return 0;
 }
 
@@ -130,6 +133,9 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	inode->i_fop = &hmfs_file_operations;
 	inode->i_mapping->a_ops = &hmfs_dblock_aops;
 
+	d_instantiate(dentry, inode);
+	unlock_new_inode(inode);
+
 	return 0;
 }
 
@@ -144,6 +150,10 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	inode->i_op = &hmfs_dir_inode_operations;
 	inode->i_fop = &hmfs_dir_operations;
 	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+
+	d_instantiate(dentry, inode);
+	unlock_new_inode(inode);
+
 	return 0;
 }
 

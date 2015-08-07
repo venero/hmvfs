@@ -19,9 +19,11 @@
 loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 {
 	struct inode *inode = file->f_mapping->host;
-	//TODO:loff_t maxsize = inode->i_sb->s_maxbytes;
-	loff_t maxsize = hmfs_max_size();
+	int ret;
+	loff_t maxsize = inode->i_sb->s_maxbytes;
 	loff_t eof = i_size_read(inode);
+
+	mutex_lock(&inode->i_mutex);
 	switch (whence) {
 	case SEEK_END:		//size of the file plus offset [bytes]
 		offset += eof;
@@ -31,22 +33,31 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 		spin_lock(&file->f_lock);
 		offset = vfs_setpos(file, file->f_pos + offset, maxsize);
 		spin_unlock(&file->f_lock);
-		return offset;
+		ret = offset;
+		goto out;
 	case SEEK_DATA:	//move to data where data.offset >= offset
-		if (offset >= eof)
-			return -ENXIO;
+		if (offset >= eof) {
+			ret = -ENXIO;
+			goto out;
+		}
 		break;
 	case SEEK_HOLE:
 		/*
 		 * There is a virtual hole at the end of the file, so as long as
 		 * offset isn't i_size or larger, return i_size.
 		 */
-		if (offset >= eof)
-			return -ENXIO;
+		if (offset >= eof) {
+			ret = -ENXIO;
+			goto out;
+		}
 		offset = eof;
 		break;
 	}
-	return vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
+
+	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
+out:
+	mutex_unlock(&inode->i_mutex);
+	return ret;
 }
 
 ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
@@ -63,6 +74,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	index = pos >> HMFS_PAGE_SIZE_BITS;	//TODO: shift is HMFS_BLK_SHIFT
 	offset = pos & ~HMFS_PAGE_MASK;	//^
 
+	mutex_lock(&inode->i_mutex);
 	isize = i_size_read(inode);
 	if (!isize)
 		goto out;
@@ -96,9 +108,11 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 			nr = len - copied;
 
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
+		hmfs_inode_read_lock(inode);
 		error =
 		    get_data_blocks(inode, index, index + 1, xip_mem, &size,
 				    RA_END);
+		hmfs_inode_read_unlock(inode);
 
 		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {
@@ -128,6 +142,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	} while (copied < len);
 
 out:
+	mutex_unlock(&inode->i_mutex);
 	*ppos = pos + copied;
 	if (filp)
 		file_accessed(filp);
@@ -156,7 +171,9 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		if (bytes > count)
 			bytes = count;
 
+		hmfs_inode_write_lock(inode);
 		xip_mem = get_new_data_block(inode, index);
+		hmfs_inode_write_unlock(inode);
 		if (unlikely(IS_ERR(xip_mem)))
 			break;
 
