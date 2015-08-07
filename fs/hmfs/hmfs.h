@@ -383,7 +383,7 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, nid_t ino);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      unsigned long blk_addr, unsigned int version);
+		      unsigned long blk_addr, unsigned int version, bool dirty);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);

@@ -141,7 +141,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			dn->nid = nid[i];
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
-					 NEW_ADDR, CURCP_I(sbi)->version);
+					 NEW_ADDR, CURCP_I(sbi)->version, true);
 			blocks[i] = get_new_node(sbi, nid[i], dn->inode->i_ino);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);

@@ -52,7 +52,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version);
+	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version, true);
 	err = sync_hmfs_inode(inode);
 	printk(KERN_INFO "allocate new inode:%lu, result:%d\n", inode->i_ino,
 	       err);

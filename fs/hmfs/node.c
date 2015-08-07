@@ -37,6 +37,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&nm_i->nat_entries);
+	INIT_LIST_HEAD(&nm_i->dirty_nat_entries);
 	INIT_LIST_HEAD(&nm_i->free_nid_list);
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
@@ -140,7 +141,7 @@ retry:
 }
 
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      unsigned long blk_addr, unsigned int version)
+		      unsigned long blk_addr, unsigned int version, bool dirty)
 {
 	struct nat_entry *e;
 retry:
@@ -156,6 +157,10 @@ retry:
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
 	e->ni.version = version;
+	if (dirty) {
+		list_del(&e->list);
+		list_add_tail(&e->list, &nm_i->dirty_nat_entries);
+	}
 	write_unlock(&nm_i->nat_tree_lock);
 	printk(KERN_INFO "cache nat nid:%lu ino:%lu blk:%lu-%lu\n",
 	       (unsigned long)nid, (unsigned long)ino,
@@ -229,7 +234,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, nid_t ino)
 	//TODO: cache nat
 	printk(KERN_INFO "blk_addr:%lu-%lu\n", block >> HMFS_SEGMENT_SIZE_BITS,
 	       (block & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	update_nat_entry(nm_i, nid, ino, block, cp_i->version);
+	update_nat_entry(nm_i, nid, ino, block, cp_i->version, true);
 	return dest;
 }
 
@@ -242,6 +247,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	struct hmfs_nat_block *nat_block;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	int i;
+	bool dirty;
 
 	/* search in nat cache */
 	e = __lookup_nat_cache(nm_i, nid);
@@ -261,6 +267,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	if (i >= 0) {
 		ne = nat_in_journal(cp_info, i);
 		node_info_from_raw_nat(ni, &ne);
+		dirty = true;
 		goto cache;
 	}
 
@@ -272,6 +279,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	printk(KERN_ERR "lookup right:%d\n", (int)nid);
 	ne = nat_block->entries[nid - start_nid];
 	node_info_from_raw_nat(ni, &ne);
+	dirty = false;
 cache:
 	//TODO: add nat cache
 	return 0;
