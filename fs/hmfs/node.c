@@ -308,8 +308,10 @@ static void recycle_nat_journals(struct hmfs_sb_info *sbi,
 		blk_addr =
 		    le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
 		if (blk_addr == FREE_ADDR && nid > HMFS_ROOT_INO) {
+			hmfs_cp->nat_journals[i].nid=0;
 			add_free_nid(nm_i, nid, 1, pos);
 			*pos = *pos - 1;
+			printk(KERN_INFO"nat free nid:%d\n",(int)nid);
 		}
 	}
 	write_unlock(&cp_i->journal_lock);
