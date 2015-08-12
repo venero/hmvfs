@@ -1,7 +1,31 @@
 #include "segment.h"		//hmfs.h is included
-//TODO: MOVE ME
-const struct address_space_operations hmfs_sit_aops;
-const struct address_space_operations hmfs_ssa_aops;
+
+/*
+ * NVM related segment management functions
+ */
+
+void *get_sn_page(block_t * root, pgoff_t no, u8 height)
+{
+	if (!height)
+		return (void *)root[no];
+
+	block_t *new_root = (block_t *) root[no >> (height * LOG2_ADDRS_PER_BLOCK)];	//FIXME:LOG2 ADDRS_PER_BLOCK
+	pgoff_t new_no = no
+	    && ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
+	return get_sn_page(new_root, new_no, height - 1);
+}
+
+/*
+ * DRAM related segment management functions
+ */
+static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
+{
+	//TODO -- read summaries from 
+	// 1. inner-cp journal
+	// read_compacted_summaries(sbi))
+	// 2. read_normal_summaries(sbi, type))
+	return 0;
+}
 
 /*
  * get_new_segment -- Find a new segment from the free segments bitmap
@@ -16,7 +40,9 @@ static void get_new_segment(struct hmfs_sb_info *sbi, unsigned int *newseg)
 	int i;
 
 	write_lock(&free_i->segmap_lock);
-	segno = find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg - 1);	//FIXME: always look forward?
+
+	segno = find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);	//FIXME: always look forward?
+	//if(segno == TOTAL_SEGS(sbi) && )
 
 	BUG_ON(test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
@@ -58,8 +84,12 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 
 static void *get_current_sit_page(struct hmfs_sb_info *sbi, unsigned int segno)
 {
-	//**TODO** : sbi->seg_root ==> ino 
-	return (void *)le64_to_cpu(HMFS_RAW_SUPER(sbi)->sit_root);	//FIXME : return NID of segment
+	struct hmfs_checkpoint *cp_page =
+	    (struct hmfs_checkpoint *)sbi->cp_info->cp_page;
+	//FIXME:add height to cp_info
+	//get_sn_page((block_t*)le64_to_cpu(cp_page->sit_addr), (pgoff_t)segno, );
+	return NULL;
+
 }
 
 static inline void seg_info_from_raw_sit(struct seg_entry *se,
@@ -190,9 +220,7 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 		array[i].segno = NULL_SEGNO;
 		array[i].next_blkoff = 0;
 	}
-	//TODO : retore strategy
-	//return restore_curseg_summaries(sbi);
-	return 0;
+	return restore_curseg_summaries(sbi);
 }
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
@@ -341,4 +369,21 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 	destroy_sit_info(sbi);
 	sbi->sm_info = NULL;
 	kfree(sm_info);
+}
+
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
+					 void *blk_addr)
+{
+	u64 logic_addr;
+	u64 segno;
+	int blkoff;
+	struct hmfs_summary_block *summary_blk = NULL;
+
+	logic_addr = blk_addr - sbi->virt_addr;
+	segno = logic_addr >> HMFS_SEGMENT_SIZE_BITS;
+	summary_blk = ADDR(sbi, segno * HMFS_SUMMARY_BLOCK_SIZE);
+
+	blkoff = (logic_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS;
+
+	return &summary_blk->entries[blkoff];
 }

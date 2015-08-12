@@ -10,6 +10,7 @@ static int do_read_inode(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
 
 	if (check_nid_range(sbi, inode->i_ino)) {
@@ -18,9 +19,11 @@ static int do_read_inode(struct inode *inode)
 		return -EINVAL;
 	}
 
-	hi = get_node(sbi, inode->i_ino);
-	if (IS_ERR(hi))
-		return PTR_ERR(hi);
+	hn = (struct hmfs_node *)get_node(sbi, inode->i_ino);
+	if (IS_ERR(hn))
+		return PTR_ERR(hn);
+
+	hi = &hn->i;
 
 	inode->i_mode = le16_to_cpu(hi->i_mode);
 	i_uid_write(inode, le32_to_cpu(hi->i_uid));

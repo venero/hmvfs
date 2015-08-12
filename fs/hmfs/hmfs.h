@@ -8,6 +8,7 @@
 #include <linux/pagemap.h>
 #include <linux/bitops.h>
 #include <linux/backing-dev.h>
+#include <linux/spinlock.h>
 
 #include "hmfs_fs.h"
 //#include "segment.h"
@@ -26,8 +27,6 @@
 #define hmfs_down_write(x, y)	down_write(x)
 #endif
 
-#define MAX_DIR_RA_PAGES	4	/* maximum ra pages of dir */
-
 #define HMFS_DEF_FILE_MODE	0664
 
 /*
@@ -45,38 +44,44 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 				   void *src, int type)
 {
 	//XXX;type always == 1?
-//	if (type == 1) {
-		struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
-		d->max = NR_DENTRY_IN_BLOCK;
-		d->bitmap = &t->dentry_bitmap;
-		d->dentry = t->dentry;
-		d->filename = t->filename;
-//	} else {
-//		struct hmfs_inline_dentry *t = (struct hmfs_inline_dentry *)src;
-//		d->max = NR_INLINE_DENTRY;
-//		d->bitmap = &t->dentry_bitmap;
-//		d->dentry = t->dentry;
-//		d->filename = t->filename;
-//	}
+//      if (type == 1) {
+	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
+	d->max = NR_DENTRY_IN_BLOCK;
+	d->bitmap = &t->dentry_bitmap;
+	d->dentry = t->dentry;
+	d->filename = t->filename;
+//      } else {
+//              struct hmfs_inline_dentry *t = (struct hmfs_inline_dentry *)src;
+//              d->max = NR_INLINE_DENTRY;
+//              d->bitmap = &t->dentry_bitmap;
+//              d->dentry = t->dentry;
+//              d->filename = t->filename;
+//      }
 }
 
-typedef unsigned long nid_t;
+typedef u64 nid_t;
+struct free_nid;
 
 struct checkpoint_info {
-	unsigned int version;
+	u32 version;
 
-	unsigned long cur_node_segno;
-	unsigned int cur_node_blkoff;
+	u64 cur_node_segno;
+	int cur_node_blkoff;
 
-	unsigned long cur_data_segno;
-	unsigned int cur_data_blkoff;
+	u64 cur_data_segno;
+	int cur_data_blkoff;
 
-	unsigned valid_inode_count;
+	u64 valid_inode_count;
+	u64 valid_node_count;
 
-	unsigned last_checkpoint_addr;
+	u64 last_checkpoint_addr;
+
+	rwlock_t journal_lock;
 
 	struct hmfs_checkpoint *cp;
 	struct page *cp_page;
+
+	spinlock_t stat_lock;
 };
 
 struct hmfs_nm_info {
@@ -93,7 +98,9 @@ struct hmfs_nm_info {
 
 	/* free node ids management */
 	struct list_head free_nid_list;	/* a list for free nids */
+	struct free_nid *free_nids;
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
+
 	unsigned int fcnt;	/* the number of free node id */
 	struct mutex build_lock;	/* lock for build free nids */
 };
@@ -109,17 +116,17 @@ struct hmfs_sb_info {
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
 
-	unsigned long initsize;
+	u64 initsize;
 	unsigned long s_mount_opt;
 
-	unsigned long page_count;
-	unsigned long segment_count;
+	u64 page_count;
+	u64 segment_count;
 
 	struct checkpoint_info *cp_info;
 
-	unsigned long ssa_addr;
-	unsigned long main_addr_start;
-	unsigned long main_addr_end;
+	u64 ssa_addr;
+	u64 main_addr_start;
+	u64 main_addr_end;
 
 	struct rw_semaphore cp_rwsem;	/* blocking FS operations */
 
@@ -134,20 +141,21 @@ struct hmfs_sb_info {
 
 	struct inode *sit_inode;
 	struct inode *ssa_inode;
+
+	void *summary_blk;
 };
 
 struct hmfs_inode_info {
 	struct inode vfs_inode;	/* vfs inode */
-	atomic_t dirty_pages;	/* # of dirty pages */
 	unsigned long i_flags;	/* keep an inode flags for ioctl */
-	unsigned char i_dir_level;	/* use for dentry level for large dir */
 	hmfs_hash_t chash;	/* hash value of given file name */
 	unsigned int i_current_depth;	/* use only in directory structure */
 	unsigned int clevel;	/* maximum level of given file name */
 	/* Use below internally in hmfs */
 	unsigned long flags;	/* use to pass per-file flags */
 	struct rw_semaphore i_sem;	/* protect fi info */
-	unsigned int i_pino;	/* parent inode number */
+	u64 i_pino;		/* parent inode number */
+	rwlock_t i_lock;	/* lock inode when write-back */
 };
 
 struct hmfs_stat_info {
@@ -180,18 +188,6 @@ enum {
 	FI_INLINE_DOTS,		/* indicate inline dot dentries */
 };
 
-enum page_type {
-	DATA,
-	NODE,
-	META,
-	NR_PAGE_TYPE,
-	META_FLUSH,
-	INMEM,			/* the below types are used by tracepoints only. */
-	INMEM_DROP,
-	IPU,
-	OPU,
-};
-
 enum DATA_RA_TYPE {
 	RA_DB_END,		/* get data block address within a direct node */
 	RA_END,			/* get data block to end */
@@ -200,6 +196,7 @@ enum DATA_RA_TYPE {
 enum ADDR_TYPE {
 	NULL_ADDR = 0,
 	NEW_ADDR = -1,
+	FREE_ADDR = -2,
 };
 
 enum READ_DNODE_TYPE {
@@ -232,13 +229,14 @@ extern const struct address_space_operations hmfs_dblock_aops;
 extern const struct address_space_operations hmfs_nat_aops;
 extern const struct address_space_operations hmfs_sit_aops;
 extern const struct address_space_operations hmfs_ssa_aops;
+
 /*
  * Inline functions
  */
 static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
 {
-        return (struct hmfs_super_block *)(sbi->virt_addr);
-} 
+	return (struct hmfs_super_block *)(sbi->virt_addr);
+}
 static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
 {
 	return container_of(inode, struct hmfs_inode_info, vfs_inode);
@@ -266,11 +264,6 @@ static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
 	return sbi->cp_info;
 }
 
-static inline struct hmfs_inode *HMFS_INODE(struct page *page)
-{
-	return &((struct hmfs_node *)page_address(page))->i;
-}
-
 static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned logic_addr)
 {
 	return (sbi->virt_addr + logic_addr);
@@ -279,7 +272,8 @@ static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned logic_addr)
 static inline nid_t START_NID(nid_t nid)
 {
 	//TODO
-	return nid;
+	return ((nid / NAT_ENTRY_PER_BLOCK) * NAT_ENTRY_PER_BLOCK);
+
 }
 
 static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
@@ -338,6 +332,44 @@ static inline unsigned long cal_page_addr(unsigned long segno,
 	    (blkoff << HMFS_PAGE_SIZE_BITS);
 }
 
+static inline void hmfs_inode_read_lock(struct inode *inode)
+{
+	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+
+	read_lock(&inode_info->i_lock);
+}
+
+static inline void hmfs_inode_read_unlock(struct inode *inode)
+{
+	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+
+	read_unlock(&inode_info->i_lock);
+}
+
+static inline void hmfs_inode_write_lock(struct inode *inode)
+{
+	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+
+	write_lock(&inode_info->i_lock);
+}
+
+static inline void hmfs_inode_write_unlock(struct inode *inode)
+{
+	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+
+	write_unlock(&inode_info->i_lock);
+}
+
+static inline void inc_valid_node_count(struct hmfs_sb_info *sbi,
+					struct inode *inode, int count)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+
+	spin_lock(&cp_i->stat_lock);
+	cp_i->valid_node_count += count;
+	spin_unlock(&cp_i->stat_lock);
+}
+
 static inline loff_t hmfs_max_size(void)
 {
 	loff_t res = 0;
@@ -375,13 +407,17 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
-bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * uid, nid_t * ino);
+bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, nid_t ino);
+void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
+		      unsigned long blk_addr, unsigned int version, bool dirty);
 
 /* segment.c*/
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
-
+void allocate_new_segments(struct hmfs_sb_info *sbi);
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
+					 void *blk_addr);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -419,26 +455,9 @@ static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 			       inode);
 }
 
-static inline void hmfs_put_page(struct page *page, int unlock)
-{
-	if (!page)
-		return;
-
-	if (unlock) {
-		//hmfs_bug_on(HMFS_P_SB(page), !PageLocked(page));
-		unlock_page(page);
-	}
-	page_cache_release(page);
-}
-
 static inline int hmfs_has_inline_dentry(struct inode *inode)
 {
 	return is_inode_flag_set(HMFS_I(inode), FI_INLINE_DENTRY);
 }
 
-static inline void hmfs_dentry_kunmap(struct inode *dir, struct page *page)
-{
-	if (!hmfs_has_inline_dentry(dir))
-		kunmap(page);
-}
 #endif

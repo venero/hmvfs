@@ -74,6 +74,7 @@ struct hmfs_sm_info {
 	unsigned int ovp_segments;	/* # of overprovision segments */
 };
 
+/* Segment inlined functions */
 static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->sm_info;
@@ -119,4 +120,17 @@ static inline void __set_inuse(struct hmfs_sb_info *sbi, unsigned int segno)
 	//FIXME: do we need lock here?
 	set_bit(segno, free_i->free_segmap);
 	free_i->free_segments--;
+}
+
+static inline u8 hmfs_get_sit_height(u64 init_size)
+{
+	if (init_size > SIT_MAX_SIZE(3))
+		return 4;
+	else if (init_size > SIT_MAX_SIZE(2))
+		return 3;
+	else if (init_size > SIT_MAX_SIZE(1))
+		return 2;
+	else if (init_size > SIT_MAX_SIZE(0))
+		return 1;
+	return 0;
 }

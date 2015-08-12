@@ -39,6 +39,7 @@ static int get_node_path(long block, int offset[4], unsigned int noffset[4])
 		noffset[n] = 2;
 		offset[n] = block;
 		level = 1;
+		goto got;
 	}
 
 	/* indirect block 1 */
@@ -87,6 +88,9 @@ got:
 	return level;
 }
 
+/*
+ * return the last block index in current node/inode
+ */
 static int get_end_blk_index(int block, int level)
 {
 	int start_blk;
@@ -116,7 +120,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 	blocks[0] = dn->inode_block;
 	printk(KERN_INFO "index:%d\n", index);
 	if (!blocks[0]) {
-		printk(KERN_INFO "get node:%d\n", nid[0]);
+		printk(KERN_INFO "get node:%d\n", (int)nid[0]);
 		blocks[0] = get_node(sbi, nid[0]);
 		if (IS_ERR(blocks[0]))
 			return PTR_ERR(blocks[0]);
@@ -131,11 +135,13 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 
 	for (i = 1; i <= level; ++i) {
 		if (!nid[i] && mode == ALLOC_NODE) {
-			if (!alloc_nid(sbi, &(nid[i]), &dn->inode->i_ino)) {
+			if (!alloc_nid(sbi, &(nid[i]))) {
 				err = -ENOSPC;
 				goto out;
 			}
 			dn->nid = nid[i];
+			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
+					 NEW_ADDR, CURCP_I(sbi)->version, true);
 			blocks[i] = get_new_node(sbi, nid[i], dn->inode->i_ino);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
@@ -191,14 +197,14 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct dnode_of_data dn;
+	u64 addr;
+	u64 max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
 	int i;
 	int ofs_in_node = 0;
 	int end_blk_id = -1;
-	struct dnode_of_data dn;
-	int err;
-	unsigned long addr;
+	int err = 0;
 	bool init = true;
-	unsigned long max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	printk(KERN_INFO "get_data_blocks:[%d,%d)\n", start, end);
@@ -227,8 +233,8 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
 		printk(KERN_INFO "blk_addr:%lu-%d\n",
-		       addr >> HMFS_SEGMENT_SIZE_BITS,
-		       (addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
+		       (unsigned long)addr >> HMFS_SEGMENT_SIZE_BITS,
+		       (int)(addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 		if (addr == NULL_ADDR) {
 fill_null:
 			blocks[*size] = NULL;
@@ -253,10 +259,13 @@ void *get_new_data_block(struct inode *inode, int block)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_node *hn = NULL;
-	unsigned long new_addr, src_addr;
-	void *src, *dest;
+	u64 new_addr, src_addr;
+	void *src = NULL, *dest;
 	int err;
+	struct hmfs_summary *summary = NULL;
+
 	printk(KERN_INFO "get_new_data_block:%lu\n", inode->i_ino);
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
@@ -268,23 +277,39 @@ void *get_new_data_block(struct inode *inode, int block)
 	if (IS_ERR(hn))
 		return hn;
 
-	new_addr = get_new_data_block_addr(sbi);
-
-	if (dn.level) {
+	if (dn.level)
 		src_addr = hn->dn.addr[dn.ofs_in_node];
-		hn->dn.addr[dn.ofs_in_node] = new_addr;
-	} else {
+	else
 		src_addr = hn->i.i_addr[dn.ofs_in_node];
-		hn->i.i_addr[dn.ofs_in_node] = new_addr;
+
+	if (src_addr != NULL_ADDR) {
+		src = ADDR(sbi, src_addr);
+		summary = get_summary_by_addr(sbi, src);
+		if (get_summary_version(summary) == cp_i->version)
+			return src;
 	}
-	printk(KERN_INFO "src_blk_addr:%lu-%d\n",
-	       src_addr >> HMFS_SEGMENT_SIZE_BITS,
-	       (src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	printk(KERN_INFO "dest_blk_addr:%lu-%d\n",
-	       new_addr >> HMFS_SEGMENT_SIZE_BITS,
-	       (new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	src = ADDR(sbi, src_addr);
+
+	new_addr = get_new_data_block_addr(sbi);
+	if (dn.level)
+		hn->dn.addr[dn.ofs_in_node] = new_addr;
+	else
+		hn->i.i_addr[dn.ofs_in_node] = new_addr;
+
+	printk(KERN_INFO "src_blk_addr:%d-%d\n",
+	       (int)src_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)(src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
+	printk(KERN_INFO "dest_blk_addr:%d-%d\n",
+	       (int)new_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)(new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
+
 	dest = ADDR(sbi, new_addr);
-	hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
+
+	if (src_addr != NULL_ADDR)
+		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
+
+	summary = get_summary_by_addr(sbi, dest);
+	make_summary_entry(summary, inode->i_ino, cp_i->version, dn.ofs_in_node,
+			   SUM_TYPE_DATA);
+
 	return dest;
 }
