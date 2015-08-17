@@ -53,14 +53,27 @@ struct checkpoint_info {
 	u64 valid_inode_count;
 	u64 valid_node_count;
 
+	u64 valid_block_count;
+	u64 user_block_count;
+	u64 alloc_valid_block_count;
+
 	u64 last_checkpoint_addr;
 
 	rwlock_t journal_lock;
+
+	struct mutex orphan_inode_mutex;
+	struct list_head orphan_inode_list;
+	u64 n_orphans;
 
 	struct hmfs_checkpoint *cp;
 	struct page *cp_page;
 
 	spinlock_t stat_lock;
+};
+
+struct orphan_inode_entry {
+	struct list_head list;
+	nid_t ino;
 };
 
 struct hmfs_nm_info {
@@ -118,6 +131,8 @@ struct hmfs_sb_info {
 	struct hmfs_nm_info *nm_info;
 	struct inode *sit_inode;
 	struct inode *ssa_inode;
+
+	int por_doing;		/* recovery is doing or not */
 
 	void *summary_blk;
 };
@@ -333,13 +348,89 @@ static inline void hmfs_inode_write_unlock(struct inode *inode)
 	write_unlock(&inode_info->i_lock);
 }
 
-static inline void inc_valid_node_count(struct hmfs_sb_info *sbi,
+static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	u64 alloc_valid_block_count;
+
+	spin_lock(&cp_i->stat_lock);
+	alloc_valid_block_count = cp_i->alloc_valid_block_count + count;
+
+	if (alloc_valid_block_count > cp_i->user_block_count) {
+		spin_unlock(&cp_i->stat_lock);
+		return false;
+	}
+
+	if (inode)
+		inode->i_blocks += count;
+
+	cp_i->valid_node_count += count;
+	cp_i->alloc_valid_block_count = alloc_valid_block_count;
+	spin_unlock(&cp_i->stat_lock);
+
+	return true;
+}
+
+static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
+					struct inode *inode, int count)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	spin_lock(&cp_i->stat_lock);
+	cp_i->valid_node_count -= count;
+	cp_i->alloc_valid_block_count -= count;
+	if (likely(inode))
+		inode->i_blocks -= count;
+	spin_unlock(&cp_i->stat_lock);
+}
+
+static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
+					struct inode *inode, int count)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	spin_lock(&cp_i->stat_lock);
+	inode->i_blocks -= count;
+	cp_i->valid_block_count -= count;
+	cp_i->alloc_valid_block_count -= count;
+	spin_unlock(&cp_i->stat_lock);
+	return 0;
+}
+
+static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
+					 struct inode *inode, int count)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	u64 alloc_block_count;
+
+	spin_lock(&cp_i->stat_lock);
+	alloc_block_count = cp_i->alloc_valid_block_count + count;
+	//FIXME: need this check ?
+	if (alloc_block_count > cp_i->user_block_count) {
+		spin_unlock(&cp_i->stat_lock);
+		return false;
+	}
+	inode->i_blocks += count;
+	cp_i->alloc_valid_block_count = alloc_block_count;
+	cp_i->valid_block_count += count;
+	spin_unlock(&cp_i->stat_lock);
+	return true;
+}
+
+static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 {
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 
 	spin_lock(&cp_i->stat_lock);
-	cp_i->valid_node_count += count;
+	cp_i->valid_inode_count--;
+	spin_unlock(&cp_i->stat_lock);
+}
+
+static inline void inc_valid_inode_count(struct hmfs_sb_info *sbi)
+{
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+
+	spin_lock(&cp_i->stat_lock);
+	cp_i->valid_inode_count++;
 	spin_unlock(&cp_i->stat_lock);
 }
 
@@ -364,6 +455,12 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 void hmfs_update_isize(struct inode *inode);
 int sync_hmfs_inode(struct inode *inode);
 
+/* file.c */
+int truncate_data_blocks_range(struct dnode_of_data *dn, int count);
+void truncate_data_blocks(struct dnode_of_data *dn);
+void hmfs_truncate(struct inode *inode);
+int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
+
 /* debug.c */
 void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
@@ -381,9 +478,13 @@ int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
-void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, nid_t ino);
+void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
+int truncate_inode_blocks(struct inode *, pgoff_t);
+int get_node_path(long block, int offset[4], unsigned int noffset[4]);
+void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
+		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -392,31 +493,51 @@ int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
 			 nid_t nid, int alloc);
 struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info,
 				     int index);
+void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
+void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
+void recover_orphan_inode(struct hmfs_sb_info *sbi);
+int check_orphan_space(struct hmfs_sb_info *);
+int create_checkpoint_caches(void);
+void destroy_checkpoint_caches(void);
+
 /* segment.c */
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 					 void *blk_addr);
+void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
 void *get_new_data_block(struct inode *inode, int block);
+void *get_new_data_partial_block(struct inode *inode, int block, int start,
+				 int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
 
 /* dir.c */
-int __hmfs_add_link(struct inode *inode, const struct qstr *name,
-		    struct inode *child);
-struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child);
-struct hmfs_dir_entry *hmfs_parent_dir(struct inode *inode, struct page **page);
+int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);
+struct hmfs_dir_entry *hmfs_find_entry(struct inode *, struct qstr *, int *,
+				       int *);
+struct hmfs_dir_entry *hmfs_parent_dir(struct inode *);
 unsigned long hmfs_inode_by_name(struct inode *inode, struct qstr *name);
 void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry,
-		   struct page *, struct inode *);
-void hmfs_delete_entry(struct hmfs_dir_entry *, struct page *, struct inode *,
-		       struct inode *);
+		   struct inode *);
+void hmfs_delete_entry(struct hmfs_dir_entry *, struct hmfs_dentry_block *,
+		       struct inode *, struct inode *, int bidx);
 int hmfs_make_empty(struct inode *, struct inode *);
 bool hmfs_empty_dir(struct inode *);
 
+/* symlink.c */
+int hmfs_symlink(struct inode *inode, struct dentry *, const char *symname);
+
 /* hash.c */
 hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
+
+/* namei.c */
+int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+		 struct kstat *stat);
+int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
+struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
+			       umode_t mode);
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {

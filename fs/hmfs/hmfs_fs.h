@@ -25,6 +25,10 @@
 #define HMFS_SEGMENT_SIZE		(2 << HMFS_SEGMENT_SIZE_BITS)
 #define HMFS_SEGMENT_MASK		(~(HMFS_SEGMENT_SIZE - 1))
 
+#define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_PAGE_SIZE
+
+#define HMFS_MAX_ORPHAN_NUM		(HMFS_PAGE_SIZE / 8)
+
 /* This flag is used by sit and nat inode */
 #define GFP_HMFS_ZERO	(GFP_NOFS | __GFP_ZERO)
 
@@ -397,6 +401,7 @@ struct hmfs_checkpoint {
 
 	__le64 sit_addr;	/* sit file physical address bias */
 	__le64 nat_addr;	/* nat file physical address bias */
+	__le64 orphan_addr;
 
 	__le64 next_scan_nid;
 

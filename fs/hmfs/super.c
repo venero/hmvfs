@@ -573,6 +573,11 @@ static int __init init_inodecache(void)
 	return 0;
 }
 
+static void destroy_inodecache(void)
+{
+	kmem_cache_destroy(hmfs_inode_cachep);
+}
+
 int init_hmfs(void)
 {
 	int err;
@@ -582,12 +587,21 @@ int init_hmfs(void)
 		goto fail;
 	err = create_node_manager_caches();
 	if (err)
-		goto fail;
+		goto fail_node;
+	err = create_checkpoint_caches();
+	if (err)
+		goto fail_cp;
 	err = register_filesystem(&hmfs_fs_type);
 	if (err)
-		goto fail;
+		goto fail_reg;
 	hmfs_create_root_stat();
 	return 0;
+fail_reg:
+	destroy_checkpoint_caches();
+fail_cp:
+	destroy_node_manager_caches();
+fail_node:
+	destroy_inodecache();
 fail:
 	return err;
 
@@ -597,6 +611,7 @@ void exit_hmfs(void)
 {
 	// TO BE FIXED
 	destroy_node_manager_caches();
+	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
 	printk("HMFS is removed!");

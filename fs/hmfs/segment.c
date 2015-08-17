@@ -18,3 +18,7 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 
 	return &summary_blk->entries[blkoff];
 }
+
+void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr)
+{
+}

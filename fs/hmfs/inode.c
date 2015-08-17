@@ -55,7 +55,7 @@ void hmfs_update_isize(struct inode *inode)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct hmfs_node *hn;
 
-	hn = get_new_node(sbi, inode->i_ino, inode->i_ino);
+	hn = get_new_node(sbi, inode->i_ino, inode);
 	hn->i.i_size = cpu_to_le64(inode->i_size);
 	hn->i.i_blocks = cpu_to_le64(inode->i_blocks);
 	hn->i.i_ctime = cpu_to_le64(get_seconds());
@@ -70,7 +70,7 @@ int sync_hmfs_inode(struct inode *inode)
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
 
-	rn = get_new_node(sbi, inode->i_ino, inode->i_ino);
+	rn = get_new_node(sbi, inode->i_ino, inode);
 	if (IS_ERR(rn))
 		return PTR_ERR(rn);
 

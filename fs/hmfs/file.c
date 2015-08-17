@@ -3,6 +3,7 @@
 #include <linux/falloc.h>
 #include <linux/time.h>
 #include <linux/stat.h>
+#include <linux/fs.h>
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
@@ -252,17 +253,215 @@ out_up:
 
 }
 
-//verno
+/* dn->node_block should be writable */
+int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
+{
+	int nr_free = 0, ofs = dn->ofs_in_node;
+	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
+	struct hmfs_node *raw_node = (struct hmfs_node *)dn->node_block;
+	struct hmfs_node *new_node = NULL;
+	void *data_blk;
+	u64 addr;
+
+	new_node =
+	    get_new_node(sbi, le64_to_cpu(raw_node->footer.nid), dn->inode);
+	if (IS_ERR(new_node))
+		return PTR_ERR(new_node);
+
+	for (; count > 0; count--, ofs++) {
+		addr = raw_node->dn.addr[ofs];
+		if (addr == NULL_ADDR)
+			continue;
+		BUG_ON(addr == FREE_ADDR || addr == NEW_ADDR);
+		data_blk = ADDR(sbi, addr);
+		new_node->dn.addr[ofs] = NULL_ADDR;
+		invalidate_blocks(sbi, addr);
+		nr_free++;
+	}
+	if (nr_free) {
+		dec_valid_block_count(sbi, dn->inode, nr_free);
+		mark_inode_dirty(dn->inode);
+	}
+
+	return nr_free;
+}
+
+void truncate_data_blocks(struct dnode_of_data *dn)
+{
+	truncate_data_blocks_range(dn, ADDRS_PER_BLOCK);
+}
+
+static void truncate_partial_data_page(struct inode *inode, u64 from)
+{
+	unsigned offset = from & (HMFS_PAGE_SIZE - 1);
+
+	if (!offset)
+		return;
+	get_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
+				   HMFS_PAGE_SIZE, true);
+	return;
+}
+
+static int truncate_blocks(struct inode *inode, u64 from)
+{
+	struct dnode_of_data dn;
+	int count, err;
+	u64 free_from;
+
+	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
+
+	set_new_dnode(&dn, inode, NULL, NULL, 0);
+	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
+
+	if (err) {
+		goto free_next;
+	}
+
+	if (dn.level)
+		count = NORMAL_ADDRS_PER_INODE;
+	else
+		count = ADDRS_PER_BLOCK;
+
+	count -= dn.ofs_in_node;
+	BUG_ON(count < 0);
+
+	if (dn.ofs_in_node || !dn.level) {
+		truncate_data_blocks_range(&dn, count);
+		free_from += count;
+	}
+
+free_next:
+	err = truncate_inode_blocks(inode, free_from);
+	truncate_partial_data_page(inode, from);
+	return err;
+}
+
+void hmfs_truncate(struct inode *inode)
+{
+	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
+	      || S_ISLNK(inode->i_mode)))
+		return;
+
+	if (!truncate_blocks(inode, i_size_read(inode))) {
+		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+		mark_inode_dirty(inode);
+	}
+}
+
+int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)
+{
+	pgoff_t index;
+	int err;
+	struct dnode_of_data dn;
+
+	for (index = start; index < end; index++) {
+		set_new_dnode(&dn, inode, NULL, NULL, 0);
+		err = get_dnode_of_data(&dn, index, LOOKUP_NODE);
+		if (err) {
+			if (err == -ENODATA)
+				continue;
+			return err;
+		}
+		truncate_data_blocks_range(&dn, 1);
+	}
+	return 0;
+}
+
+static void fill_zero(struct inode *inode, pgoff_t index, loff_t start,
+		      loff_t len)
+{
+	if (!len)
+		return;
+
+	get_new_data_partial_block(inode, index, start, start + len, true);
+}
+
+static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
+{
+	pgoff_t pg_start, pg_end;
+	loff_t off_start, off_end;
+	loff_t blk_start, blk_end;
+	int ret = 0;
+
+	pg_start = ((u64) offset) >> HMFS_PAGE_SIZE_BITS;
+	pg_end = ((u64) offset + len) >> HMFS_PAGE_SIZE_BITS;
+	off_start = offset & (HMFS_PAGE_SIZE - 1);
+	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
+
+	if (pg_start == pg_end) {
+		fill_zero(inode, pg_start, off_start, off_end - off_start);
+	} else {
+		if (off_start)
+			fill_zero(inode, pg_start++, off_start,
+				  HMFS_PAGE_SIZE - off_start);
+		if (off_end)
+			fill_zero(inode, pg_end, 0, off_end);
+
+		if (pg_start < pg_end) {
+			blk_start = pg_start << HMFS_PAGE_SIZE_BITS;
+			blk_end = pg_end << HMFS_PAGE_SIZE_BITS;
+			//FIXME: need this in mmap?
+			//truncate_inode_pages_range(inode,blk_start,blk_end);
+
+			ret = truncate_hole(inode, pg_start, pg_end);
+		}
+	}
+
+	if (!(mode & FALLOC_FL_KEEP_SIZE)
+	    && i_size_read(inode) <= (offset + len)) {
+		i_size_write(inode, offset);
+		mark_inode_dirty(inode);
+	}
+
+	return ret;
+}
+
+static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
+			     int mode)
+{
+	pgoff_t index, pg_start, pg_end;
+	loff_t new_size = i_size_read(inode);
+	loff_t off_start, off_end;
+	struct dnode_of_data dn;
+	int ret;
+
+	ret = inode_newsize_ok(inode, (len + offset));
+	if (ret)
+		return ret;
+
+	pg_start = ((u64) offset) >> HMFS_PAGE_SIZE_BITS;
+	pg_end = ((u64) offset + len) >> HMFS_PAGE_SIZE_BITS;
+
+	off_start = offset & (HMFS_PAGE_SIZE - 1);
+	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
+
+	for (index = pg_start; index <= pg_end; index++) {
+		set_new_dnode(&dn, inode, NULL, NULL, 0);
+
+		ret = get_dnode_of_data(&dn, index, ALLOC_NODE);
+		if (ret)
+			break;
+
+		if (pg_start == pg_end)
+			new_size = offset + len;
+		else if (index == pg_start && off_start)
+			new_size = (index + 1) << HMFS_PAGE_SIZE_BITS;
+		else if (index == pg_end)
+			new_size = (index << HMFS_PAGE_SIZE_BITS) + off_end;
+		else
+			new_size += HMFS_PAGE_SIZE;
+	}
+
+	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
+		i_size_write(inode, new_size);
+		mark_inode_dirty(inode);
+	}
+
+	return ret;
+}
+
 static const struct vm_operations_struct hmfs_file_vm_ops = {
-//       .fault should be redefined
-//       Ask qweeah: PMFS uses pmfs_get_xip_mem to get page, however, f2fs uses 'BUG()'. I don't know why.
 	.fault = filemap_fault,
-
-//      I have no idea what this is about.
-//      .map_pages      = filemap_map_pages,
-
-//      .page_mkwrite should be redefined to write data from DRAM to NVM with structure and function defined in node.
-//      .page_mkwrite   = hmfs_vm_page_mkwrite,
 };
 
 static int hmfs_release_file(struct inode *inode, struct file *filp)
@@ -278,11 +477,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
-//      TODO: Inline data
-
 	file_accessed(file);
 	vma->vm_ops = &hmfs_file_vm_ops;
-//      Ask Goku: Whether xip part should be coded by now
 	return 0;
 }
 
@@ -334,59 +530,22 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 			   loff_t len)
 {
 	struct inode *inode = file_inode(file);
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	pgoff_t index, pg_start, pg_end;
-	loff_t off_start, off_end;
 	long ret = 0;
 
-//      PMFS supports FALLOC_FL_KEEP_SIZE while F2FS supports both.
-//      FALLOC_FL_KEEP_SIZE: Allocate 'virtual' space but keep file size unchanged
-//      FALLOC_FL_PUNCH_HOLE is ignored for the time being.
-	if (mode & ~FALLOC_FL_KEEP_SIZE)
+	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE))
 		return -EOPNOTSUPP;
 
 	if (S_ISDIR(inode->i_mode))
 		return -ENODEV;
-
-	mutex_lock(&inode->i_mutex);
-
-//      ret = expand_inode_data(inode, offset, len, mode);
-
-//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
-
-	ret = inode_newsize_ok(inode, (len + offset));
-	if (ret)
-		return ret;
-
-//      TODO: Inline data
-
-	pg_start = ((unsigned long long)offset) >> PAGE_CACHE_SHIFT;
-	pg_end = ((unsigned long long)offset + len) >> PAGE_CACHE_SHIFT;
-
-	off_start = offset & (PAGE_CACHE_SIZE - 1);
-	off_end = (offset + len) & (PAGE_CACHE_SIZE - 1);
-
-	hmfs_lock_op(sbi);
-
-	for (index = pg_start; index <= pg_end; index++) {
-
-//              TODO: [Data] Allocate a data node
-
-//              TODO: [Data] Initialize data node
-
-//              TODO: [Data] Reserve this data node
-
-	}
-
-	hmfs_unlock_op(sbi);
+	if (mode & FALLOC_FL_PUNCH_HOLE)
+		ret = punch_hole(inode, offset, len, mode);
+	else
+		ret = expand_inode_data(inode, offset, len, mode);
 
 	if (!ret) {
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		mark_inode_dirty(inode);
 	}
-
-	mutex_unlock(&inode->i_mutex);
-
 	return ret;
 }
 
@@ -420,8 +579,8 @@ const struct file_operations hmfs_file_operations = {
 	.llseek = hmfs_file_llseek,
 	.read = hmfs_xip_file_read,
 	.write = hmfs_xip_file_write,
-//        .aio_read       = generic_file_aio_read,
-//        .aio_write      = generic_file_aio_write,
+	//.aio_read       = xip_file_aio_read,
+	//.aio_write      = xip_file_aio_write,
 
 	.open = generic_file_open,
 //      There's no '.release' in f2fs of kernel 3.11
@@ -430,4 +589,9 @@ const struct file_operations hmfs_file_operations = {
 	.fsync = hmfs_sync_file,
 	.fallocate = hmfs_fallocate,
 	.unlocked_ioctl = hmfs_ioctl,
+};
+
+const struct inode_operations hmfs_file_inode_operations = {
+	.getattr = hmfs_getattr,
+	.setattr = hmfs_setattr,
 };
