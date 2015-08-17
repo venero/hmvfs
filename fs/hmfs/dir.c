@@ -126,8 +126,7 @@ struct hmfs_dir_entry *find_target_dentry(struct qstr *name, int *max_slots,
 	struct hmfs_dir_entry *de;
 	unsigned long bit_pos = 0;
 	//TODO after add hash.c here will be valid
-	hmfs_hash_t namehash = 0;
-	//hmfs_hash_t namehash = hmfs_dentry_hash(name);
+	hmfs_hash_t namehash = hmfs_dentry_hash(name);
 	int max_len = 0;
 
 	if (max_slots)
