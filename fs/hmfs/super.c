@@ -11,7 +11,7 @@
 #include <linux/cred.h>
 
 #include "hmfs_fs.h"		//TODO:add to include/linux
-#include "hmfs.h"
+#include "segment.h"
 
 static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
 
@@ -212,6 +212,7 @@ static int hmfs_format(struct super_block *sb)
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
 	/* setup init nat sit */
+	super->sit_height = hmfs_get_sit_height(init_size);
 	sit_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	node_blkoff++;
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
@@ -491,10 +492,16 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto out;
 	printk(KERN_ERR "[HMFS] Init checkpoint manager\n");
+
 	/* init nat */
 	retval = build_node_manager(sbi);
 	if (retval)
 		goto free_cp_mgr;
+
+	retval = build_segment_manager(sbi);
+	if (retval)
+		goto free_segment_mgr;
+
 	printk(KERN_ERR "[HMFS] Init node manager\n");
 	//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
@@ -502,7 +509,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (IS_ERR(root)) {
 		printk("[HMFS] No space for root inode!!\n");
 		retval = PTR_ERR(root);
-		goto free_node_manager;
+		goto free_segment_mgr;
 	}
 
 	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
@@ -521,7 +528,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	return 0;
 free_root_inode:
 	iput(root);
-free_node_manager:
+free_segment_mgr:
+	destroy_segment_manager(sbi);
+
 	destroy_node_manager(sbi);
 free_cp_mgr:
 	destroy_checkpoint_manager(sbi);

@@ -155,16 +155,6 @@ fill_null:
 	return err;
 }
 
-static unsigned long get_new_data_block_addr(struct hmfs_sb_info *sbi,
-					     struct inode *inode)
-{
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	unsigned long page_addr = 0;
-	page_addr = cal_page_addr(cp_i->cur_data_segno, cp_i->cur_data_blkoff);
-	cp_i->cur_data_blkoff++;
-	return page_addr;
-}
-
 /**
  * get a writable data block of inode, if specified block exists,
  * copy its data with range [start,start+size) to newly allocated 
@@ -208,7 +198,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	if (!inc_valid_block_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
 
-	new_addr = get_new_data_block_addr(sbi, inode);
+	new_addr = get_free_data_block(sbi);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else
@@ -281,7 +271,7 @@ void *get_new_data_block(struct inode *inode, int block)
 	if (!inc_valid_block_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
 
-	new_addr = get_new_data_block_addr(sbi, inode);
+	new_addr = get_free_data_block(sbi);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else

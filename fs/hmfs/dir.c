@@ -31,7 +31,6 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 		d->filename = t->filename;
 	}
 }
-*/
 static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 				   void *src, int type)
 {
@@ -44,7 +43,7 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 	} else {
 	}
 }
-
+*/
 //calculate how many blocks does a file have.
 static unsigned long dir_blocks(struct inode *inode)
 {
@@ -380,6 +379,7 @@ static int make_empty_dir(struct inode *inode,
 {
 	struct hmfs_dentry_block *dentry_blk = NULL;
 	struct hmfs_dentry_ptr d;
+
 	printk(KERN_INFO "make empty dir of:%lu,its parent:%lu\n", inode->i_ino,
 	       parent->i_ino);
 	dentry_blk = get_new_data_block(inode, 0);
@@ -567,7 +567,7 @@ start:
 	bidx = dir_block_index(level, (le32_to_cpu(dentry_hash) % nbucket));
 
 	for (block = bidx; block <= (bidx + nblock - 1); block++) {
-		//TODO after add data.c here will be valid
+
 		//FIXME: use bat process to reduce read time
 		if (block > end_blk) {
 			dentry_blk = get_new_data_block(dir, block);

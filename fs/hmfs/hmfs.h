@@ -6,10 +6,12 @@
 #include <linux/types.h>
 #include <linux/radix-tree.h>
 #include <linux/pagemap.h>
+#include <linux/bitops.h>
 #include <linux/backing-dev.h>
 #include <linux/spinlock.h>
 
 #include "hmfs_fs.h"
+//#include "segment.h"
 
 #ifdef CONFIG_HMFS_CHECK_FS
 #define hmfs_bug_on(sbi, condition)	BUG_ON(condition)
@@ -37,6 +39,25 @@ struct hmfs_dentry_ptr {
 	 __u8(*filename)[HMFS_SLOT_LEN];
 	int max;
 };
+
+static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
+				   void *src, int type)
+{
+	//XXX;type always == 1?
+//      if (type == 1) {
+	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
+	d->max = NR_DENTRY_IN_BLOCK;
+	d->bitmap = &t->dentry_bitmap;
+	d->dentry = t->dentry;
+	d->filename = t->filename;
+//      } else {
+//              struct hmfs_inline_dentry *t = (struct hmfs_inline_dentry *)src;
+//              d->max = NR_INLINE_DENTRY;
+//              d->bitmap = &t->dentry_bitmap;
+//              d->dentry = t->dentry;
+//              d->filename = t->filename;
+//      }
+}
 
 typedef u64 nid_t;
 struct free_nid;
@@ -104,7 +125,7 @@ struct hmfs_nm_info {
 
 struct hmfs_sb_info {
 	struct super_block *sb;	/* pointer to VFS super block */
-	/* 1. location info  */
+
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
 
@@ -121,14 +142,16 @@ struct hmfs_sb_info {
 	u64 main_addr_end;
 
 	struct rw_semaphore cp_rwsem;	/* blocking FS operations */
-	/* 5. ... */
-	 /**/ /**/
+
 	/**
 	 * statiatic infomation, for debugfs
 	 */
 	struct hmfs_stat_info *stat_info;
 
 	struct hmfs_nm_info *nm_info;
+
+	struct hmfs_sm_info *sm_info;	/* segment manager */
+
 	struct inode *sit_inode;
 	struct inode *ssa_inode;
 
@@ -225,6 +248,11 @@ extern const struct address_space_operations hmfs_ssa_aops;
 /*
  * Inline functions
  */
+static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
+{
+	return (struct hmfs_super_block *)(sbi->virt_addr);
+}
+
 static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
 {
 	return container_of(inode, struct hmfs_inode_info, vfs_inode);
@@ -311,13 +339,6 @@ static inline void clear_inode_flag(struct hmfs_inode_info *fi, int flag)
 {
 	if (test_bit(flag, &fi->flags))
 		clear_bit(flag, &fi->flags);
-}
-
-static inline unsigned long cal_page_addr(unsigned long segno,
-					  unsigned int blkoff)
-{
-	return (segno << HMFS_SEGMENT_SIZE_BITS) +
-	    (blkoff << HMFS_PAGE_SIZE_BITS);
 }
 
 static inline void hmfs_inode_read_lock(struct inode *inode)
@@ -448,6 +469,39 @@ static inline loff_t hmfs_max_size(void)
 	return res;
 }
 
+static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
+{
+	//TODO:
+	return 0;
+//      struct sit_info *sit_i = SIT_I(sbi);
+//      return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
+//                                              sit_i->mounted_time;
+}
+
+static inline int hmfs_set_bit(unsigned int nr, char *addr)
+{
+	int mask;
+	int ret;
+
+	addr += (nr >> 3);
+	mask = 1 << (7 - (nr & 0x07));
+	ret = mask & *addr;
+	*addr |= mask;
+	return ret;
+}
+
+static inline int hmfs_clear_bit(unsigned int nr, char *addr)
+{
+	int mask;
+	int ret;
+
+	addr += (nr >> 3);
+	mask = 1 << (7 - (nr & 0x07));
+	ret = mask & *addr;
+	*addr &= ~mask;
+	return ret;
+}
+
 /* define prototype function */
 
 /* inode.c */
@@ -486,6 +540,16 @@ int get_node_path(long block, int offset[4], unsigned int noffset[4]);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 
+/* segment.c*/
+int build_segment_manager(struct hmfs_sb_info *);
+void destroy_segment_manager(struct hmfs_sb_info *);
+void allocate_new_segments(struct hmfs_sb_info *sbi);
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
+					 void *blk_addr);
+void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
+u64 get_free_data_block(struct hmfs_sb_info *sbi);
+u64 get_free_node_block(struct hmfs_sb_info *sbi);
+
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -499,11 +563,6 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-
-/* segment.c */
-struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-					 void *blk_addr);
-void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,

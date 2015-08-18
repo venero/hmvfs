@@ -22,7 +22,7 @@
 #define HMFS_PAGE_PER_SEG		512	/* 2M */
 #define HMFS_PAGE_PER_SEG_BITS	9
 #define HMFS_SEGMENT_SIZE_BITS	21
-#define HMFS_SEGMENT_SIZE		(2 << HMFS_SEGMENT_SIZE_BITS)
+#define HMFS_SEGMENT_SIZE		(1 << HMFS_SEGMENT_SIZE_BITS)
 #define HMFS_SEGMENT_MASK		(~(HMFS_SEGMENT_SIZE - 1))
 
 #define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_PAGE_SIZE
@@ -47,6 +47,22 @@
 			} while(0)
 
 /*
+ * For directory operations
+ */
+#define HMFS_DOT_HASH		0
+#define HMFS_DDOT_HASH		HMFS_DOT_HASH
+#define HMFS_MAX_HASH		(~((0x3ULL) << 62))
+#define HMFS_HASH_COL_BIT	((0x1ULL) << 63)
+
+typedef __le32 hmfs_hash_t;
+
+/* One directory entry slot covers 8bytes-long file name */
+#define HMFS_SLOT_LEN		8
+#define HMFS_SLOT_LEN_BITS	3
+
+#define GET_DENTRY_SLOTS(x)	((x + HMFS_SLOT_LEN - 1) >> HMFS_SLOT_LEN_BITS)
+
+/*
  * For superblock
  */
 struct hmfs_super_block {
@@ -57,11 +73,18 @@ struct hmfs_super_block {
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
 	__le64 page_count;	/* total # of user blocks */
 	__le64 segment_count;	/* total # of segments */
+
+	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le32 segment_count_nat;	/* # of segments for NAT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
+
 	__le64 cp_page_addr;	/* start block address of checkpoint */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
+
+	__le64 sit_root;	/* ino of sit file root node */
+	u8 sit_height;
 
 	__le16 checksum;
 } __attribute__ ((packed));
@@ -102,6 +125,8 @@ struct hmfs_inode {
  * hmfs node
  */
 #define ADDRS_PER_BLOCK		64
+#define LOG2_ADDRS_PER_BLOCK 8
+#define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
 #define NIDS_PER_BLOCK		64
 
 #define NODE_DIR1_BLOCK		(NORMAL_ADDRS_PER_INODE + 1)
@@ -174,14 +199,21 @@ struct hmfs_nat_block {
 /*
  * sit inode
  */
-#define SIT_ADDR_PER_INODE		64
+#define SIT_ADDR_PER_NODE	512
 #define SIT_VBLOCK_MAP_SIZE	64
+#define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / sizeof(struct hmfs_sit_entry))
+
+#define SIT_L0_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
+#define SIT_L1_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L0_MAX_SIZE	//^, ~55GB
+#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~27TB
+#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~13EB
+#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~6ZB
+#define SIT_MAX_SIZE(i) SIT_L##i##_MAX_SIZE
 
 struct hmfs_sit_node {
-	u8 height;
-	u8 max_height;
-
-	__le64 addr[SIT_ADDR_PER_INODE];
+//      u8 height;
+//      u8 max_height;
+	__le64 addr[SIT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 
 struct hmfs_sit_entry {
@@ -189,6 +221,10 @@ struct hmfs_sit_entry {
 	__le64 mtime;		/* segment age for cleaning */
 	__le16 vblocks;		/* reference above */
 } __attribute__ ((packed));
+
+struct hmfs_sit_block {
+	struct hmfs_sit_entry entries[SIT_ENTRY_PER_BLOCK];
+} __packed;
 
 struct hmfs_sit_journal {
 	__le64 segno;

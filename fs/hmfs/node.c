@@ -486,17 +486,6 @@ retry:
 
 }
 
-static u64 get_new_node_page(struct hmfs_sb_info *sbi)
-{
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	u64 page_addr = 0;
-
-	page_addr = cal_page_addr(cp_i->cur_node_segno, cp_i->cur_node_blkoff);
-
-	cp_i->cur_node_blkoff++;
-	return page_addr;
-}
-
 /*
  * return node address in NVM by nid, would not allocate
  * new node
@@ -542,7 +531,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	if (!inc_valid_node_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
 
-	block = get_new_node_page(sbi);
+	block = get_free_node_block(sbi);
 
 	dest = ADDR(sbi, block);
 	if (!IS_ERR(src)) {
