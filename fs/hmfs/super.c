@@ -1,5 +1,6 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/statfs.h>
 #include <linux/parser.h>
 #include <linux/string.h>
 #include <linux/slab.h>
@@ -381,13 +382,22 @@ static void hmfs_destroy_inode(struct inode *inode)
 
 static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
-	//TODO: write & update in-DRAM NAT to NVM
-	return 0;
+	int err;
+
+	if (inode->i_ino < HMFS_ROOT_INO)
+		return 0;
+
+	if (!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
+		return 0;
+
+	err = sync_hmfs_inode(inode);
+
+	return err;
 }
 
 static void hmfs_dirty_inode(struct inode *inode, int flags)
 {
-	//TODO: set inode dirty for future witeback
+	set_inode_flag(HMFS_I(inode), FI_DIRTY_INODE);
 	return;
 }
 
@@ -396,6 +406,7 @@ static void hmfs_put_super(struct super_block *sb)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 
 	hmfs_destroy_stats(sbi);
+	destroy_segment_manager(sbi);
 	destroy_node_manager(sbi);
 	destroy_checkpoint_manager(sbi);
 
@@ -406,6 +417,22 @@ static void hmfs_put_super(struct super_block *sb)
 		printk("unmapping virtual address!");
 		hmfs_iounmap(sbi->virt_addr);
 	}
+}
+
+static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(dentry->d_sb);
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+
+	buf->f_type = HMFS_SUPER_MAGIC;
+	buf->f_bsize = HMFS_PAGE_SIZE;
+	buf->f_blocks = sbi->page_count;
+	buf->f_bfree = sbi->page_count - cp_i->valid_block_count;
+	buf->f_bavail = buf->f_bfree;
+	buf->f_files = cp_i->user_block_count;
+	buf->f_ffree = cp_i->user_block_count - cp_i->valid_block_count;
+	buf->f_namelen = HMFS_NAME_LEN;
+	return 0;
 }
 
 int hmfs_sync_fs(struct super_block *sb, int sync)
@@ -426,6 +453,7 @@ static struct super_operations hmfs_sops = {
 //      .evict_inode = hmfs_evict_inode,
 	.put_super = hmfs_put_super,
 	.sync_fs = hmfs_sync_fs,
+	.statfs = hmfs_statfs,
 
 };
 
