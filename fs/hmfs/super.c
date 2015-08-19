@@ -162,6 +162,7 @@ static int hmfs_format(struct super_block *sb)
 	node_blkoff = 0;
 	node_segaddr = area_addr;
 	main_addr = area_addr;
+sbi->main_addr_start=main_addr;
 	data_segaddr = area_addr + HMFS_SEGMENT_SIZE;
 
 	/* setup root inode */
@@ -228,21 +229,20 @@ static int hmfs_format(struct super_block *sb)
 	sit_journals = cp->sit_journals;
 	nat_journals = cp->nat_journals;
 
-	sit_journals[0].segno =
-	    cpu_to_le64(node_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	sit_journals[0].segno =cpu_to_le64(GET_SEGNO(sbi,node_segaddr));
 	memset_nt(sit_journals[0].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
-	set_bit(0, (void *)sit_journals[0].entry.valid_map);	/* root inode */
-	set_bit(1, (void *)sit_journals[0].entry.valid_map);	/* sit inode */
-	set_bit(2, (void *)sit_journals[0].entry.valid_map);	/* nat inode */
-	set_bit(3, (void *)sit_journals[0].entry.valid_map);	/* cp */
+	hmfs_set_bit(0, (char *)sit_journals[0].entry.valid_map);	/* root inode */
+	hmfs_set_bit(1, (char *)sit_journals[0].entry.valid_map);	/* sit inode */
+	hmfs_set_bit(2, (char *)sit_journals[0].entry.valid_map);	/* nat inode */
+	hmfs_set_bit(3, (char *)sit_journals[0].entry.valid_map);	/* cp */
 	sit_journals[0].entry.vblocks = cpu_to_le64(node_blkoff);
 	sit_journals[0].entry.mtime = cpu_to_le64(get_seconds());
 
 	/* segment 1 is first data segment */
 	sit_journals[1].segno =
-	    cpu_to_le64(data_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	    cpu_to_le64(GET_SEGNO(sbi,data_segaddr));
 	memset_nt(sit_journals[1].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
-	set_bit(0, (void *)sit_journals[1].entry.valid_map);
+	hmfs_set_bit(0, (char *)sit_journals[1].entry.valid_map);
 	sit_journals[1].entry.vblocks = cpu_to_le64(data_blkoff);
 	sit_journals[1].entry.mtime = cpu_to_le64(get_seconds());
 
@@ -275,9 +275,9 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, user_block_count, user_pages_count);
 	set_struct(cp, valid_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, free_segment_count, (user_segments_count - 2));
-	set_struct(cp, cur_node_segno, node_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	set_struct(cp, cur_node_segno, GET_SEGNO(sbi,node_segaddr));
 	set_struct(cp, cur_node_blkoff, node_blkoff);
-	set_struct(cp, cur_data_segno, data_segaddr >> HMFS_SEGMENT_SIZE_BITS);
+	set_struct(cp, cur_data_segno, GET_SEGNO(sbi,data_segaddr));
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
 	/* sit, nat, root */
@@ -297,7 +297,8 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, log_pages_per_seg, HMFS_PAGE_PER_SEG_BITS);
 
 	set_struct(super, page_count, user_pages_count);
-	set_struct(super, segment_count, user_segments_count);
+	set_struct(super, segment_count, init_size>>HMFS_SEGMENT_SIZE_BITS);
+	set_struct(super,segment_count_main,user_segments_count);
 	set_struct(super, ssa_blkaddr, ssa_addr);
 	set_struct(super, main_blkaddr, main_addr);
 	set_struct(super, cp_page_addr, cp_addr);

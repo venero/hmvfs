@@ -35,8 +35,7 @@ struct sit_info {
 	block_t sit_root;	/* root node address of SIT file */
 	block_t sit_blocks;	/* # of blocks used by SIT file */
 	block_t written_valid_blocks;	/* # of valid blocks in main area */
-	char *sit_bitmap;	/* SIT bitmap pointer */
-	unsigned int bitmap_size;	/* SIT bitmap size */
+	unsigned long long bitmap_size;
 
 	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
 	unsigned int dirty_sentries;	/* # of dirty sentries */

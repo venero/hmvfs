@@ -142,7 +142,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
 		printk(KERN_INFO "blk_addr:%lu-%d\n",
-		       (unsigned long)addr >> HMFS_SEGMENT_SIZE_BITS,
+		       (unsigned long)GET_SEGNO(sbi,addr),
 		       (int)(addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 		if (addr == NULL_ADDR) {
 fill_null:
@@ -205,10 +205,10 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 		hn->i.i_addr[dn.ofs_in_node] = new_addr;
 
 	printk(KERN_INFO "src_blk_addr:%d-%d\n",
-	       (int)src_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)GET_SEGNO(sbi,src_addr),
 	       (int)(src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	printk(KERN_INFO "dest_blk_addr:%d-%d\n",
-	       (int)new_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)GET_SEGNO(sbi,new_addr),
 	       (int)(new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 
 	dest = ADDR(sbi, new_addr);
@@ -255,7 +255,6 @@ void *get_new_data_block(struct inode *inode, int block)
 	hn = get_new_node(sbi, dn.nid, inode);
 	if (IS_ERR(hn))
 		return hn;
-
 	if (dn.level)
 		src_addr = hn->dn.addr[dn.ofs_in_node];
 	else
@@ -267,10 +266,8 @@ void *get_new_data_block(struct inode *inode, int block)
 		if (get_summary_version(summary) == cp_i->version)
 			return src;
 	}
-
 	if (!inc_valid_block_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
-
 	new_addr = get_free_data_block(sbi);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
@@ -278,10 +275,10 @@ void *get_new_data_block(struct inode *inode, int block)
 		hn->i.i_addr[dn.ofs_in_node] = new_addr;
 
 	printk(KERN_INFO "src_blk_addr:%d-%d\n",
-	       (int)src_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)GET_SEGNO(sbi,src_addr),
 	       (int)(src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	printk(KERN_INFO "dest_blk_addr:%d-%d\n",
-	       (int)new_addr >> HMFS_SEGMENT_SIZE_BITS,
+	       (int)GET_SEGNO(sbi,new_addr),
 	       (int)(new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 
 	dest = ADDR(sbi, new_addr);

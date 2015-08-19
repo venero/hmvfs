@@ -39,13 +39,10 @@ static void reset_curseg(struct curseg_info *seg_i)
 	seg_i->next_segno = 0;
 }
 
-/*
- * currently, super block is in segment 0
- */
-static inline unsigned long cal_page_addr(struct curseg_info *seg_i)
+static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,struct curseg_info *seg_i)
 {
 	return (seg_i->segno << HMFS_SEGMENT_SIZE_BITS) +
-	    (seg_i->next_blkoff << HMFS_PAGE_SIZE_BITS);
+	    (seg_i->next_blkoff << HMFS_PAGE_SIZE_BITS)+sbi->main_addr_start;
 }
 
 /*
@@ -87,14 +84,13 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 	struct sit_info *sit_i = SIT_I(sbi);
 
 	mutex_lock(&seg_i->curseg_mutex);
-	page_addr = cal_page_addr(seg_i);
+	page_addr = cal_page_addr(sbi,seg_i);
 
 	mutex_lock(&sit_i->sentry_lock);
 	update_sit_entry(sbi, seg_i->segno, seg_i->next_blkoff, 1);
 	mutex_unlock(&sit_i->sentry_lock);
 
 	seg_i->next_blkoff++;
-
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
 		move_to_new_segment(sbi, seg_i);
 	}
@@ -160,7 +156,7 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	seg_i[CURSEG_DATA].next_segno = 0;
 	seg_i[CURSEG_DATA].sum_blk =
 	    ADDR(sbi, cp_i->cur_data_segno * HMFS_SUMMARY_BLOCK_SIZE);
-	mutex_unlock(&seg_i[CURSEG_NODE].curseg_mutex);
+	mutex_unlock(&seg_i[CURSEG_DATA].curseg_mutex);
 	return 0;
 }
 
@@ -231,9 +227,8 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct sit_info *sit_i;
-	unsigned int sit_segs, start;
-	char *src_bitmap, *dst_bitmap;
-	unsigned int bitmap_size;
+	unsigned int start;
+	unsigned long long bitmap_size,sit_segs;
 
 	/* allocate memory for SIT information */
 	sit_i = kzalloc(sizeof(struct sit_info), GFP_KERNEL);
@@ -259,17 +254,14 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 			return -ENOMEM;
 	}
 
-	/* get information related with SIT */
-	sit_segs = le32_to_cpu(raw_super->segment_count_sit);
 
 	//TODO: allocate bitmap according to checkpoint design
 	/* setup SIT bitmap from ckeckpoint pack */
 	//bitmap_size = __bitmap_size(sbi, SIT_BITMAP);
 	//src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
-
-	dst_bitmap = kmemdup(src_bitmap, bitmap_size, GFP_KERNEL);
-	if (!dst_bitmap)
-		return -ENOMEM;
+	
+//FIXME:cal sit_segs
+sit_segs=0;
 
 	sit_i->sit_root = le32_to_cpu(raw_super->sit_root);
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
@@ -408,10 +400,10 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	INIT_LIST_HEAD(&sm_info->wblist_head);
 	spin_lock_init(&sm_info->wblist_lock);
 	sm_info->seg0_blkaddr = le32_to_cpu(raw_super->sit_root);
-	sm_info->main_blkaddr = le32_to_cpu(raw_super->main_blkaddr);
-	sm_info->segment_count = le32_to_cpu(raw_super->segment_count);
-	sm_info->main_segments = le32_to_cpu(raw_super->segment_count_main);
-	sm_info->ssa_blkaddr = le32_to_cpu(raw_super->ssa_blkaddr);
+	sm_info->main_blkaddr = le64_to_cpu(raw_super->main_blkaddr);
+	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
+	sm_info->main_segments = le64_to_cpu(raw_super->segment_count_main);
+	sm_info->ssa_blkaddr = le64_to_cpu(raw_super->ssa_blkaddr);
 	//TODO: reserved & overprovisioned segment in ckpt
 
 	err = build_sit_info(sbi);
@@ -484,7 +476,6 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 	kfree(sit_i->dirty_sentries_bitmap);
 
 	SM_I(sbi)->sit_info = NULL;
-	kfree(sit_i->sit_bitmap);
 	kfree(sit_i);
 }
 

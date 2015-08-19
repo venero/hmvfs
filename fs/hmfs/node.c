@@ -479,11 +479,6 @@ retry:
 		list_add_tail(&e->list, &nm_i->dirty_nat_entries);
 	}
 	write_unlock(&nm_i->nat_tree_lock);
-	printk(KERN_INFO "cache nat nid:%lu ino:%lu blk:%lu-%lu\n",
-	       (unsigned long)nid, (unsigned long)ino,
-	       blk_addr >> HMFS_SEGMENT_SIZE_BITS,
-	       (blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-
 }
 
 /*
@@ -500,7 +495,7 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	if (err)
 		return ERR_PTR(err);
 	printk(KERN_INFO "blk_addr:%lu-%lu\n",
-	       ni.blk_addr >> HMFS_SEGMENT_SIZE_BITS,
+(unsigned long)	       GET_SEGNO(sbi,ni.blk_addr),
 	       (ni.blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	if (ni.blk_addr == NULL_ADDR)
 		return ERR_PTR(-ENODATA);
@@ -532,7 +527,6 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 		return ERR_PTR(-ENOSPC);
 
 	block = get_free_node_block(sbi);
-
 	dest = ADDR(sbi, block);
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
@@ -547,7 +541,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 			   SUM_TYPE_NODE);
 
 	//TODO: cache nat
-	printk(KERN_INFO "blk_addr:%lu-%lu\n", block >> HMFS_SEGMENT_SIZE_BITS,
+	printk(KERN_INFO "blk_addr:%lu-%lu\n",(unsigned long) GET_SEGNO(sbi,block),
 	       (block & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->version, true);
 	return dest;
