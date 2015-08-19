@@ -241,9 +241,6 @@ extern const struct inode_operations hmfs_symlink_inode_operations;
 extern const struct inode_operations hmfs_special_inode_operations;
 
 extern const struct address_space_operations hmfs_dblock_aops;
-extern const struct address_space_operations hmfs_nat_aops;
-extern const struct address_space_operations hmfs_sit_aops;
-extern const struct address_space_operations hmfs_ssa_aops;
 
 /*
  * Inline functions

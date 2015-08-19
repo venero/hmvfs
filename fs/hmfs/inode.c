@@ -146,13 +146,10 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 	goto out;
 make_now:
 	if (ino == HMFS_NAT_INO) {
-		inode->i_mapping->a_ops = &hmfs_nat_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else if (ino == HMFS_SIT_INO) {
-		inode->i_mapping->a_ops = &hmfs_sit_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else if (ino == HMFS_SSA_INO) {
-		inode->i_mapping->a_ops = &hmfs_ssa_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else {
 		ret = -EIO;
