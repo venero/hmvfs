@@ -294,8 +294,9 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 	return HMFS_SB(inode->i_sb);
 }
 
-static inline u64 GET_SEGNO(struct hmfs_sb_info *sbi,u64 addr){
-	return (addr-sbi->main_addr_start)>>HMFS_SEGMENT_SIZE_BITS;
+static inline u64 GET_SEGNO(struct hmfs_sb_info *sbi, u64 addr)
+{
+	return (addr - sbi->main_addr_start) >> HMFS_SEGMENT_SIZE_BITS;
 }
 
 static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,

@@ -39,10 +39,11 @@ static void reset_curseg(struct curseg_info *seg_i)
 	seg_i->next_segno = 0;
 }
 
-static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,struct curseg_info *seg_i)
+static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
+					  struct curseg_info *seg_i)
 {
 	return (seg_i->segno << HMFS_SEGMENT_SIZE_BITS) +
-	    (seg_i->next_blkoff << HMFS_PAGE_SIZE_BITS)+sbi->main_addr_start;
+	    (seg_i->next_blkoff << HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
 }
 
 /*
@@ -84,7 +85,7 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 	struct sit_info *sit_i = SIT_I(sbi);
 
 	mutex_lock(&seg_i->curseg_mutex);
-	page_addr = cal_page_addr(sbi,seg_i);
+	page_addr = cal_page_addr(sbi, seg_i);
 
 	mutex_lock(&sit_i->sentry_lock);
 	update_sit_entry(sbi, seg_i->segno, seg_i->next_blkoff, 1);
@@ -228,7 +229,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct sit_info *sit_i;
 	unsigned int start;
-	unsigned long long bitmap_size,sit_segs;
+	unsigned long long bitmap_size, sit_segs;
 
 	/* allocate memory for SIT information */
 	sit_i = kzalloc(sizeof(struct sit_info), GFP_KERNEL);
@@ -254,14 +255,13 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 			return -ENOMEM;
 	}
 
-
 	//TODO: allocate bitmap according to checkpoint design
 	/* setup SIT bitmap from ckeckpoint pack */
 	//bitmap_size = __bitmap_size(sbi, SIT_BITMAP);
 	//src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
-	
+
 //FIXME:cal sit_segs
-sit_segs=0;
+	sit_segs = 0;
 
 	sit_i->sit_root = le32_to_cpu(raw_super->sit_root);
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
@@ -437,7 +437,6 @@ static void destroy_dirty_segmap(struct hmfs_sb_info *sbi)
 static void destroy_curseg(struct hmfs_sb_info *sbi)
 {
 	struct curseg_info *array = SM_I(sbi)->curseg_array;
-	int i;
 
 	if (!array)
 		return;
@@ -505,4 +504,14 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 
 void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr)
 {
+	struct sit_info *sit_i = SIT_I(sbi);
+	u64 segno = GET_SEGNO(sbi, blk_addr);
+	int blkoff =
+	    (blk_addr & (HMFS_SEGMENT_SIZE - 1)) >> HMFS_PAGE_SIZE_BITS;
+
+	mutex_lock(&sit_i->sentry_lock);
+
+	update_sit_entry(sbi, segno, blkoff, -1);
+
+	mutex_unlock(&sit_i->sentry_lock);
 }
