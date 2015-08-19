@@ -22,8 +22,12 @@
 #define HMFS_PAGE_PER_SEG		512	/* 2M */
 #define HMFS_PAGE_PER_SEG_BITS	9
 #define HMFS_SEGMENT_SIZE_BITS	21
-#define HMFS_SEGMENT_SIZE		(2 << HMFS_SEGMENT_SIZE_BITS)
+#define HMFS_SEGMENT_SIZE		(1 << HMFS_SEGMENT_SIZE_BITS)
 #define HMFS_SEGMENT_MASK		(~(HMFS_SEGMENT_SIZE - 1))
+
+#define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_PAGE_SIZE
+
+#define HMFS_MAX_ORPHAN_NUM		(HMFS_PAGE_SIZE / 8)
 
 /* This flag is used by sit and nat inode */
 #define GFP_HMFS_ZERO	(GFP_NOFS | __GFP_ZERO)
@@ -43,6 +47,22 @@
 			} while(0)
 
 /*
+ * For directory operations
+ */
+#define HMFS_DOT_HASH		0
+#define HMFS_DDOT_HASH		HMFS_DOT_HASH
+#define HMFS_MAX_HASH		(~((0x3ULL) << 62))
+#define HMFS_HASH_COL_BIT	((0x1ULL) << 63)
+
+typedef __le32 hmfs_hash_t;
+
+/* One directory entry slot covers 8bytes-long file name */
+#define HMFS_SLOT_LEN		8
+#define HMFS_SLOT_LEN_BITS	3
+
+#define GET_DENTRY_SLOTS(x)	((x + HMFS_SLOT_LEN - 1) >> HMFS_SLOT_LEN_BITS)
+
+/*
  * For superblock
  */
 struct hmfs_super_block {
@@ -53,14 +73,21 @@ struct hmfs_super_block {
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
 	__le64 page_count;	/* total # of user blocks */
 	__le64 segment_count;	/* total # of segments */
+
+	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le32 segment_count_nat;	/* # of segments for NAT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
+
 	__le64 cp_page_addr;	/* start block address of checkpoint */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
+	__le64 sit_root;	/* ino of sit file root node */
+	u8 sit_height;
+
 	__le16 checksum;
-} __packed;
+} __attribute__ ((packed));
 
 /**
  * hmfs inode
@@ -98,6 +125,8 @@ struct hmfs_inode {
  * hmfs node
  */
 #define ADDRS_PER_BLOCK		64
+#define LOG2_ADDRS_PER_BLOCK 8
+#define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
 #define NIDS_PER_BLOCK		64
 
 #define NODE_DIR1_BLOCK		(NORMAL_ADDRS_PER_INODE + 1)
@@ -150,7 +179,7 @@ enum JOURNAL_TYPE {
 struct hmfs_nat_inode {
 	u8 height;
 	__le64 root;
-};
+} __attribute__ ((packed));
 
 struct hmfs_nat_entry {
 	__le64 ino;		/* inode number */
@@ -161,24 +190,31 @@ struct hmfs_nat_entry {
 struct hmfs_nat_journal {
 	__le64 nid;
 	struct hmfs_nat_entry entry;
-};
+} __attribute__ ((packed));
 
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
-};
+} __attribute__ ((packed));
 
 /*
  * sit inode
  */
-#define SIT_ADDR_PER_INODE		64
+#define SIT_ADDR_PER_NODE	512
 #define SIT_VBLOCK_MAP_SIZE	64
+#define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / sizeof(struct hmfs_sit_entry))
+
+#define SIT_L0_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
+#define SIT_L1_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L0_MAX_SIZE	//^, ~55GB
+#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~27TB
+#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~13EB
+#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~6ZB
+#define SIT_MAX_SIZE(i) SIT_L##i##_MAX_SIZE
 
 struct hmfs_sit_node {
-	u8 height;
-	u8 max_height;
-
-	__le64 addr[SIT_ADDR_PER_INODE];
-};
+//      u8 height;
+//      u8 max_height;
+	__le64 addr[SIT_ADDR_PER_NODE];
+} __attribute__ ((packed));
 
 struct hmfs_sit_entry {
 	__u8 valid_map[SIT_VBLOCK_MAP_SIZE];	/* bitmap for valid blocks */
@@ -186,10 +222,14 @@ struct hmfs_sit_entry {
 	__le16 vblocks;		/* reference above */
 } __attribute__ ((packed));
 
+struct hmfs_sit_block {
+	struct hmfs_sit_entry entries[SIT_ENTRY_PER_BLOCK];
+} __packed;
+
 struct hmfs_sit_journal {
 	__le64 segno;
 	struct hmfs_sit_entry entry;
-};
+} __attribute__ ((packed));
 
 /*
  * For directory operations
@@ -275,7 +315,7 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
  * ex) data_blkaddr = (block_t)(nodepage_start_address + ofs_in_node)
  */
 #define ENTRIES_IN_SUM		512
-
+#define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
 	__le64 nid;		/* parent node id */
@@ -393,9 +433,13 @@ struct hmfs_checkpoint {
 	__le16 cur_data_blkoff;
 
 	__le64 valid_inode_count;	/* Total number of valid inodes */
+	__le64 valid_node_count;	/* total number of valid nodes */
 
 	__le64 sit_addr;	/* sit file physical address bias */
 	__le64 nat_addr;	/* nat file physical address bias */
+	__le64 orphan_addr;
+
+	__le64 next_scan_nid;
 
 	/* SIT and NAT version bitmap */
 	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];

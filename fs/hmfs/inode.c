@@ -10,6 +10,7 @@ static int do_read_inode(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
 
 	if (check_nid_range(sbi, inode->i_ino)) {
@@ -18,9 +19,11 @@ static int do_read_inode(struct inode *inode)
 		return -EINVAL;
 	}
 
-	hi = get_node(sbi, inode->i_ino);
-	if (IS_ERR(hi))
-		return PTR_ERR(hi);
+	hn = (struct hmfs_node *)get_node(sbi, inode->i_ino);
+	if (IS_ERR(hn))
+		return PTR_ERR(hn);
+
+	hi = &hn->i;
 
 	inode->i_mode = le16_to_cpu(hi->i_mode);
 	i_uid_write(inode, le32_to_cpu(hi->i_uid));
@@ -52,7 +55,7 @@ void hmfs_update_isize(struct inode *inode)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct hmfs_node *hn;
 
-	hn = get_new_node(sbi, inode->i_ino, inode->i_ino);
+	hn = get_new_node(sbi, inode->i_ino, inode);
 	hn->i.i_size = cpu_to_le64(inode->i_size);
 	hn->i.i_blocks = cpu_to_le64(inode->i_blocks);
 	hn->i.i_ctime = cpu_to_le64(get_seconds());
@@ -67,7 +70,7 @@ int sync_hmfs_inode(struct inode *inode)
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
 
-	rn = get_new_node(sbi, inode->i_ino, inode->i_ino);
+	rn = get_new_node(sbi, inode->i_ino, inode);
 	if (IS_ERR(rn))
 		return PTR_ERR(rn);
 
@@ -143,13 +146,10 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 	goto out;
 make_now:
 	if (ino == HMFS_NAT_INO) {
-		inode->i_mapping->a_ops = &hmfs_nat_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else if (ino == HMFS_SIT_INO) {
-		inode->i_mapping->a_ops = &hmfs_sit_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else if (ino == HMFS_SSA_INO) {
-		inode->i_mapping->a_ops = &hmfs_ssa_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
 	} else {
 		ret = -EIO;
