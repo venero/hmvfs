@@ -527,7 +527,7 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	if (err)
 		return ERR_PTR(err);
 	printk(KERN_INFO "blk_addr:%lu-%lu\n",
-(unsigned long)	       GET_SEGNO(sbi,ni.blk_addr),
+	       (unsigned long)GET_SEGNO(sbi, ni.blk_addr),
 	       (ni.blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	if (ni.blk_addr == NULL_ADDR)
 		return ERR_PTR(-ENODATA);
@@ -573,7 +573,8 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 			   SUM_TYPE_NODE);
 
 	//TODO: cache nat
-	printk(KERN_INFO "blk_addr:%lu-%lu\n",(unsigned long) GET_SEGNO(sbi,block),
+	printk(KERN_INFO "blk_addr:%lu-%lu\n",
+	       (unsigned long)GET_SEGNO(sbi, block),
 	       (block & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->version, true);
 	return dest;
