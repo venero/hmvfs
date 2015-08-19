@@ -317,9 +317,7 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 
 	for (i = 0; i < NR_CURSEG_TYPE; i++) {
 		mutex_init(&array[i].curseg_mutex);
-		array[i].sum_blk = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
-		if (!array[i].sum_blk)
-			return -ENOMEM;
+		array[i].sum_blk = NULL;
 		array[i].segno = NULL_SEGNO;
 		array[i].next_blkoff = 0;
 	}
@@ -444,8 +442,6 @@ static void destroy_curseg(struct hmfs_sb_info *sbi)
 	if (!array)
 		return;
 	SM_I(sbi)->curseg_array = NULL;
-	for (i = 0; i < NR_CURSEG_TYPE; i++)
-		kfree(array[i].sum_blk);
 	kfree(array);
 }
 
