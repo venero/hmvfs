@@ -218,6 +218,7 @@ enum READ_DNODE_TYPE {
 	ALLOC_NODE,
 	LOOKUP_NODE,
 };
+
 /*
  * this structure is used as one of function parameters.
  * all the information are dedicated to a given direct node block determined

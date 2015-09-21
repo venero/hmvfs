@@ -233,6 +233,9 @@ static void truncate_node(struct dnode_of_data *dn)
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino,
 			 NULL_ADDR, CURCP_I(sbi)->version, true);
 
+	/*
+	 * ????
+	 */
 	if (dn->nid == dn->inode->i_ino) {
 		remove_orphan_inode(sbi, dn->nid);
 		dec_valid_inode_count(sbi);

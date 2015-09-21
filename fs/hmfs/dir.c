@@ -143,9 +143,9 @@ struct hmfs_dir_entry *find_target_dentry(struct qstr *name, int *max_slots,
 			goto found;
 
 		if (max_slots && max_len > *max_slots)
-			*max_slots = max_len;
-		max_len = 0;
-
+		{	*max_slots = max_len;
+			max_len = 0;
+		}
 		/* remain bug on condition */
 		if (unlikely(!de->name_len))
 			d->max = -1;
@@ -567,7 +567,6 @@ start:
 	bidx = dir_block_index(level, (le32_to_cpu(dentry_hash) % nbucket));
 
 	for (block = bidx; block <= (bidx + nblock - 1); block++) {
-
 		//FIXME: use bat process to reduce read time
 		if (block > end_blk) {
 			dentry_blk = get_new_data_block(dir, block);

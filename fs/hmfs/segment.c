@@ -495,7 +495,8 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 
 	logic_addr = blk_addr - sbi->virt_addr;
 	segno = logic_addr >> HMFS_SEGMENT_SIZE_BITS;
-	summary_blk = ADDR(sbi, segno * HMFS_SUMMARY_BLOCK_SIZE);
+	summary_blk =
+	    ADDR(sbi, sbi->ssa_addr + segno * HMFS_SUMMARY_BLOCK_SIZE);
 
 	blkoff = (logic_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS;
 
