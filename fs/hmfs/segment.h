@@ -2,7 +2,6 @@
 #define SEGMENT_H
 
 #include "hmfs.h"
-typedef u64 block_t;		//bits per NVM page address 
 
 #define CURSEG_DATA			1
 #define CURSEG_NODE			0
@@ -20,19 +19,19 @@ typedef u64 block_t;		//bits per NVM page address
 	(segno % sit_i->sents_per_block)
 #define SIT_BLOCK_OFFSET(sit_i, segno)					\
 	(segno / SIT_ENTRY_PER_BLOCK)
+#define START_SEGNO(sit_i, segno)					\
+	(SIT_BLOCK_OFFSET(sit_i, segno) * SIT_ENTRY_PER_BLOCK)
+
 
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
 	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
-
-	unsigned char type;	/* segment type like CURSEG_XXX_TYPE */
 	unsigned long long mtime;	/* modification time of the segment */
 };
 
 struct sit_info {
 	const struct segment_allocation *s_ops;
 
-	block_t sit_root;	/* root node address of SIT file */
 	block_t sit_blocks;	/* # of blocks used by SIT file */
 	block_t written_valid_blocks;	/* # of valid blocks in main area */
 	unsigned long long bitmap_size;
@@ -118,6 +117,22 @@ static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
 	write_unlock(&free_i->segmap_lock);
 }
 
+static inline void seg_info_from_raw_sit(struct seg_entry *se,
+					struct hmfs_sit_entry *raw_entry){
+	se->valid_blocks = le16_to_cpu(raw_entry);
+	memcpy(se->cur_valid_map, raw_entry->valid_map, SIT_VBLOCK_MAP_SIZE);
+	se->mtime = le64_to_cpu(raw_entry->mtime);
+}
+
+static inline void seg_info_to_raw_sit(struct seg_entry *se,
+					struct hmfs_sit_entry *raw_entry)
+{
+	raw_entry->vblocks = cpu_to_le16(se->valid_blocks);
+	memcpy(raw_entry->valid_map, se->cur_valid_map, SIT_VBLOCK_MAP_SIZE);
+	raw_entry->mtime = cpu_to_le64(se->mtime);
+}
+
+
 static inline void __set_inuse(struct hmfs_sb_info *sbi, unsigned int segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
@@ -138,5 +153,4 @@ static inline u8 hmfs_get_sit_height(u64 init_size)
 		return 1;
 	return 0;
 }
-
 #endif

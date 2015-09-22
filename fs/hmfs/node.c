@@ -507,7 +507,8 @@ static unsigned long get_new_node_page(struct hmfs_sb_info *sbi)
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	unsigned long page_addr = 0;
 
-	page_addr = cal_page_addr(cp_i->cur_node_segno, cp_i->cur_node_blkoff);
+	//FIXME : no cal_page_addr
+	//page_addr = cal_page_addr(cp_i->cur_node_segno, cp_i->cur_node_blkoff);
 
 	cp_i->cur_node_blkoff++;
 	return page_addr;

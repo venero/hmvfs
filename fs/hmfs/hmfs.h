@@ -67,6 +67,7 @@ struct free_nid;
 struct checkpoint_info {
 	u32 version;
 
+	block_t cur_sit_root;//TODO:init while mounting
 	u64 cur_node_segno;
 	int cur_node_blkoff;
 
@@ -213,10 +214,7 @@ enum DATA_RA_TYPE {
 enum ADDR_TYPE {
 	NULL_ADDR = 0,
 	NEW_ADDR = -1,
-<<<<<<< HEAD
-=======
 	FREE_ADDR = -2,
->>>>>>> goku
 };
 
 enum READ_DNODE_TYPE {
@@ -282,7 +280,7 @@ static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
 	return sbi->cp_info;
 }
 
-static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned logic_addr)
+static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
 {
 	return (sbi->virt_addr + logic_addr);
 }
@@ -483,6 +481,15 @@ static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 //      struct sit_info *sit_i = SIT_I(sbi);
 //      return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
 //                                              sit_i->mounted_time;
+}
+
+static inline int hmfs_test_bit(unsigned int nr, char *addr)
+{
+	int mask;
+
+	addr += (nr >> 3);
+	mask = 1 << (7 - (nr & 0x07));
+	return mask & *addr;
 }
 
 static inline int hmfs_set_bit(unsigned int nr, char *addr)

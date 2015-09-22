@@ -114,7 +114,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	int end_blk_id = -1;
 	int err = 0;
 	bool init = true;
-	unsigned long max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	printk(KERN_INFO "get_data_blocks:[%d,%d)\n", start, end);
