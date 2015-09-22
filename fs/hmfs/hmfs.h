@@ -131,6 +131,8 @@ struct hmfs_sb_info {
 
 	u64 initsize;
 	unsigned long s_mount_opt;
+	kuid_t uid;
+	kgid_t gid;
 
 	u64 page_count;
 	u64 segment_count;

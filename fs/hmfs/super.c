@@ -63,6 +63,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 	int token;
 	substring_t args[MAX_OPT_ARGS];
 	phys_addr_t phys_addr = 0;
+	int option;
 
 	if (!options)
 		return 0;
@@ -96,6 +97,18 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (!isdigit(*args[0].from))
 				goto bad_val;
 			sbi->initsize = memparse(args[0].from, &rest);
+			break;
+		case Opt_uid:
+			if (remount)
+				goto bad_opt;
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->uid = make_kuid(current_user_ns(), option);
+			break;
+		case Opt_gid:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->gid = make_kgid(current_user_ns(), option);
 			break;
 		default:
 			goto bad_opt;
@@ -177,11 +190,11 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_links = cpu_to_le32(2);
 
 #ifdef CONFIG_UIDGID_STRICT_TYPE_CHECKS
-	root_node->i.i_uid = cpu_to_le32(current_fsuid().val);
-	root_node->i.i_gid = cpu_to_le32(current_fsgid().val);
+	root_node->i.i_uid = cpu_to_le32(sbi->uid.val);
+	root_node->i.i_gid = cpu_to_le32(sbi->gid.val);
 #else
-	root_node->i.i_uid = cpu_to_le32(current_fsuid());
-	root_node->i.i_gid = cpu_to_le32(current_fsgid());
+	root_node->i.i_uid = cpu_to_le32(sbi->uid);
+	root_node->i.i_gid = cpu_to_le32(sbi->gid);
 #endif
 
 	root_node->i.i_size = cpu_to_le64(HMFS_PAGE_SIZE * 1);
@@ -474,6 +487,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	/* get phys_addr from @data&virt_addr from ioremap */
 	sb->s_fs_info = sbi;	//link sb and sbi:
+	sbi->uid = current_fsuid();
+	sbi->gid = current_fsgid();
 	if (hmfs_parse_options((char *)data, sbi, 0)) {
 		retval = -EINVAL;
 		goto out;
