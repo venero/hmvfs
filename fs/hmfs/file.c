@@ -267,14 +267,22 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	    get_new_node(sbi, le64_to_cpu(raw_node->footer.nid), dn->inode);
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
-
+printk(KERN_INFO"count:%d\n",count);
 	for (; count > 0; count--, ofs++) {
-		addr = raw_node->dn.addr[ofs];
+		if(dn->level)
+			addr = raw_node->dn.addr[ofs];
+		else
+			addr=raw_node->i.i_addr[ofs];
+printk(KERN_INFO"addr:%lu,%d\n",GET_SEGNO(sbi,addr),(addr&~HMFS_SEGMENT_MASK)>>HMFS_PAGE_SIZE_BITS);
 		if (addr == NULL_ADDR)
 			continue;
 		BUG_ON(addr == FREE_ADDR || addr == NEW_ADDR);
 		data_blk = ADDR(sbi, addr);
-		new_node->dn.addr[ofs] = NULL_ADDR;
+		if(dn->level)
+			new_node->dn.addr[ofs] = NULL_ADDR;
+		else
+			new_node->i.i_addr[ofs]=NULL_ADDR;
+
 		invalidate_blocks(sbi, addr);
 		nr_free++;
 	}
@@ -297,6 +305,7 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 
 	if (!offset)
 		return;
+	printk(KERN_INFO"truncate_partial_data_page\n");
 	get_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
 				   HMFS_PAGE_SIZE, true);
 	return;
@@ -307,17 +316,18 @@ static int truncate_blocks(struct inode *inode, u64 from)
 	struct dnode_of_data dn;
 	int count, err;
 	u64 free_from;
-
+printk(KERN_INFO"from:%d\n",from);
 	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
 
 	if (err) {
+printk(KERN_INFO"free next\n");
 		goto free_next;
 	}
-
-	if (dn.level)
+printk(KERN_INFO"level:%d\n",dn.level);
+	if (!dn.level)
 		count = NORMAL_ADDRS_PER_INODE;
 	else
 		count = ADDRS_PER_BLOCK;

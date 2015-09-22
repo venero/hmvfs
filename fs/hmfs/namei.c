@@ -359,6 +359,8 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	struct inode *inode = dentry->d_inode;
 	int err = 0;
 
+printk(KERN_INFO"hmfs_setattr\n");
+	
 	err = inode_change_ok(inode, attr);
 	if (err)
 		return err;

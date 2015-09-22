@@ -12,7 +12,7 @@ static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int blkoff,
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
 	long new_vblocks;
-
+printk(KERN_INFO"update sit entry:%lu,%d,%d\n",(unsigned long)segno,blkoff,del);
 	se = &sit_i->sentries[segno];
 	new_vblocks = se->valid_blocks + del;
 

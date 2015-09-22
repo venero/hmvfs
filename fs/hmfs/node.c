@@ -398,6 +398,7 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 		return PTR_ERR(hn);
 
 	set_new_dnode(&dn, inode, &hn->i, NULL, 0);
+printk(KERN_INFO"level:%d\n",level);
 	switch (level) {
 	case 0:
 	case 1:
@@ -425,6 +426,7 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 	}
 skip_partial:
 	while (cont) {
+printk(KERN_INFO"offset[0]:%d\n",offset[0]-NODE_DIR1_BLOCK);
 		dn.nid = le64_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
 		switch (offset[0]) {
 		case NODE_DIR1_BLOCK:
