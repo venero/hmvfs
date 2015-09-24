@@ -268,6 +268,9 @@ static int hmfs_format(struct super_block *sb)
 	/* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
 
+//	Previous address of the first checkpoint is set to SB's address
+	set_struct(cp, prev_checkpoint_addr, cpu_to_le64(0));
+
 	set_struct(cp, sit_addr, sit_addr);
 	set_struct(cp, nat_addr, nat_addr);
 
@@ -301,6 +304,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, ssa_blkaddr, ssa_addr);
 	set_struct(super, main_blkaddr, main_addr);
 	set_struct(super, cp_page_addr, cp_addr);
+	set_struct(super, latest_cp_version, HMFS_DEF_CP_VER);
 
 	length = (void *)(&super->checksum) - (void *)super;
 	sb_checksum = crc16(~0, (void *)super, length);

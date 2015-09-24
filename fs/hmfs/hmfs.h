@@ -9,7 +9,7 @@
 #include <linux/bitops.h>
 #include <linux/backing-dev.h>
 #include <linux/spinlock.h>
-
+#include <linux/radix-tree.h>
 #include "hmfs_fs.h"
 //#include "segment.h"
 
@@ -65,7 +65,10 @@ typedef u64 nid_t;
 struct free_nid;
 
 struct checkpoint_info {
-	u32 version;
+//	set load_version to the version number when loaded
+	u32 load_version;
+//	set store_version to the version which it's about to store back to nvm
+	u32 store_version;
 
 	u64 cur_node_segno;
 	int cur_node_blkoff;
@@ -80,7 +83,7 @@ struct checkpoint_info {
 	u64 user_block_count;
 	u64 alloc_valid_block_count;
 
-	u64 last_checkpoint_addr;
+	u64 load_checkpoint_addr;
 
 	rwlock_t journal_lock;
 
@@ -90,6 +93,8 @@ struct checkpoint_info {
 
 	struct hmfs_checkpoint *cp;
 	struct page *cp_page;
+
+	struct sit_info *si;
 
 	spinlock_t stat_lock;
 };
@@ -213,10 +218,7 @@ enum DATA_RA_TYPE {
 enum ADDR_TYPE {
 	NULL_ADDR = 0,
 	NEW_ADDR = -1,
-<<<<<<< HEAD
-=======
 	FREE_ADDR = -2,
->>>>>>> goku
 };
 
 enum READ_DNODE_TYPE {
@@ -540,6 +542,7 @@ void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *);
+unsigned long get_new_node_page(struct hmfs_sb_info *sbi);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
@@ -556,6 +559,7 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
 u64 get_free_data_block(struct hmfs_sb_info *sbi);
 u64 get_free_node_block(struct hmfs_sb_info *sbi);
+u64 save_sit_entries(struct hmfs_sb_info *sbi);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);

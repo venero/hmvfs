@@ -471,7 +471,6 @@ void update_parent_metadata(struct inode *dir, struct inode *inode,
 		clear_inode_flag(HMFS_I(inode), FI_NEW_INODE);
 	}
 	dir->i_mtime = dir->i_ctime = CURRENT_TIME;
-	struct super_block *sb = dir->i_sb;
 	BUG_ON(sb == NULL);
 	BUG_ON(sb->s_op == NULL);
 	BUG_ON(sb->s_op->dirty_inode == NULL);

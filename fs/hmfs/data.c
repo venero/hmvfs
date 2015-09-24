@@ -54,7 +54,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			dn->nid = nid[i];
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
-					 NEW_ADDR, CURCP_I(sbi)->version, true);
+					 NEW_ADDR, CURCP_I(sbi)->store_version, true);
 			blocks[i] = get_new_node(sbi, nid[i], dn->inode);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
@@ -114,7 +114,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	int end_blk_id = -1;
 	int err = 0;
 	bool init = true;
-	unsigned long max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	printk(KERN_INFO "get_data_blocks:[%d,%d)\n", start, end);
@@ -192,7 +191,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	if (src_addr != NULL_ADDR) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->version)
+		if (get_summary_version(summary) == cp_i->store_version)
 			return src;
 	}
 
@@ -229,7 +228,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 		memset_nt(dest + left, 0, right - left);
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->version, dn.ofs_in_node,
+	make_summary_entry(summary, inode->i_ino, cp_i->store_version, dn.ofs_in_node,
 			   SUM_TYPE_DATA);
 
 	return dest;
@@ -264,7 +263,7 @@ void *get_new_data_block(struct inode *inode, int block)
 	if (src_addr != NULL_ADDR) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->version)
+		if (get_summary_version(summary) == cp_i->store_version)
 			return src;
 	}
 	if (!inc_valid_block_count(sbi, inode, 1))
@@ -288,7 +287,7 @@ void *get_new_data_block(struct inode *inode, int block)
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->version, dn.ofs_in_node,
+	make_summary_entry(summary, inode->i_ino, cp_i->store_version, dn.ofs_in_node,
 			   SUM_TYPE_DATA);
 
 	return dest;

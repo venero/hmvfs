@@ -10,6 +10,14 @@ typedef u64 block_t;		//bits per NVM page address
 #define NR_CURSEG_NODE_TYPE	(1)
 #define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
 
+//#define SIT_ENTRY_NOT_EXIST		3
+//#define SIT_ENTRY_NOT_SET		2
+#define SIT_ENTRY_CLEAN			0
+#define SIT_ENTRY_DIRTY				1
+
+#define MAX_SIT_ITEMS_FOR_GANG_LOOKUP		10240
+
+
 #define hmfs_bitmap_size(nr)			\
 	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
 #define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
@@ -41,6 +49,9 @@ struct sit_info {
 	unsigned int dirty_sentries;	/* # of dirty sentries */
 	unsigned int sents_per_block;	/* # of SIT entries per block */
 	struct mutex sentry_lock;	/* to protect SIT cache */
+	struct radix_tree_root sentries_root;
+	rwlock_t sit_tree_rcu_read_lock;	/* protect radix tree */
+//	not sure if this is still necessary
 	struct seg_entry *sentries;	/* SIT segment-level cache */
 };
 

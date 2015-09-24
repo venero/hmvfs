@@ -94,7 +94,7 @@ int sync_hmfs_inode(struct inode *inode)
 
 	rn->footer.nid = cpu_to_le64(inode->i_ino);
 	rn->footer.ino = cpu_to_le64(inode->i_ino);
-	rn->footer.cp_ver = cpu_to_le32(cp_i->version);
+	rn->footer.cp_ver = cpu_to_le32(cp_i->store_version);
 	return 0;
 }
 

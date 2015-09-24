@@ -122,7 +122,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_checkpoint *cp = ADDR(sbi, cp_i->last_checkpoint_addr);
+	struct hmfs_checkpoint *cp = ADDR(sbi, cp_i->load_checkpoint_addr);
 
 	nm_i->max_nid = hmfs_max_nid();
 	nm_i->nat_cnt = 0;
@@ -231,7 +231,7 @@ static void truncate_node(struct dnode_of_data *dn)
 	invalidate_blocks(sbi, ni.blk_addr);
 	dec_valid_node_count(sbi, dn->inode, 1);
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino,
-			 NULL_ADDR, CURCP_I(sbi)->version, true);
+			 NULL_ADDR, CURCP_I(sbi)->store_version, true);
 
 	if (dn->nid == dn->inode->i_ino) {
 		remove_orphan_inode(sbi, dn->nid);
@@ -502,12 +502,19 @@ retry:
 
 }
 
-static unsigned long get_new_node_page(struct hmfs_sb_info *sbi)
+static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi, u64 cur_node_segno, u64 cur_node_blkoff)
+{
+	return (cur_node_segno<< HMFS_SEGMENT_SIZE_BITS) +
+	    (cur_node_blkoff<< HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
+}
+
+
+unsigned long get_new_node_page(struct hmfs_sb_info *sbi)
 {
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	unsigned long page_addr = 0;
 
-	page_addr = cal_page_addr(cp_i->cur_node_segno, cp_i->cur_node_blkoff);
+	page_addr = cal_page_addr(sbi, cp_i->cur_node_segno, cp_i->cur_node_blkoff);
 
 	cp_i->cur_node_blkoff++;
 	return page_addr;
@@ -551,7 +558,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 
 	if (!IS_ERR(src)) {
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->version)
+		if (get_summary_version(summary) == cp_i->store_version)
 			return src;
 	}
 
@@ -565,18 +572,18 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	} else {
 		dest->footer.ino = cpu_to_le64(inode->i_ino);
 		dest->footer.nid = cpu_to_le64(nid);
-		dest->footer.cp_ver = cpu_to_le32(cp_i->version);
+		dest->footer.cp_ver = cpu_to_le32(cp_i->store_version);
 	}
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->version, 0,
+	make_summary_entry(summary, inode->i_ino, cp_i->store_version, 0,
 			   SUM_TYPE_NODE);
 
 	//TODO: cache nat
 	printk(KERN_INFO "blk_addr:%lu-%lu\n",
 	       (unsigned long)GET_SEGNO(sbi, block),
 	       (block & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->version, true);
+	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->store_version, true);
 	return dest;
 }
 

@@ -13,7 +13,7 @@
 #define HMFS_SSA_INO			2
 #define HMFS_ROOT_INO			3
 
-#define HMFS_DEF_CP_VER			0
+#define HMFS_DEF_CP_VER			1
 
 #define HMFS_PAGE_SIZE			4096
 #define HMFS_PAGE_SIZE_BITS		12
@@ -80,6 +80,7 @@ struct hmfs_super_block {
 	__le64 segment_count_main;	/* # of segments for main area */
 
 	__le64 cp_page_addr;	/* start block address of checkpoint */
+	__le32 latest_cp_version;		/* cp version */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
@@ -421,6 +422,10 @@ static inline unsigned int get_summary_version(struct hmfs_summary *summary)
 #define NUM_NAT_JOURNALS_IN_CP	8
 struct hmfs_checkpoint {
 	__le32 checkpoint_ver;	/* checkpoint block version number */
+
+	/* chain of checkpoints*/
+	__le64 prev_checkpoint_addr;
+
 	__le64 user_block_count;	/* # of user blocks */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
 	__le64 free_segment_count;	/* # of free segments in main area */
@@ -444,6 +449,8 @@ struct hmfs_checkpoint {
 	/* SIT and NAT version bitmap */
 	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
+
+	__le64 sit_root_bt_addr;	/* sit root address of its B-tree */
 
 	__le16 checksum;
 } __attribute__ ((packed));

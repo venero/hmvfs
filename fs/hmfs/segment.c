@@ -221,6 +221,143 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 	write_unlock(&free_i->segmap_lock);
 }
 
+//	Given a CP, compare and modify/add a series of sit entry in it, Log-structed way.
+//	Modify itself and levels of branches up there.
+//	Input: dirty block bit map or specific to one single sit entry
+//	return an sit b-tree root address.
+static u64 add_CP_sit_entry(struct hmfs_sb_info *sbi)
+{
+//	TODO:[Billy]
+}
+
+static int mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,unsigned long *dirty_blocks_bitmap)
+{
+//	TODO:[goku] convert from entry bitmap to block bitmap
+}
+
+//	just assume sit tree is complete in DRAM for now
+//	return an sit b-tree root address.
+u64 save_sit_entries(struct hmfs_sb_info *sbi)
+{
+	struct checkpoint_info *cp_i = sbi->cp_info;
+
+	unsigned long index;
+	void *item;
+	struct radix_tree_root root = sbi->sm_info->sit_info->sentries_root;
+
+	u64 sit_bt_entries_root;
+	sit_bt_entries_root = add_CP_sit_entry(sbi);
+	return sit_bt_entries_root;
+}
+
+/*	Operations for sit entry radix-tree in DRAM 	*/
+
+//	Find sit entry with segment number 'segno'
+//	Called under sit_tree_rcu_read_lock
+static void *lookup_sit_entry(struct sit_info *sit_i, u64 segno)
+{
+	return radix_tree_lookup(&sit_i->sentries_root, segno);
+}
+//	Insert sit entry 'se' with segment number 'segno'
+static void *insert_sit_entry(struct sit_info *sit_i, struct seg_entry *se, u64 segno)
+{
+	return radix_tree_insert(&sit_i->sentries_root, segno, &se);
+}
+//	Delete sit entry with segment number 'segno'
+static void *delete_sit_entry(struct sit_info *sit_i, u64 segno)
+{
+	return radix_tree_delete(&sit_i->sentries_root, segno);
+}
+//	Set sit entry with segment number 'segno ' 'DIRTY'
+static void *set_dirty_sit_entry(struct sit_info *sit_i, u64 segno)
+{
+	return radix_tree_tag_set(&sit_i->sentries_root, segno,0);
+}
+//	Set sit entry with segment number 'segno ' 'CLEAN'
+static void *set_clean_sit_entry(struct sit_info *sit_i, u64 segno)
+{
+	return radix_tree_tag_clear(&sit_i->sentries_root, segno,0);
+}
+//	Get the tag of sit entry with segment number 'segno '
+static int get_tag_sit_entry(struct sit_info *sit_i, u64 segno)
+{
+	int ret;
+	ret = radix_tree_tag_get(&sit_i->sentries_root, segno, 0);
+	if (ret==1)
+		return SIT_ENTRY_DIRTY;
+	else
+		return SIT_ENTRY_CLEAN;
+}
+//	Test whether radix tree is dirty
+static int is_sit_radix_tree_dirty (struct sit_info *sit_i)
+{
+	int ret;
+	ret = radix_tree_tagged(&sit_i->sentries_root, 0);
+	if (ret==1)
+		return SIT_ENTRY_DIRTY;
+	else
+		return SIT_ENTRY_CLEAN;
+}
+
+//	Modified from kernel
+static inline void *indirect_to_ptr(void *ptr)
+{
+	return (void *)((unsigned long)ptr & ~RADIX_TREE_INDIRECT_PTR);
+}
+
+unsigned int
+radix_tree_gang_lookup_tag_with_index(struct radix_tree_root *root, void **results, int *index,
+		unsigned long first_index, unsigned int max_items,
+		unsigned int tag)
+{
+	struct radix_tree_iter iter;
+	void **slot;
+	unsigned int ret = 0;
+
+	if (unlikely(!max_items))
+		return 0;
+
+	radix_tree_for_each_tagged(slot, root, &iter, first_index, tag) {
+		results[ret] = indirect_to_ptr(rcu_dereference_raw(*slot));
+		index[ret] = iter.index;
+		if (!results[ret])
+			continue;
+		if (++ret == max_items)
+			break;
+	}
+
+	return ret;
+}
+
+//	Test whether radix tree is dirty
+//	Return the number of dirty sit entry in 'results'
+static unsigned int gang_lookup_sit_entry (struct sit_info *sit_i, struct seg_entry **results, int *index)
+{
+	int ret;
+	ret = radix_tree_gang_lookup_tag_with_index(&sit_i->sentries_root, results, index, 0, MAX_SIT_ITEMS_FOR_GANG_LOOKUP, 0);
+	return ret;
+}
+
+struct hmfs_sit_journal convert_seg_entry_to_journal (int *index, struct seg_entry *results)
+{
+
+}
+
+static unsigned int convert_gang_result_to_journal (struct sit_info *sit_i,  struct hmfs_sit_journal *journal)
+{
+	int count, done;
+	struct seg_entry **results;
+	int *index;
+	count = radix_tree_gang_lookup_tag_with_index(&sit_i->sentries_root, results, index, 0, MAX_SIT_ITEMS_FOR_GANG_LOOKUP, 0);
+	done = 0;
+	while ( done < count )
+	{
+//		Format change
+		journal[done] = convert_seg_entry_to_journal(index[done], results[done]);
+	}
+	return done;
+}
+
 /*
  * routines for build segment manager
  */
@@ -263,6 +400,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 //FIXME:cal sit_segs
 	sit_segs = 0;
 
+	INIT_RADIX_TREE(&sit_i->sentries_root,GFP_KERNEL);
 	sit_i->sit_root = le32_to_cpu(raw_super->sit_root);
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
 	//sit_i->written_valid_blocks = le64_to_cpu(ckpt->valid_block_count);
@@ -329,7 +467,7 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned int start;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_i->last_checkpoint_addr);
+	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_i->load_checkpoint_addr);
 
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		struct seg_entry *se = &sit_i->sentries[start];

@@ -1,11 +1,19 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
+#include "segment.h"
+#include <linux/crc16.h>
 
 static struct kmem_cache *orphan_entry_slab;
 
 static u32 next_checkpoint_ver(u32 version)
 {
+//	TODO: version GC
 	return version + 1;
+}
+
+static u32 find_this_version(struct hmfs_sb_info *sbi)
+{
+	return sbi->cp_info->load_version;
 }
 
 static void init_orphan_manager(struct checkpoint_info *cp_i)
@@ -107,7 +115,8 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	hmfs_cp = ADDR(sbi, cp_addr);
 
 	//TODO: deal with checkpoint version
-	cp->version = next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
+	cp->load_version = le32_to_cpu(hmfs_cp->checkpoint_ver);
+	cp->store_version = next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp->cur_node_segno = le64_to_cpu(hmfs_cp->cur_node_segno);
 	cp->cur_node_blkoff = le64_to_cpu(hmfs_cp->cur_node_blkoff);
 	cp->cur_data_segno = le64_to_cpu(hmfs_cp->cur_data_segno);
@@ -116,7 +125,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cp->valid_node_count = le64_to_cpu(hmfs_cp->valid_node_count);
 	cp->valid_block_count = le64_to_cpu(hmfs_cp->valid_block_count);
 	cp->user_block_count = le64_to_cpu(hmfs_cp->user_block_count);
-	cp->last_checkpoint_addr = cp_addr;
+	cp->load_checkpoint_addr = cp_addr;
 	cp->cp = kmap(new_hmfs_cp_page);
 	cp->cp_page = new_hmfs_cp_page;
 
@@ -194,3 +203,150 @@ void destroy_checkpoint_caches(void)
 {
 	kmem_cache_destroy(orphan_entry_slab);
 }
+
+int construct_checkpoint(void)
+{
+
+}
+
+
+//	TODO: Find checkpoint by given version number
+int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_checkpoint *checkpoint)
+{
+	struct hmfs_checkpoint *cp;
+	u32 ver;
+	cp = ADDR(sbi, sbi->cp_info->load_checkpoint_addr);
+	ver = cp->checkpoint_ver;
+	while(ver != version)
+	{
+		cp = ADDR(sbi, cp->prev_checkpoint_addr);
+		ver = le32_to_cpu(cp->checkpoint_ver);
+		if (cp->prev_checkpoint_addr == 0)
+			return version;
+	}
+	checkpoint = cp;
+	return 0;
+}
+
+//	Step1: calculate info and write sit and nat to NVM
+//	Step2: write CP itself to NVM
+//	Step3: remaining job
+int write_checkpoint(struct hmfs_sb_info *sbi)
+{
+	u16 cp_checksum;
+	int length;
+//	TODO: Stop writing to current file system
+	u32 load_version;
+	u32 store_version;
+
+	u64 store_checkpoint_addr = 0;
+	nid_t * store_checkpoint_nid;
+
+	u64 sit_bt_entries_root;
+//	u64 nat_bt_entries_root;
+	struct hmfs_checkpoint *load_checkpoint;
+	struct hmfs_checkpoint *store_checkpoint;
+	load_version = sbi->cp_info->load_version;
+	store_version = sbi->cp_info->store_version;
+	if(!find_checkpoint_version(sbi, load_version, load_checkpoint))
+	{
+		printk("Load version of CP not found.\n");
+		return -1;
+	}
+	if(!alloc_nid(sbi, store_checkpoint_nid))
+	{
+		printk("Not enough nid for CP.\n");
+		return -1;
+	}
+	store_checkpoint_addr=get_new_node_page(sbi);
+
+	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
+
+	sit_bt_entries_root = save_sit_entries(sbi);
+
+//	TODO: NAT part
+//	nat_bt_entries_root = save_nat_entries(sbi);
+
+//	Deal with checkpoint itself
+	set_struct(store_checkpoint,checkpoint_ver,store_version);
+
+	set_struct(store_checkpoint,prev_checkpoint_addr,cpu_to_le64(load_checkpoint));
+
+	set_struct(store_checkpoint,user_block_count,sbi->cp_info->user_block_count);
+	set_struct(store_checkpoint,valid_block_count,sbi->cp_info->valid_block_count);
+	set_struct(store_checkpoint,free_segment_count, cpu_to_le64(sbi->sm_info->free_info->free_segments));
+
+	set_struct(store_checkpoint,cur_node_segno,sbi->cp_info->cur_node_segno);
+	set_struct(store_checkpoint,cur_node_blkoff,sbi->cp_info->cur_node_blkoff);
+	set_struct(store_checkpoint,cur_data_segno,sbi->cp_info->cur_data_segno);
+	set_struct(store_checkpoint,cur_data_blkoff,sbi->cp_info->cur_data_blkoff);
+
+	set_struct(store_checkpoint,valid_inode_count,sbi->cp_info->valid_inode_count);
+	set_struct(store_checkpoint,valid_node_count,sbi->cp_info->valid_node_count);
+
+//	These two are traditional way of expressing sit and nat, should be replaced with b-tree root
+//	set_struct(store_checkpoint,sit_addr,sbi->cp_info->si->sit_root);
+//	set_struct(store_checkpoint,nat_addr,sbi->cp_info);
+
+	set_struct(store_checkpoint,next_scan_nid,sbi->nm_info->next_scan_nid);
+
+	set_struct(store_checkpoint,sit_root_bt_addr,sit_bt_entries_root);
+
+	length = (void *)(&store_checkpoint->checksum) - (void *)store_checkpoint;
+	cp_checksum = crc16(~0, (void *)store_checkpoint, length);
+	set_struct(store_checkpoint,checksum,cp_checksum);
+
+//	Main part of checkpoint is done, begin to deal with add-ons
+
+	sbi->cp_info->load_version = store_version;
+	sbi->cp_info->store_version = next_checkpoint_ver(store_version);
+	sbi->cp_info->load_checkpoint_addr = store_checkpoint_addr;
+	return store_version;
+}
+
+int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
+{
+	struct hmfs_checkpoint *checkpoint = NULL;
+	struct checkpoint_info *cpi = NULL;
+	struct hmfs_super_block *super;
+	int ret;
+	super = ADDR(sbi, 0);
+	ret = find_checkpoint_version(sbi, version, checkpoint);
+	if ( ret != 0)
+	{
+		printk("Version %d not found.\n",ret);
+		return -1;
+	}
+	cpi = kzalloc(sizeof(struct checkpoint_info), GFP_KERNEL);
+	cpi->load_version = version;
+	cpi->store_version = next_checkpoint_ver(super->latest_cp_version);
+
+	cpi->cur_node_segno = checkpoint->cur_node_segno;
+	cpi->cur_node_blkoff = checkpoint->cur_node_blkoff;
+	cpi->cur_data_segno = checkpoint->cur_data_segno;
+	cpi->cur_data_blkoff= checkpoint->cur_data_blkoff;
+
+	cpi->valid_inode_count = checkpoint->valid_inode_count;
+	cpi->valid_node_count = checkpoint->valid_node_count;
+
+	cpi->valid_block_count = checkpoint->valid_block_count;
+	cpi->user_block_count = checkpoint->user_block_count;
+
+//	FIXME: [Goku]
+//	cpi->alloc_valid_block_count =
+
+	cpi->load_checkpoint_addr = checkpoint->prev_checkpoint_addr;
+
+//	FIXME: [Goku] Orphan part
+
+	cpi->cp = checkpoint;
+
+//	FIXME: [Goku] cp_page
+
+//	cpi->si should be changed when sit is initialed.
+}
+
+
+
+
+
