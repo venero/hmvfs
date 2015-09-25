@@ -496,12 +496,8 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	int err;
 
 	err = get_node_info(sbi, nid, &ni);
-	printk("get node:%lu\n", (unsigned long)nid);
 	if (err)
 		return ERR_PTR(err);
-	printk(KERN_INFO "blk_addr:%lu-%lu\n",
-	       (unsigned long)GET_SEGNO(sbi, ni.blk_addr),
-	       (ni.blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	if (ni.blk_addr == NULL_ADDR)
 		return ERR_PTR(-ENODATA);
 	else if (ni.blk_addr == NEW_ADDR || ni.blk_addr == FREE_ADDR) {
@@ -536,6 +532,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	} else {
+		memset_nt(dest,0,HMFS_PAGE_SIZE-sizeof(struct node_footer));
 		dest->footer.ino = cpu_to_le64(inode->i_ino);
 		dest->footer.nid = cpu_to_le64(nid);
 		dest->footer.cp_ver = cpu_to_le32(cp_i->version);
@@ -696,6 +693,7 @@ retry:
 		*nid = get_free_nid(nm_i->free_nids[nm_i->fcnt - 1].nid);
 		nm_i->fcnt--;
 		spin_unlock(&nm_i->free_nid_list_lock);
+		printk(KERN_INFO"alloc nid:%d\n",*nid);
 		return true;
 	}
 	spin_unlock(&nm_i->free_nid_list_lock);

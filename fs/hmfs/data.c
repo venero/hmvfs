@@ -37,7 +37,6 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 		blocks[0] = get_node(sbi, nid[0]);
 		if (IS_ERR(blocks[0]))
 			return PTR_ERR(blocks[0]);
-		printk(KERN_INFO "get node success\n");
 		dn->inode_block = blocks[0];
 	}
 	parent = blocks[0];
@@ -74,15 +73,28 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			set_nid(parent, offset[i - 1], nid[i], i == 1);
 		} else if (nid[i] && mode == LOOKUP_NODE) {
+			printk(KERN_INFO"lookup node:%d\n",nid[i]);
 			blocks[i] = get_node(sbi, nid[i]);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
 				goto out;
 			}
+			printk(KERN_INFO"lookup success:%d\n",i);
+		}
+		else if(nid[i]){
+			blocks[i]=get_node(sbi,nid[i]);
+			if(IS_ERR(blocks[i])){
+				err=PTR_ERR(blocks[i]);
+				goto out;
+			}
+		}
+		else{
+			BUG();
 		}
 		if (i < level) {
 			parent = blocks[i];
 			nid[i + 1] = get_nid(parent, offset[i], false);
+			printk(KERN_INFO"offset[i]:%d nid[i+1]:%d\n",offset[i],nid[i+1]);
 		}
 	}
 
@@ -134,11 +146,16 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		}
 		if (i > max_blk)
 			return -EINVAL;
+		printk(KERN_INFO"before judge,%d %d %d\n",i,*size,ofs_in_node);
 		if (!dn.level) {
-			BUG_ON(dn.inode_block == NULL);
+			BUG_ON(dn.inode_block == NULL||dn.inode_block->i_addr==NULL);
+			printk(KERN_INFO"ijudge %p\n",dn.inode_block);
+			printk(KERN_INFO"ijudge %p\n",dn.inode_block->i_addr);
 			addr = dn.inode_block->i_addr[ofs_in_node++];
 		} else {
-			BUG_ON(dn.node_block == NULL);
+			BUG_ON(dn.node_block == NULL||dn.node_block->addr==NULL);
+			printk(KERN_INFO"judge %p\n",dn.node_block);
+			printk(KERN_INFO"judge %p\n",dn.node_block->addr);
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
 		printk(KERN_INFO "blk_addr:%lu-%d\n",
@@ -151,7 +168,9 @@ fill_null:
 		} else
 			blocks[*size] = ADDR(sbi, addr);
 		*size = *size + 1;
+		printk(KERN_INFO"counter:%d %d\n",i,*size);
 	}
+	printk(KERN_INFO"out loop\n");
 	return err;
 }
 
@@ -214,6 +233,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	dest = ADDR(sbi, new_addr);
 
 	if (src_addr != NULL_ADDR) {
+			printk(KERN_INFO"not null\n");
 		if (left)
 			hmfs_memcpy(dest, src, left);
 		if (right < HMFS_PAGE_SIZE)

@@ -88,11 +88,15 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	 * copied : read length so far
 	 * FIXME: pending for write_lock? anything like access_ok()
 	 */
+
+	printk(KERN_INFO"hmfs_xip_file_read index:%d %d\n",index,end_index);
 	do {
 		unsigned long nr, left;
 		void *xip_mem[1];
 		int zero = 0;
 		int size;
+
+printk(KERN_INFO"hmfs_xip_read index:%d\n",index);
 
 		/* nr is the maximum number of bytes to copy from this page */
 		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
@@ -107,7 +111,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
-
+BUG_ON(nr>HMFS_PAGE_SIZE);
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
 		hmfs_inode_read_lock(inode);
 		error =
@@ -135,11 +139,12 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 			error = -EFAULT;
 			goto out;
 		}
-
+printk(KERN_INFO"prev index:%d\n",index);
 		copied += (nr - left);
 		offset += (nr - left);
-		index += offset >> PAGE_CACHE_SHIFT;
-		offset &= ~PAGE_CACHE_MASK;
+		index += offset >> HMFS_PAGE_SIZE_BITS;
+		offset &= ~HMFS_PAGE_MASK;
+printk(KERN_INFO"next index:%d\n",index);
 	} while (copied < len);
 
 out:
@@ -171,6 +176,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		bytes = HMFS_PAGE_SIZE - offset;
 		if (bytes > count)
 			bytes = count;
+printk(KERN_INFO"xip write:%d\n",index);
 
 		hmfs_inode_write_lock(inode);
 		xip_mem = get_new_data_block(inode, index);
@@ -215,7 +221,7 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	struct inode *inode = filp->f_inode;
 	size_t count = 0, ret;
 	loff_t pos;
-
+printk(KERN_INFO"xip file write\n");
 	mutex_lock(&inode->i_mutex);
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
