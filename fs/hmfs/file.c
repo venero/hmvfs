@@ -89,14 +89,11 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	 * FIXME: pending for write_lock? anything like access_ok()
 	 */
 
-	printk(KERN_INFO"hmfs_xip_file_read index:%d %d\n",index,end_index);
 	do {
 		unsigned long nr, left;
 		void *xip_mem[1];
 		int zero = 0;
 		int size;
-
-printk(KERN_INFO"hmfs_xip_read index:%d\n",index);
 
 		/* nr is the maximum number of bytes to copy from this page */
 		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
@@ -111,7 +108,7 @@ printk(KERN_INFO"hmfs_xip_read index:%d\n",index);
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
-BUG_ON(nr>HMFS_PAGE_SIZE);
+		BUG_ON(nr > HMFS_PAGE_SIZE);
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
 		hmfs_inode_read_lock(inode);
 		error =
@@ -139,12 +136,10 @@ BUG_ON(nr>HMFS_PAGE_SIZE);
 			error = -EFAULT;
 			goto out;
 		}
-printk(KERN_INFO"prev index:%d\n",index);
 		copied += (nr - left);
 		offset += (nr - left);
 		index += offset >> HMFS_PAGE_SIZE_BITS;
 		offset &= ~HMFS_PAGE_MASK;
-printk(KERN_INFO"next index:%d\n",index);
 	} while (copied < len);
 
 out:
@@ -176,7 +171,6 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		bytes = HMFS_PAGE_SIZE - offset;
 		if (bytes > count)
 			bytes = count;
-printk(KERN_INFO"xip write:%d\n",index);
 
 		hmfs_inode_write_lock(inode);
 		xip_mem = get_new_data_block(inode, index);
@@ -221,7 +215,6 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	struct inode *inode = filp->f_inode;
 	size_t count = 0, ret;
 	loff_t pos;
-printk(KERN_INFO"xip file write\n");
 	mutex_lock(&inode->i_mutex);
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
@@ -273,21 +266,19 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	    get_new_node(sbi, le64_to_cpu(raw_node->footer.nid), dn->inode);
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
-printk(KERN_INFO"count:%d\n",count);
 	for (; count > 0; count--, ofs++) {
-		if(dn->level)
+		if (dn->level)
 			addr = raw_node->dn.addr[ofs];
 		else
-			addr=raw_node->i.i_addr[ofs];
-printk(KERN_INFO"addr:%lu,%d\n",GET_SEGNO(sbi,addr),(addr&~HMFS_SEGMENT_MASK)>>HMFS_PAGE_SIZE_BITS);
+			addr = raw_node->i.i_addr[ofs];
 		if (addr == NULL_ADDR)
 			continue;
 		BUG_ON(addr == FREE_ADDR || addr == NEW_ADDR);
 		data_blk = ADDR(sbi, addr);
-		if(dn->level)
+		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;
 		else
-			new_node->i.i_addr[ofs]=NULL_ADDR;
+			new_node->i.i_addr[ofs] = NULL_ADDR;
 
 		invalidate_blocks(sbi, addr);
 		nr_free++;
@@ -311,7 +302,6 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 
 	if (!offset)
 		return;
-	printk(KERN_INFO"truncate_partial_data_page\n");
 	get_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
 				   HMFS_PAGE_SIZE, true);
 	return;
@@ -322,17 +312,14 @@ static int truncate_blocks(struct inode *inode, u64 from)
 	struct dnode_of_data dn;
 	int count, err;
 	u64 free_from;
-printk(KERN_INFO"from:%d\n",from);
 	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
 
 	if (err) {
-printk(KERN_INFO"free next\n");
 		goto free_next;
 	}
-printk(KERN_INFO"level:%d\n",dn.level);
 	if (!dn.level)
 		count = NORMAL_ADDRS_PER_INODE;
 	else

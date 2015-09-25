@@ -250,7 +250,6 @@ static int truncate_dnode(struct dnode_of_data *dn)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
 	struct direct_node *hn;
-printk(KERN_INFO"truncate dnode:%p %d\n",dn,dn->nid);
 	if (dn->nid == 0)
 		return 1;
 
@@ -260,13 +259,10 @@ printk(KERN_INFO"truncate dnode:%p %d\n",dn,dn->nid);
 	else if (IS_ERR(hn))
 		return PTR_ERR(hn);
 
-	printk(KERN_INFO"truncate dnode 1\n");
 	dn->node_block = hn;
 	dn->ofs_in_node = 0;
-	printk(KERN_INFO"truncate dnode 2\n");
 	truncate_data_blocks(dn);
 	truncate_node(dn);
-	printk(KERN_INFO"truncate dnode finish\n");
 	return 1;
 }
 
@@ -283,7 +279,6 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 
 	if (dn->nid == 0)
 		return NIDS_PER_BLOCK + 1;
-printk(KERN_INFO"truncate nodes:%d\n",dn->nid);
 
 	hn = get_new_node(sbi, dn->nid, dn->inode);
 	if (IS_ERR(hn))
@@ -294,9 +289,8 @@ printk(KERN_INFO"truncate nodes:%d\n",dn->nid);
 			child_nid = le64_to_cpu(hn->in.nid[i]);
 			if (child_nid == 0)
 				continue;
-			printk(KERN_INFO"truncate_dnode:%d %d\n",child_nid,i);
 			rdn.nid = child_nid;
-			rdn.inode=dn->inode;
+			rdn.inode = dn->inode;
 			ret = truncate_dnode(&rdn);
 			if (ret < 0)
 				goto out_err;
@@ -311,7 +305,7 @@ printk(KERN_INFO"truncate nodes:%d\n",dn->nid);
 				continue;
 			}
 			rdn.nid = child_nid;
-			rdn.inode=dn->inode;
+			rdn.inode = dn->inode;
 			ret = truncate_nodes(&rdn, child_nofs, 0, depth - 1);
 			if (ret == (NIDS_PER_BLOCK + 1)) {
 				set_nid(hn, i, 0, false);
@@ -401,7 +395,6 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 		return PTR_ERR(hn);
 
 	set_new_dnode(&dn, inode, &hn->i, NULL, 0);
-printk(KERN_INFO"level:%d\n",level);
 	switch (level) {
 	case 0:
 	case 1:
@@ -429,7 +422,6 @@ printk(KERN_INFO"level:%d\n",level);
 	}
 skip_partial:
 	while (cont) {
-printk(KERN_INFO"offset[0]:%d\n",offset[0]-NODE_DIR1_BLOCK);
 		dn.nid = le64_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
 		switch (offset[0]) {
 		case NODE_DIR1_BLOCK:
@@ -517,8 +509,6 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_summary *summary = NULL;
-	printk(KERN_INFO "get_new_node:%lu %lu\n", (unsigned long)nid,
-	       (unsigned long)inode->i_ino);
 	src = get_node(sbi, nid);
 
 	if (!IS_ERR(src)) {
@@ -530,7 +520,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	if (!inc_valid_node_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
 
-	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return -EPERM;
 
 	block = get_free_node_block(sbi);
@@ -538,7 +528,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	} else {
-		memset_nt(dest,0,HMFS_PAGE_SIZE-sizeof(struct node_footer));
+		memset_nt(dest, 0, HMFS_PAGE_SIZE - sizeof(struct node_footer));
 		dest->footer.ino = cpu_to_le64(inode->i_ino);
 		dest->footer.nid = cpu_to_le64(nid);
 		dest->footer.cp_ver = cpu_to_le32(cp_i->version);
@@ -549,9 +539,6 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 			   SUM_TYPE_NODE);
 
 	//TODO: cache nat
-	printk(KERN_INFO "blk_addr:%lu-%lu\n",
-	       (unsigned long)GET_SEGNO(sbi, block),
-	       (block & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->version, true);
 	return dest;
 }
@@ -569,7 +556,6 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in nat cache */
 	e = __lookup_nat_cache(nm_i, nid);
-	printk(KERN_ERR "lookup in nat cache:%d\n", (int)nid);
 	if (e) {
 		read_lock(&nm_i->nat_tree_lock);
 		ni->ino = e->ni.ino;
@@ -581,7 +567,6 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search nat journals */
 	i = lookup_journal_in_cp(cp_info, NAT_JOURNAL, nid, 0);
-	printk(KERN_ERR "lookup in cp cache:%d\n", (int)nid);
 	if (i >= 0) {
 		ne = nat_in_journal(cp_info, i);
 		node_info_from_raw_nat(ni, &ne);
@@ -591,10 +576,8 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in main area */
 	nat_block = get_current_nat_block(sbi, start_nid);
-	printk(KERN_ERR "lookup in block:%d\n", (int)nid);
 	if (nat_block == NULL)
 		return -ENODATA;
-	printk(KERN_ERR "lookup right:%d\n", (int)nid);
 	ne = nat_block->entries[nid - start_nid];
 	node_info_from_raw_nat(ni, &ne);
 	dirty = false;
@@ -629,7 +612,6 @@ static void recycle_nat_journals(struct hmfs_sb_info *sbi,
 			hmfs_cp->nat_journals[i].nid = 0;
 			add_free_nid(nm_i, nid, 1, pos);
 			*pos = *pos - 1;
-			printk(KERN_INFO "nat free nid:%d\n", (int)nid);
 		}
 	}
 	write_unlock(&cp_i->journal_lock);
@@ -699,7 +681,6 @@ retry:
 		*nid = get_free_nid(nm_i->free_nids[nm_i->fcnt - 1].nid);
 		nm_i->fcnt--;
 		spin_unlock(&nm_i->free_nid_list_lock);
-		printk(KERN_INFO"alloc nid:%d\n",*nid);
 		return true;
 	}
 	spin_unlock(&nm_i->free_nid_list_lock);

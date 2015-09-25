@@ -14,8 +14,6 @@ static int do_read_inode(struct inode *inode)
 	struct hmfs_inode *hi;
 
 	if (check_nid_range(sbi, inode->i_ino)) {
-		printk(KERN_INFO "[HMFS] Invalid inode number:%lu\n",
-		       inode->i_ino);
 		return -EINVAL;
 	}
 

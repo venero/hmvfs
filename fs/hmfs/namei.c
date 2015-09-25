@@ -57,8 +57,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	i_info->i_pino = dir->i_ino;
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version, true);
 	err = sync_hmfs_inode(inode);
-	printk(KERN_INFO "allocate new inode:%lu, result:%d\n", inode->i_ino,
-	       err);
 	if (!err) {
 		inc_valid_inode_count(sbi);
 		return inode;
@@ -84,13 +82,11 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	int err = 0;
 
 	inode = hmfs_new_inode(dir, mode);
-	printk(KERN_INFO "add link:%lu\n", PTR_ERR(inode));
 	if (IS_ERR(inode))
 		return inode;
 	hmfs_inode_write_lock(dentry->d_parent->d_inode);
 	err = hmfs_add_link(dentry, inode);
 	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
-	printk(KERN_INFO "instantiate:%d\n", err);
 	if (err)
 		goto out;
 	return inode;
@@ -130,10 +126,8 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	struct inode *inode;
 
 	inode = hmfs_make_dentry(dir, dentry, mode);
-	printk(KERN_INFO "make entry\n");
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
-	printk(KERN_INFO "make success\n");
 	inode->i_op = &hmfs_file_inode_operations;
 	inode->i_fop = &hmfs_file_operations;
 	inode->i_mapping->a_ops = &hmfs_dblock_aops;
@@ -200,16 +194,13 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	err = check_orphan_space(sbi);
-printk(KERN_INFO"unlink:check have orphan space\n");
 	if (err)
 		goto fail;
-printk(KERN_INFO"unlink: have orphan space\n");
 	res_blk = get_new_data_block(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		goto fail;
 	}
-printk(KERN_INFO"unlink: have data space\n");
 	de = &res_blk->dentry[ofs_in_blk];
 	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
@@ -361,8 +352,6 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	struct inode *inode = dentry->d_inode;
 	int err = 0;
 
-printk(KERN_INFO"hmfs_setattr\n");
-	
 	err = inode_change_ok(inode, attr);
 	if (err)
 		return err;

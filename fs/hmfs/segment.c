@@ -12,7 +12,6 @@ static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int blkoff,
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
 	long new_vblocks;
-printk(KERN_INFO"update sit entry:%lu,%d,%d\n",(unsigned long)segno,blkoff,del);
 	se = &sit_i->sentries[segno];
 	new_vblocks = se->valid_blocks + del;
 
@@ -92,7 +91,6 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 	mutex_unlock(&sit_i->sentry_lock);
 
 	seg_i->next_blkoff++;
-	printk(KERN_INFO"seg_i:%lu %d\n",seg_i->segno,seg_i->next_blkoff);
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
 		move_to_new_segment(sbi, seg_i);
 	}

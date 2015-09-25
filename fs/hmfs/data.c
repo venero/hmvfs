@@ -31,9 +31,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 
 	nid[0] = dn->inode->i_ino;
 	blocks[0] = dn->inode_block;
-	printk(KERN_INFO "index:%d\n", index);
 	if (!blocks[0]) {
-		printk(KERN_INFO "get node:%d\n", (int)nid[0]);
 		blocks[0] = get_node(sbi, nid[0]);
 		if (IS_ERR(blocks[0]))
 			return PTR_ERR(blocks[0]);
@@ -43,7 +41,6 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 	if (level != 0) {
 		nid[1] = get_nid(parent, offset[0], true);
 	}
-	printk(KERN_INFO "get node level:%d\n", level);
 
 	for (i = 1; i <= level; ++i) {
 		if (!nid[i] && mode == ALLOC_NODE) {
@@ -73,28 +70,23 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			set_nid(parent, offset[i - 1], nid[i], i == 1);
 		} else if (nid[i] && mode == LOOKUP_NODE) {
-			printk(KERN_INFO"lookup node:%d\n",nid[i]);
 			blocks[i] = get_node(sbi, nid[i]);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
 				goto out;
 			}
-			printk(KERN_INFO"lookup success:%d\n",i);
-		}
-		else if(nid[i]){
-			blocks[i]=get_node(sbi,nid[i]);
-			if(IS_ERR(blocks[i])){
-				err=PTR_ERR(blocks[i]);
+		} else if (nid[i]) {
+			blocks[i] = get_node(sbi, nid[i]);
+			if (IS_ERR(blocks[i])) {
+				err = PTR_ERR(blocks[i]);
 				goto out;
 			}
-		}
-		else{
+		} else {
 			BUG();
 		}
 		if (i < level) {
 			parent = blocks[i];
 			nid[i + 1] = get_nid(parent, offset[i], false);
-			printk(KERN_INFO"offset[i]:%d nid[i+1]:%d\n",offset[i],nid[i+1]);
 		}
 	}
 
@@ -128,7 +120,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	bool init = true;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	printk(KERN_INFO "get_data_blocks:[%d,%d)\n", start, end);
 	for (i = start, *size = 0; i < end; ++i) {
 		if (i > end_blk_id) {
 			if (!init && mode == RA_DB_END) {
@@ -146,21 +137,15 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		}
 		if (i > max_blk)
 			return -EINVAL;
-		printk(KERN_INFO"before judge,%d %d %d\n",i,*size,ofs_in_node);
 		if (!dn.level) {
-			BUG_ON(dn.inode_block == NULL||dn.inode_block->i_addr==NULL);
-			printk(KERN_INFO"ijudge %p\n",dn.inode_block);
-			printk(KERN_INFO"ijudge %p\n",dn.inode_block->i_addr);
+			BUG_ON(dn.inode_block == NULL
+			       || dn.inode_block->i_addr == NULL);
 			addr = dn.inode_block->i_addr[ofs_in_node++];
 		} else {
-			BUG_ON(dn.node_block == NULL||dn.node_block->addr==NULL);
-			printk(KERN_INFO"judge %p\n",dn.node_block);
-			printk(KERN_INFO"judge %p\n",dn.node_block->addr);
+			BUG_ON(dn.node_block == NULL
+			       || dn.node_block->addr == NULL);
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
-		printk(KERN_INFO "blk_addr:%lu-%d\n",
-		       (unsigned long)GET_SEGNO(sbi, addr),
-		       (int)(addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 		if (addr == NULL_ADDR) {
 fill_null:
 			blocks[*size] = NULL;
@@ -168,9 +153,7 @@ fill_null:
 		} else
 			blocks[*size] = ADDR(sbi, addr);
 		*size = *size + 1;
-		printk(KERN_INFO"counter:%d %d\n",i,*size);
 	}
-	printk(KERN_INFO"out loop\n");
 	return err;
 }
 
@@ -191,15 +174,13 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	int err;
 	struct hmfs_summary *summary = NULL;
 
-
-	printk(KERN_INFO "get_new_data_block:%lu\n", inode->i_ino);
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
 
 	if (err)
 		return ERR_PTR(err);
 
-	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return -EPERM;
 
 	hn = get_new_node(sbi, dn.nid, inode);
@@ -227,17 +208,9 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	else
 		hn->i.i_addr[dn.ofs_in_node] = new_addr;
 
-	printk(KERN_INFO "src_blk_addr:%d-%d\n",
-	       (int)GET_SEGNO(sbi, src_addr),
-	       (int)(src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	printk(KERN_INFO "dest_blk_addr:%d-%d\n",
-	       (int)GET_SEGNO(sbi, new_addr),
-	       (int)(new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-
 	dest = ADDR(sbi, new_addr);
 
 	if (src_addr != NULL_ADDR) {
-			printk(KERN_INFO"not null\n");
 		if (left)
 			hmfs_memcpy(dest, src, left);
 		if (right < HMFS_PAGE_SIZE)
@@ -269,7 +242,6 @@ void *get_new_data_block(struct inode *inode, int block)
 	int err;
 	struct hmfs_summary *summary = NULL;
 
-	printk(KERN_INFO "get_new_data_block:%lu\n", inode->i_ino);
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
 
@@ -292,22 +264,15 @@ void *get_new_data_block(struct inode *inode, int block)
 	}
 	if (!inc_valid_block_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
-	
-	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+
+	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return -EPERM;
-	
+
 	new_addr = get_free_data_block(sbi);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else
 		hn->i.i_addr[dn.ofs_in_node] = new_addr;
-
-	printk(KERN_INFO "src_blk_addr:%d-%d\n",
-	       (int)GET_SEGNO(sbi, src_addr),
-	       (int)(src_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-	printk(KERN_INFO "dest_blk_addr:%d-%d\n",
-	       (int)GET_SEGNO(sbi, new_addr),
-	       (int)(new_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
 
 	dest = ADDR(sbi, new_addr);
 
