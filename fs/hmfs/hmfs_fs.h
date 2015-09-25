@@ -126,8 +126,8 @@ struct hmfs_inode {
 /**
  * hmfs node
  */
-#define ADDRS_PER_BLOCK		64
-#define LOG2_ADDRS_PER_BLOCK 8
+#define ADDRS_PER_BLOCK		64//512
+#define LOG2_ADDRS_PER_BLOCK 8//9
 #define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
 #define NIDS_PER_BLOCK		64
 

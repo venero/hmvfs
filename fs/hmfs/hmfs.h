@@ -290,6 +290,11 @@ static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
 	return (sbi->virt_addr + logic_addr);
 }
 
+static inline block_t DEADDR(struct hmfs_sb_info *sbi, void* ptr)
+{
+	return (block_t)(ptr - sbi->virt_addr);
+}
+
 static inline nid_t START_NID(nid_t nid)
 {
 	//TODO

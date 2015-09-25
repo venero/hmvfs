@@ -118,86 +118,102 @@ u64 get_free_node_block(struct hmfs_sb_info * sbi)
 /*
  * NVM related segment management functions
  */
+
+inline void get_child_sit_addr(struct hmfs_sb_info *sbi, void *root_addr,
+			       u64 segno, void **new_root_addr, u64 * new_segno,
+			       u8 height)
+{
+	block_t *logical_root = (block_t *) root_addr;
+
+	*new_root_addr =
+	    ADDR(sbi, logical_root[segno >> (height * LOG2_ADDRS_PER_BLOCK)]);
+	*new_segno =
+	    segno & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
+}
+
 /* get a sit/nat page from sit/nat in-NVM tree */
-void* get_sn_page(struct hmfs_sb_info *sbi, void *root, u64 segno, u8 height)
+void *get_sn_page(struct hmfs_sb_info *sbi, void *root, u64 segno, u8 height)
 {
 	void *new_root;
 	u64 new_segno;
-	block_t *logical_root = (block_t*)root;
+	block_t *logical_root = (block_t *) root;
 
 	if (!height)
-		return (void *) ADDR(sbi, logical_root[segno]);
-
-	new_root = ADDR(sbi, logical_root[segno >> (height * LOG2_ADDRS_PER_BLOCK)]);
-	new_segno = segno
-	    & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
+		return (void *)ADDR(sbi, logical_root[segno]);
+	get_child_sit_addr(sbi, root, segno, &new_root, &new_segno, height);
 	return get_sn_page(sbi, new_root, new_segno, height - 1);
 }
 
-/* allocate a sit page, returns its fs logical address */
-block_t sit_page_alloc(struct hmfs_sb_info *sbi){
-	struct curseg_info* curseg = &CURSEG_I(sbi)[CURSEG_NODE];
-	block_t logical_addr;
-	//FIXME : allocate a new segment, ENOMEM
-	mutex_lock(&curseg->curseg_mutex);
-
-	logical_addr = (block_t) (curseg->segno * HMFS_SEGMENT_SIZE + curseg->next_blkoff * HMFS_PAGE_SIZE);
-	curseg->next_blkoff++;
-	mutex_unlock(&curseg->curseg_mutex);
-	return logical_addr;
-}
-
-block_t recursive_flush_sit_page(struct hmfs_sb_info *sbi, block_t old_root, void *root_addr, u64 segno, u8 height){
-	//FIXME : cannot handle no space
-	void *new_addr, *current_addr=NULL;
-       	block_t *modi_ptr;
-	block_t current_root;
-	u64 new_segno;
-	unsigned int _offset;
-	
-	//1. if at leaf, alloc & copy sit entry block 
-	if (!height){
-		current_root = get_free_node_block(sbi);
-		//TODO : copy sit entry blk to current_root 
-		return current_root;
-	}
-
-	//2. if this node is wandered COW
-	if(old_root!=NULL && ADDR(sbi,old_root) == root_addr){
-		//need new block allocation
-		current_root = get_free_node_block(sbi);
-		current_addr = ADDR(sbi, current_root);
-		memcpy(current_addr, root_addr, HMFS_PAGE_SIZE);
-	}
-
-	//3. go to child, 
-	_offset = segno >> (height * LOG2_ADDRS_PER_BLOCK)*sizeof(block_t);
-	new_segno = segno
-	    & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
-	if(current_addr!=NULL){
-		modi_ptr = (block_t*)(current_addr+_offset);
-		new_addr = (void*)(*modi_ptr);
-
-		*modi_ptr = recursive_flush_sit_page(sbi, NULL, new_addr, new_segno, height - 1);//FIXME:not le64
-		return current_root;
-	} else {
-		modi_ptr = (block_t*)(root_addr+_offset);
-		recursive_flush_sit_page(sbi, *modi_ptr, ADDR(sbi, modi_ptr), new_segno, height-1);
-		return old_root;
-	}
-}
-/* write  inner-NVM tree */
-block_t flush_sit_pages(struct hmfs_sb_info *sbi) //TODO:@2 should be sit_blk&seg_no
+block_t recursive_flush_sit_page(struct hmfs_sb_info * sbi, void *old_addr,
+				 void *cur_addr, u64 segno, u8 height,
+				 struct seg_entry * entry, u16 * alloc_cnt)
 {
-	struct hmfs_sm_info* sm_info = SM_I(sbi);
-	struct sit_info* sit_info = SIT_I(sbi);
+	//FIXME : cannot handle no space
+	void *cur_stored_addr, *old_child_addr, *cur_child_addr;
+	block_t cur_stored_root, *modi_ptr, child_stored_root;
+	u64 new_segno;
+	unsigned long _offset;
+	struct hmfs_sit_entry *raw_entry;
+
+	//1. if leaf, alloc & copy sit entry block 
+	if (!height) {
+		cur_stored_addr = cur_addr;
+		cur_stored_root = NULL;
+		if (old_addr == cur_addr) {
+			//COW
+			cur_stored_root = get_free_node_block(sbi);
+			cur_stored_addr = ADDR(sbi, cur_stored_root);
+			memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
+			*alloc_cnt++;
+		}
+		_offset = segno * sizeof(struct hmfs_sit_entry);
+		raw_entry =
+		    (struct hmfs_sit_entry *)(cur_stored_addr + _offset);
+		seg_info_to_raw_sit(entry, raw_entry);
+		return cur_stored_root;
+	}
+	//2. if this node is not wandered before, COW
+	_offset = (segno >> (height * LOG2_ADDRS_PER_BLOCK)) * sizeof(block_t);
+	cur_stored_addr = cur_addr;
+	cur_stored_root = NULL;
+
+	if (old_addr == cur_addr) {
+		//COW
+		cur_stored_root = get_free_node_block(sbi);
+		cur_stored_addr = ADDR(sbi, cur_stored_root);
+		memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
+
+		//change child addr
+		modi_ptr = (block_t *) (cur_stored_addr + _offset);
+		*modi_ptr = cpu_to_le64(cur_stored_root);
+		*alloc_cnt++;
+	}
+	//3. go to child
+	get_child_sit_addr(sbi, old_addr, segno, &old_child_addr, &new_segno,
+			   height);
+	get_child_sit_addr(sbi, cur_addr, segno, &cur_stored_addr, &new_segno,
+			   height);
+	child_stored_root =
+	    recursive_flush_sit_page(sbi, old_child_addr, cur_stored_addr,
+				     new_segno, height - 1, entry, alloc_cnt);
+	if (child_stored_root != NULL) {
+		*modi_ptr = cpu_to_le64(child_stored_root);
+	}
+	return cur_stored_root;
+}
+
+/* write  inner-NVM tree */
+block_t flush_sit_pages(struct hmfs_sb_info * sbi)	//TODO:@2 should be sit_blk&seg_no
+{
+	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	struct sit_info *sit_info = SIT_I(sbi);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	block_t cur_sit_root = cp_i->cur_sit_root;
 
 	/* TODO : 
 	 * foreach dirty sit page
-	 *	cur_sit_root = recursive_flush_sit_page(sbi, ADDR(sbi, cur_sit_root), 
-	 */ 
+	 *      cur_sit_root = recursive_flush_sit_page(sbi, ADDR(sbi, cur_sit_root), 
+	 */
 }
 
 /*
@@ -250,13 +266,13 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	//reset_curseg(sbi, type, 1); 
 }
 
-static unsigned short  __next_free_blkoff(struct hmfs_sb_info *sbi,
-			struct curseg_info *seg, block_t start)
+static unsigned short __next_free_blkoff(struct hmfs_sb_info *sbi,
+					 struct curseg_info *seg, block_t start)
 {
 	struct seg_entry *se = get_seg_entry(sbi, seg->segno);
 	block_t ofs;
 	for (ofs = start; ofs < HMFS_PAGE_PER_SEG; ofs++) {
-		if(!hmfs_test_bit(ofs, se->cur_valid_map))
+		if (!hmfs_test_bit(ofs, se->cur_valid_map))
 			break;
 	}
 	seg->next_blkoff = ofs;
@@ -276,10 +292,11 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 
 static void *get_sit_page(struct hmfs_sb_info *sbi, u64 segno)
 {
-	struct hmfs_super_block* raw_super = HMFS_RAW_SUPER(sbi);
-	struct checkpoint_info* cp_info = sbi->cp_info;
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
+	struct checkpoint_info *cp_info = sbi->cp_info;
 
-	return get_sn_page(sbi, ADDR(sbi, cp_info->cur_sit_root), segno, raw_super->sit_height);
+	return get_sn_page(sbi, ADDR(sbi, cp_info->cur_sit_root), segno,
+			   raw_super->sit_height);
 
 }
 
@@ -294,23 +311,24 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 	write_unlock(&free_i->segmap_lock);
 }
 
-//	Given a CP, compare and modify/add a series of sit entry in it, Log-structed way.
-//	Modify itself and levels of branches up there.
-//	Input: dirty block bit map or specific to one single sit entry
-//	return an sit b-tree root address.
+//      Given a CP, compare and modify/add a series of sit entry in it, Log-structed way.
+//      Modify itself and levels of branches up there.
+//      Input: dirty block bit map or specific to one single sit entry
+//      return an sit b-tree root address.
 static u64 add_CP_sit_entry(struct hmfs_sb_info *sbi)
 {
-//	TODO:[Billy]
+//      TODO:[Billy]
 }
 
-static int mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,unsigned long *dirty_blocks_bitmap)
+static int mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,
+				 unsigned long *dirty_blocks_bitmap)
 {
-//	TODO:[goku] convert from entry bitmap to block bitmap
+//      TODO:[goku] convert from entry bitmap to block bitmap
 }
 
-//	just assume sit tree is complete in DRAM for now
-//	return an sit b-tree root address.
-//	@obsolete
+//      just assume sit tree is complete in DRAM for now
+//      return an sit b-tree root address.
+//      @obsolete
 block_t save_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct checkpoint_info *cp_i = sbi->cp_info;
@@ -326,108 +344,157 @@ block_t save_sit_entries(struct hmfs_sb_info *sbi)
 
 /*	Operations for sit entry radix-tree in DRAM 	*/
 
-//	Find sit entry with segment number 'segno'
-//	Called under sit_tree_rcu_read_lock
+//      Find sit entry with segment number 'segno'
+//      Called under sit_tree_rcu_read_lock
 static void *lookup_sit_entry(struct sit_info *sit_i, u64 segno)
 {
 	return radix_tree_lookup(&sit_i->sentries_root, segno);
 }
-//	Insert sit entry 'se' with segment number 'segno'
-static void *insert_sit_entry(struct sit_info *sit_i, struct seg_entry *se, u64 segno)
+
+//      Insert sit entry 'se' with segment number 'segno'
+static void *insert_sit_entry(struct sit_info *sit_i, struct seg_entry *se,
+			      u64 segno)
 {
 	return radix_tree_insert(&sit_i->sentries_root, segno, &se);
 }
-//	Delete sit entry with segment number 'segno'
+
+//      Delete sit entry with segment number 'segno'
 static void *delete_sit_entry(struct sit_info *sit_i, u64 segno)
 {
 	return radix_tree_delete(&sit_i->sentries_root, segno);
 }
-//	Set sit entry with segment number 'segno ' 'DIRTY'
+
+//      Set sit entry with segment number 'segno ' 'DIRTY'
 static void *set_dirty_sit_entry(struct sit_info *sit_i, u64 segno)
 {
-	return radix_tree_tag_set(&sit_i->sentries_root, segno,0);
+	return radix_tree_tag_set(&sit_i->sentries_root, segno, 0);
 }
-//	Set sit entry with segment number 'segno ' 'CLEAN'
+
+//      Set sit entry with segment number 'segno ' 'CLEAN'
 static void *set_clean_sit_entry(struct sit_info *sit_i, u64 segno)
 {
-	return radix_tree_tag_clear(&sit_i->sentries_root, segno,0);
+	return radix_tree_tag_clear(&sit_i->sentries_root, segno, 0);
 }
-//	Get the tag of sit entry with segment number 'segno '
+
+//      Get the tag of sit entry with segment number 'segno '
 static int get_tag_sit_entry(struct sit_info *sit_i, u64 segno)
 {
 	int ret;
 	ret = radix_tree_tag_get(&sit_i->sentries_root, segno, 0);
-	if (ret==1)
-		return SIT_ENTRY_DIRTY;
-	else
-		return SIT_ENTRY_CLEAN;
-}
-//	Test whether radix tree is dirty
-static int is_sit_radix_tree_dirty (struct sit_info *sit_i)
-{
-	int ret;
-	ret = radix_tree_tagged(&sit_i->sentries_root, 0);
-	if (ret==1)
+	if (ret == 1)
 		return SIT_ENTRY_DIRTY;
 	else
 		return SIT_ENTRY_CLEAN;
 }
 
-//	Modified from kernel
+//      Test whether radix tree is dirty
+static int is_sit_radix_tree_dirty(struct sit_info *sit_i)
+{
+	int ret;
+	ret = radix_tree_tagged(&sit_i->sentries_root, 0);
+	if (ret == 1)
+		return SIT_ENTRY_DIRTY;
+	else
+		return SIT_ENTRY_CLEAN;
+}
+
+//      Modified from kernel
 static inline void *indirect_to_ptr(void *ptr)
 {
 	return (void *)((unsigned long)ptr & ~RADIX_TREE_INDIRECT_PTR);
 }
 
 unsigned int
-radix_tree_gang_lookup_tag_with_index(struct radix_tree_root *root, void **results, int *index,
-		unsigned long first_index, unsigned int max_items,
-		unsigned int tag)
+radix_tree_gang_lookup_tag_with_index(struct hmfs_sb_info *sbi,
+				      unsigned long first_index,
+				      unsigned int max_items, unsigned int tag)
 {
 	struct radix_tree_iter iter;
 	void **slot;
-	unsigned int ret = 0;
+	unsigned int alloc_cnt;
+
+	int count;
+	struct seg_entry *results;
+	int index;
+	struct sit_info *sit_i = SIT_I(sbi);
+
+	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	struct sit_info *sit_info = SIT_I(sbi);
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
+	block_t cur_sit_root = cp_i->cur_sit_root, new_sit_root, temp_sit_root;
+	void *cur_sit_addr = ADDR(sbi, cur_sit_root);
+	struct radix_tree_root *root = &sit_info->sentries_root;
 
 	if (unlikely(!max_items))
 		return 0;
 
+	alloc_cnt = 0;
+	count = 0;
 	radix_tree_for_each_tagged(slot, root, &iter, first_index, tag) {
-		results[ret] = indirect_to_ptr(rcu_dereference_raw(*slot));
-		index[ret] = iter.index;
-		if (!results[ret])
+		results = indirect_to_ptr(rcu_dereference_raw(*slot));
+		index = iter.index;
+		if (!results)
 			continue;
-		if (++ret == max_items)
+		temp_sit_root =
+		    recursive_flush_sit_page(sbi, cur_sit_addr, cur_sit_addr,
+					     (u64) index, raw_super->sit_height,
+					     results, &alloc_cnt);
+		if (temp_sit_root != NULL)	//root sit node changed
+			new_sit_root = temp_sit_root;
+
+		if (++count == max_items)
 			break;
 	}
 
-	return ret;
+	return alloc_cnt;	//returns allocated blocks
 }
 
-//	Test whether radix tree is dirty
-//	Return the number of dirty sit entry in 'results'
-static unsigned int gang_lookup_sit_entry (struct sit_info *sit_i, struct seg_entry **results, int *index)
+//      Test whether radix tree is dirty
+//      Return the number of dirty sit entry in 'results'
+static unsigned int gang_lookup_sit_entry(struct sit_info *sit_i,
+					  struct seg_entry **results,
+					  int *index)
 {
 	int ret;
-	ret = radix_tree_gang_lookup_tag_with_index(&sit_i->sentries_root, results, index, 0, MAX_SIT_ITEMS_FOR_GANG_LOOKUP, 0);
+	//ret = radix_tree_gang_lookup_tag_with_index(&sit_i->sentries_root, results, index, 0, MAX_SIT_ITEMS_FOR_GANG_LOOKUP, 0);
 	return ret;
 }
 
-struct hmfs_sit_journal convert_seg_entry_to_journal (int *index, struct seg_entry *results)
+struct hmfs_sit_journal convert_seg_entry_to_journal(int *index,
+						     struct seg_entry *results)
 {
 
 }
 
-static unsigned int convert_gang_result_to_journal (struct sit_info *sit_i,  struct hmfs_sit_journal *journal)
+static unsigned int convert_gang_result_to_journal(struct hmfs_sb_info *sbi,
+						   struct hmfs_sit_journal
+						   *journal)
 {
 	int count, done;
 	struct seg_entry **results;
 	int *index;
-	count = radix_tree_gang_lookup_tag_with_index(&sit_i->sentries_root, results, index, 0, MAX_SIT_ITEMS_FOR_GANG_LOOKUP, 0);
+	struct sit_info *sit_i = SIT_I(sbi);
+
+	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	struct sit_info *sit_info = SIT_I(sbi);
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
+	block_t cur_sit_root = cp_i->cur_sit_root, new_sit_root, temp_sit_root;
+	void *cur_sit_addr = ADDR(sbi, cur_sit_root);
+
+	count =
+	    radix_tree_gang_lookup_tag_with_index(sbi, 0,
+						  MAX_SIT_ITEMS_FOR_GANG_LOOKUP,
+						  0);
 	done = 0;
-	while ( done < count )
-	{
-//		Format change
-		journal[done++] = convert_seg_entry_to_journal(index[done], results[done]);
+	while (done < count) {
+//              Format change
+//              journal[done++] = convert_seg_entry_to_journal(index[done], results[done]);
+		//      temp_sit_root = recursive_flush_sit_page(sbi, cur_sit_addr, cur_sit_addr, (u64)index[done], raw_super->sit_height, results[done]);
+		if (temp_sit_root != NULL)	//root sit node changed
+			new_sit_root = temp_sit_root;
+		done++;
 	}
 	return done;
 }
@@ -474,7 +541,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 //FIXME:cal sit_segs
 	sit_segs = 0;
 
-	INIT_RADIX_TREE(&sit_i->sentries_root,GFP_KERNEL);//XXX:check allocating sentries_root
+	INIT_RADIX_TREE(&sit_i->sentries_root, GFP_KERNEL);	//XXX:check allocating sentries_root
 
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
 	//sit_i->written_valid_blocks = le64_to_cpu(ckpt->valid_block_count);
