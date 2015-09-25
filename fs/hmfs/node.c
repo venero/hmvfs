@@ -250,7 +250,7 @@ static int truncate_dnode(struct dnode_of_data *dn)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
 	struct direct_node *hn;
-
+printk(KERN_INFO"truncate dnode:%p %d\n",dn,dn->nid);
 	if (dn->nid == 0)
 		return 1;
 
@@ -260,10 +260,13 @@ static int truncate_dnode(struct dnode_of_data *dn)
 	else if (IS_ERR(hn))
 		return PTR_ERR(hn);
 
+	printk(KERN_INFO"truncate dnode 1\n");
 	dn->node_block = hn;
 	dn->ofs_in_node = 0;
+	printk(KERN_INFO"truncate dnode 2\n");
 	truncate_data_blocks(dn);
 	truncate_node(dn);
+	printk(KERN_INFO"truncate dnode finish\n");
 	return 1;
 }
 
@@ -280,10 +283,7 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 
 	if (dn->nid == 0)
 		return NIDS_PER_BLOCK + 1;
-
-	hn = get_node(sbi, dn->nid);
-	if (IS_ERR(hn))
-		return PTR_ERR(hn);
+printk(KERN_INFO"truncate nodes:%d\n",dn->nid);
 
 	hn = get_new_node(sbi, dn->nid, dn->inode);
 	if (IS_ERR(hn))
@@ -294,7 +294,9 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 			child_nid = le64_to_cpu(hn->in.nid[i]);
 			if (child_nid == 0)
 				continue;
+			printk(KERN_INFO"truncate_dnode:%d %d\n",child_nid,i);
 			rdn.nid = child_nid;
+			rdn.inode=dn->inode;
 			ret = truncate_dnode(&rdn);
 			if (ret < 0)
 				goto out_err;
@@ -309,6 +311,7 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 				continue;
 			}
 			rdn.nid = child_nid;
+			rdn.inode=dn->inode;
 			ret = truncate_nodes(&rdn, child_nofs, 0, depth - 1);
 			if (ret == (NIDS_PER_BLOCK + 1)) {
 				set_nid(hn, i, 0, false);
