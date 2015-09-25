@@ -93,6 +93,7 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
+		//TODO : journal when writing CP
 		move_to_new_segment(sbi, seg_i);
 	}
 	mutex_unlock(&seg_i->curseg_mutex);
@@ -117,18 +118,86 @@ u64 get_free_node_block(struct hmfs_sb_info * sbi)
 /*
  * NVM related segment management functions
  */
-void *get_sn_page(block_t * root, pgoff_t no, u8 height)
+/* get a sit/nat page from sit/nat in-NVM tree */
+void* get_sn_page(struct hmfs_sb_info *sbi, void *root, u64 segno, u8 height)
 {
-	block_t *new_root;
-	pgoff_t new_no;
+	void *new_root;
+	u64 new_segno;
+	block_t *logical_root = (block_t*)root;
 
 	if (!height)
-		return (void *)root[no];
+		return (void *) ADDR(sbi, logical_root[segno]);
 
-	new_root = (block_t *) root[no >> (height * LOG2_ADDRS_PER_BLOCK)];	//FIXME:LOG2 ADDRS_PER_BLOCK
-	new_no = no
-	    && ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
-	return get_sn_page(new_root, new_no, height - 1);
+	new_root = ADDR(sbi, logical_root[segno >> (height * LOG2_ADDRS_PER_BLOCK)]);
+	new_segno = segno
+	    & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
+	return get_sn_page(sbi, new_root, new_segno, height - 1);
+}
+
+/* allocate a sit page, returns its fs logical address */
+block_t sit_page_alloc(struct hmfs_sb_info *sbi){
+	struct curseg_info* curseg = &CURSEG_I(sbi)[CURSEG_NODE];
+	block_t logical_addr;
+	//FIXME : allocate a new segment, ENOMEM
+	mutex_lock(&curseg->curseg_mutex);
+
+	logical_addr = (block_t) (curseg->segno * HMFS_SEGMENT_SIZE + curseg->next_blkoff * HMFS_PAGE_SIZE);
+	curseg->next_blkoff++;
+	mutex_unlock(&curseg->curseg_mutex);
+	return logical_addr;
+}
+
+block_t recursive_flush_sit_page(struct hmfs_sb_info *sbi, block_t old_root, void *root_addr, u64 segno, u8 height){
+	//FIXME : cannot handle no space
+	void *new_addr, *current_addr=NULL;
+       	block_t *modi_ptr;
+	block_t current_root;
+	u64 new_segno;
+	unsigned int _offset;
+	
+	//1. if at leaf, alloc & copy sit entry block 
+	if (!height){
+		current_root = get_free_node_block(sbi);
+		//TODO : copy sit entry blk to current_root 
+		return current_root;
+	}
+
+	//2. if this node is wandered COW
+	if(old_root!=NULL && ADDR(sbi,old_root) == root_addr){
+		//need new block allocation
+		current_root = get_free_node_block(sbi);
+		current_addr = ADDR(sbi, current_root);
+		memcpy(current_addr, root_addr, HMFS_PAGE_SIZE);
+	}
+
+	//3. go to child, 
+	_offset = segno >> (height * LOG2_ADDRS_PER_BLOCK)*sizeof(block_t);
+	new_segno = segno
+	    & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
+	if(current_addr!=NULL){
+		modi_ptr = (block_t*)(current_addr+_offset);
+		new_addr = (void*)(*modi_ptr);
+
+		*modi_ptr = recursive_flush_sit_page(sbi, NULL, new_addr, new_segno, height - 1);//FIXME:not le64
+		return current_root;
+	} else {
+		modi_ptr = (block_t*)(root_addr+_offset);
+		recursive_flush_sit_page(sbi, *modi_ptr, ADDR(sbi, modi_ptr), new_segno, height-1);
+		return old_root;
+	}
+}
+/* write  inner-NVM tree */
+block_t flush_sit_pages(struct hmfs_sb_info *sbi) //TODO:@2 should be sit_blk&seg_no
+{
+	struct hmfs_sm_info* sm_info = SM_I(sbi);
+	struct sit_info* sit_info = SIT_I(sbi);
+	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	block_t cur_sit_root = cp_i->cur_sit_root;
+
+	/* TODO : 
+	 * foreach dirty sit page
+	 *	cur_sit_root = recursive_flush_sit_page(sbi, ADDR(sbi, cur_sit_root), 
+	 */ 
 }
 
 /*
@@ -181,6 +250,19 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	//reset_curseg(sbi, type, 1); 
 }
 
+static unsigned short  __next_free_blkoff(struct hmfs_sb_info *sbi,
+			struct curseg_info *seg, block_t start)
+{
+	struct seg_entry *se = get_seg_entry(sbi, seg->segno);
+	block_t ofs;
+	for (ofs = start; ofs < HMFS_PAGE_PER_SEG; ofs++) {
+		if(!hmfs_test_bit(ofs, se->cur_valid_map))
+			break;
+	}
+	seg->next_blkoff = ofs;
+	return ofs;
+}
+
 void allocate_new_segments(struct hmfs_sb_info *sbi)
 {
 	struct curseg_info *curseg;
@@ -192,22 +274,13 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 	//TODO:locate_dirty_segment(sbi, old_curseg);
 }
 
-static void *get_current_sit_page(struct hmfs_sb_info *sbi, unsigned int segno)
+static void *get_sit_page(struct hmfs_sb_info *sbi, u64 segno)
 {
-	//FIXME:add height to cp_info
-	//get_sn_page((block_t*)le64_to_cpu(cp_page->sit_addr), (pgoff_t)segno, );
-	return NULL;
+	struct hmfs_super_block* raw_super = HMFS_RAW_SUPER(sbi);
+	struct checkpoint_info* cp_info = sbi->cp_info;
 
-}
+	return get_sn_page(sbi, ADDR(sbi, cp_info->cur_sit_root), segno, raw_super->sit_height);
 
-static inline void seg_info_from_raw_sit(struct seg_entry *se,
-					 struct hmfs_sit_entry *rs)
-{
-	se->valid_blocks = le64_to_cpu(rs->vblocks);
-	//TODO se->ckpt_valid_blocks = GET_SIT_VBLOCKS(rs);
-	memcpy(se->cur_valid_map, rs->valid_map, SIT_VBLOCK_MAP_SIZE);
-	//TODO memcpy(se->ckpt_valid_map, rs->valid_map, SIT_VBLOCK_MAP_SIZE);
-	se->mtime = le64_to_cpu(rs->mtime);
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
@@ -237,7 +310,8 @@ static int mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,unsigned l
 
 //	just assume sit tree is complete in DRAM for now
 //	return an sit b-tree root address.
-u64 save_sit_entries(struct hmfs_sb_info *sbi)
+//	@obsolete
+block_t save_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct checkpoint_info *cp_i = sbi->cp_info;
 
@@ -353,7 +427,7 @@ static unsigned int convert_gang_result_to_journal (struct sit_info *sit_i,  str
 	while ( done < count )
 	{
 //		Format change
-		journal[done] = convert_seg_entry_to_journal(index[done], results[done]);
+		journal[done++] = convert_seg_entry_to_journal(index[done], results[done]);
 	}
 	return done;
 }
@@ -400,8 +474,8 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 //FIXME:cal sit_segs
 	sit_segs = 0;
 
-	INIT_RADIX_TREE(&sit_i->sentries_root,GFP_KERNEL);
-	sit_i->sit_root = le32_to_cpu(raw_super->sit_root);
+	INIT_RADIX_TREE(&sit_i->sentries_root,GFP_KERNEL);//XXX:check allocating sentries_root
+
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
 	//sit_i->written_valid_blocks = le64_to_cpu(ckpt->valid_block_count);
 	//sit_i->sit_bitmap = dst_bitmap;
@@ -465,7 +539,7 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 static void build_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	unsigned int start;
+	u64 start;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_i->load_checkpoint_addr);
 
@@ -487,7 +561,7 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 		read_unlock(&cp_i->journal_lock);
 		//XXX : neednt check summay cuz no journal inside
 
-		sit_blk = get_current_sit_page(sbi, start);
+		sit_blk = get_sit_page(sbi, start);
 
 		if (sit_blk == NULL) {
 			sit.mtime = 0;
@@ -535,7 +609,6 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sbi->sm_info = sm_info;
 	INIT_LIST_HEAD(&sm_info->wblist_head);
 	spin_lock_init(&sm_info->wblist_lock);
-	sm_info->seg0_blkaddr = le32_to_cpu(raw_super->sit_root);
 	sm_info->main_blkaddr = le64_to_cpu(raw_super->main_blkaddr);
 	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
 	sm_info->main_segments = le64_to_cpu(raw_super->segment_count_main);

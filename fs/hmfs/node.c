@@ -508,18 +508,6 @@ static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi, u64 cur_node
 	    (cur_node_blkoff<< HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
 }
 
-
-unsigned long get_new_node_page(struct hmfs_sb_info *sbi)
-{
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	unsigned long page_addr = 0;
-
-	page_addr = cal_page_addr(sbi, cp_i->cur_node_segno, cp_i->cur_node_blkoff);
-
-	cp_i->cur_node_blkoff++;
-	return page_addr;
-}
-
 /*
  * return node address in NVM by nid, would not allocate
  * new node

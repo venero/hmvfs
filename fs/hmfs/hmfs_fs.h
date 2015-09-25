@@ -5,6 +5,8 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 
+typedef u64 block_t;		//bits per NVM page address 
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
@@ -84,7 +86,6 @@ struct hmfs_super_block {
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	__le64 sit_root;	/* ino of sit file root node */
 	u8 sit_height;
 
 	__le16 checksum;
@@ -449,8 +450,6 @@ struct hmfs_checkpoint {
 	/* SIT and NAT version bitmap */
 	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
-
-	__le64 sit_root_bt_addr;	/* sit root address of its B-tree */
 
 	__le16 checksum;
 } __attribute__ ((packed));

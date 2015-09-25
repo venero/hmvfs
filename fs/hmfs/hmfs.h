@@ -70,6 +70,7 @@ struct checkpoint_info {
 //	set store_version to the version which it's about to store back to nvm
 	u32 store_version;
 
+	block_t cur_sit_root;//TODO:init while mounting
 	u64 cur_node_segno;
 	int cur_node_blkoff;
 
@@ -284,7 +285,7 @@ static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
 	return sbi->cp_info;
 }
 
-static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned logic_addr)
+static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
 {
 	return (sbi->virt_addr + logic_addr);
 }
@@ -487,6 +488,15 @@ static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 //                                              sit_i->mounted_time;
 }
 
+static inline int hmfs_test_bit(unsigned int nr, char *addr)
+{
+	int mask;
+
+	addr += (nr >> 3);
+	mask = 1 << (7 - (nr & 0x07));
+	return mask & *addr;
+}
+
 static inline int hmfs_set_bit(unsigned int nr, char *addr)
 {
 	int mask;
@@ -542,7 +552,6 @@ void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *);
-unsigned long get_new_node_page(struct hmfs_sb_info *sbi);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);

@@ -231,7 +231,7 @@ int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_c
 //	Step1: calculate info and write sit and nat to NVM
 //	Step2: write CP itself to NVM
 //	Step3: remaining job
-int write_checkpoint(struct hmfs_sb_info *sbi)
+block_t write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	u16 cp_checksum;
 	int length;
@@ -239,15 +239,17 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 	u32 load_version;
 	u32 store_version;
 
-	u64 store_checkpoint_addr = 0;
+	block_t store_checkpoint_addr = 0;
 	nid_t * store_checkpoint_nid;
 
-	u64 sit_bt_entries_root;
+	block_t sit_bt_entries_root;
 //	u64 nat_bt_entries_root;
 	struct hmfs_checkpoint *load_checkpoint;
 	struct hmfs_checkpoint *store_checkpoint;
 	load_version = sbi->cp_info->load_version;
 	store_version = sbi->cp_info->store_version;
+
+
 	if(!find_checkpoint_version(sbi, load_version, load_checkpoint))
 	{
 		printk("Load version of CP not found.\n");
@@ -258,7 +260,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 		printk("Not enough nid for CP.\n");
 		return -1;
 	}
-	store_checkpoint_addr=get_new_node_page(sbi);
+	store_checkpoint_addr=get_free_node_block(sbi);
 
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 
@@ -290,7 +292,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 
 	set_struct(store_checkpoint,next_scan_nid,sbi->nm_info->next_scan_nid);
 
-	set_struct(store_checkpoint,sit_root_bt_addr,sit_bt_entries_root);
+	set_struct(store_checkpoint, sit_addr, sit_bt_entries_root);
 
 	length = (void *)(&store_checkpoint->checksum) - (void *)store_checkpoint;
 	cp_checksum = crc16(~0, (void *)store_checkpoint, length);
@@ -298,10 +300,13 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 
 //	Main part of checkpoint is done, begin to deal with add-ons
 
+	//TODO:cp_info lock
 	sbi->cp_info->load_version = store_version;
 	sbi->cp_info->store_version = next_checkpoint_ver(store_version);
 	sbi->cp_info->load_checkpoint_addr = store_checkpoint_addr;
-	return store_version;
+
+	return store_checkpoint_addr;
+	//TODO: link this unattached CP to raw_super
 }
 
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
