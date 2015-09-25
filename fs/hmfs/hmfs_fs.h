@@ -92,7 +92,7 @@ struct hmfs_super_block {
 /**
  * hmfs inode
  */
-#define NORMAL_ADDRS_PER_INODE	2	
+#define NORMAL_ADDRS_PER_INODE	64	
 #define HMFS_NAME_LEN		255
 struct hmfs_inode {
 	__le16 i_mode;		/* file mode */
@@ -124,10 +124,10 @@ struct hmfs_inode {
 /**
  * hmfs node
  */
-#define ADDRS_PER_BLOCK		2
+#define ADDRS_PER_BLOCK		64
 #define LOG2_ADDRS_PER_BLOCK 8
 #define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
-#define NIDS_PER_BLOCK		2
+#define NIDS_PER_BLOCK		64
 
 #define NODE_DIR1_BLOCK		(NORMAL_ADDRS_PER_INODE + 1)
 #define NODE_DIR2_BLOCK		(NORMAL_ADDRS_PER_INODE + 2)

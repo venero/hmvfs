@@ -214,7 +214,7 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	return new;
 }
 
-static void truncate_node(struct dnode_of_data *dn)
+void truncate_node(struct dnode_of_data *dn)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
@@ -529,6 +529,9 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 
 	if (!inc_valid_node_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
+
+	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+		return -EPERM;
 
 	block = get_free_node_block(sbi);
 	dest = ADDR(sbi, block);

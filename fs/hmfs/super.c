@@ -414,6 +414,37 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 	return;
 }
 
+static void hmfs_evict_inode(struct inode *inode){
+	struct hmfs_sb_info *sbi=HMFS_SB(inode->i_sb);
+	struct dnode_of_data dn;
+	struct hmfs_node *hi;
+
+	hi=get_new_node(sbi,inode->i_ino,inode);
+	if(IS_ERR(hi))
+		return PTR_ERR(hi);
+
+	if(inode->i_ino<HMFS_ROOT_INO)
+		goto out;
+
+	if(inode->i_nlink||is_bad_inode(inode))
+		goto out;
+
+	sb_start_intwrite(inode->i_sb);
+
+	set_inode_flag(HMFS_I(inode),FI_NO_ALLOC);
+	i_size_write(inode,0);
+	
+	if(inode->i_blocks>0)
+		hmfs_truncate(inode);
+
+	set_new_dnode(&dn,inode,hi,NULL,inode->i_ino);
+	truncate_node(&dn);
+
+	sb_end_intwrite(inode->i_sb);
+out:
+	clear_inode(inode);
+}
+
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -463,7 +494,7 @@ static struct super_operations hmfs_sops = {
 	.destroy_inode = hmfs_destroy_inode,
 	.write_inode = hmfs_write_inode,
 	.dirty_inode = hmfs_dirty_inode,
-//      .evict_inode = hmfs_evict_inode,
+    .evict_inode = hmfs_evict_inode,
 	.put_super = hmfs_put_super,
 	.sync_fs = hmfs_sync_fs,
 	.statfs = hmfs_statfs,

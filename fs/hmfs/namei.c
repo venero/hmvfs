@@ -200,14 +200,16 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	err = check_orphan_space(sbi);
+printk(KERN_INFO"unlink:check have orphan space\n");
 	if (err)
 		goto fail;
-
+printk(KERN_INFO"unlink: have orphan space\n");
 	res_blk = get_new_data_block(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		goto fail;
 	}
+printk(KERN_INFO"unlink: have data space\n");
 	de = &res_blk->dentry[ofs_in_blk];
 	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);

@@ -191,12 +191,16 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	int err;
 	struct hmfs_summary *summary = NULL;
 
+
 	printk(KERN_INFO "get_new_data_block:%lu\n", inode->i_ino);
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
 
 	if (err)
 		return ERR_PTR(err);
+
+	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+		return -EPERM;
 
 	hn = get_new_node(sbi, dn.nid, inode);
 	if (IS_ERR(hn))
@@ -288,6 +292,10 @@ void *get_new_data_block(struct inode *inode, int block)
 	}
 	if (!inc_valid_block_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
+	
+	if(is_inode_flag_set(HMFS_I(inode),FI_NO_ALLOC))
+		return -EPERM;
+	
 	new_addr = get_free_data_block(sbi);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;

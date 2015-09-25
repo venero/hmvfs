@@ -12,9 +12,14 @@ static DEFINE_MUTEX(hmfs_stat_mutex);
 static int stat_show(struct seq_file *s, void *v)
 {
 	struct hmfs_stat_info *si;
+	struct checkpoint_info *cp_i=NULL;
+	struct list_head *head,*this;
+	struct orphan_inode_entry *orphan=NULL;
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
+		cp_i=CURCP_I(si->sbi);
+
 		seq_printf(s, "=============General Infomation=============\n");
 		seq_printf(s, "physical address:%lu\n",
 			   (unsigned long)si->sbi->phys_addr);
@@ -30,6 +35,14 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "main area range:%lu - %lu\n",
 			   (unsigned long)si->sbi->main_addr_start,
 			   (unsigned long)si->sbi->main_addr_end);
+	
+		head=&cp_i->orphan_inode_list;
+		seq_printf(s,"orphan inode:\n");
+		list_for_each(this,head){
+			orphan=list_entry(this,struct orphan_inode_entry,list);
+			seq_printf(s,"%lu ",orphan->ino);
+		}
+		seq_printf(s,"\n");
 	}
 	mutex_unlock(&hmfs_stat_mutex);
 	return 0;

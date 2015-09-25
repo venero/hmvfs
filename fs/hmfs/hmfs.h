@@ -544,6 +544,7 @@ int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
+void truncate_node(struct dnode_of_data *dn);
 
 /* segment.c*/
 int build_segment_manager(struct hmfs_sb_info *);
