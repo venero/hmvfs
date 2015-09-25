@@ -401,26 +401,21 @@ struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
 	int err;
 	struct hmfs_node *hn = NULL;
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE)) {
-		//FIXME: inode block have been copied two times
+	//FIXME: inode block have been copied two times
 		hn = get_new_node(sbi, inode->i_ino, inode);
 		printk(KERN_INFO "init inode metadata\n");
 		if (IS_ERR(hn))
 			return hn;
 
+
+	if (is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE)) {
 		if (S_ISDIR(inode->i_mode)) {
 			err = make_empty_dir(inode, dir, hn);
 			if (err)
 				goto error;
 		}
 	}
-/*	} else {
-		//TODO after add node.c here will be valid
-		//page = get_node_page(HMFS_I_SB(dir), inode->i_ino);
-		//TODO after add node.h here will be valid
-		//set_cold_node(inode, page);
-	}
-*/
+
 	if (name)
 		init_dent_inode(name, &hn->i);
 
