@@ -385,7 +385,8 @@ static void hmfs_destroy_inode(struct inode *inode)
 
 static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
-	int err;
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	int err, ilock;
 
 	if (inode->i_ino < HMFS_ROOT_INO)
 		return 0;
@@ -393,7 +394,9 @@ static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	if (!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		return 0;
 
+	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
+	mutex_unlock_op(sbi, ilock);
 
 	return err;
 }
@@ -410,9 +413,10 @@ static void hmfs_evict_inode(struct inode *inode)
 	struct dnode_of_data dn;
 	struct hmfs_node *hi;
 
-	hi = get_new_node(sbi, inode->i_ino, inode);
-	if (IS_ERR(hi))
+	hi = get_node(sbi, inode->i_ino);
+	if (IS_ERR(hi)) {
 		return;
+	}
 
 	if (inode->i_ino < HMFS_ROOT_INO)
 		goto out;
@@ -497,6 +501,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	struct hmfs_sb_info *sbi = NULL;
 	struct hmfs_super_block *super = NULL;
 	int retval = 0;
+	int i = 0;
 	unsigned long end_addr;
 
 	/* sbi initialization */
@@ -540,6 +545,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
 	sbi->summary_blk = ADDR(sbi, sbi->ssa_addr);
+	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
+		mutex_init(&sbi->fs_lock[i]);
+	sbi->next_lock_num = 0;
 
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;

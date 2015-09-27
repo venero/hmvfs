@@ -521,7 +521,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
-		return -EPERM;
+		return ERR_PTR(-EPERM);
 
 	block = get_free_node_block(sbi);
 	dest = ADDR(sbi, block);

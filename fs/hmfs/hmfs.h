@@ -122,7 +122,7 @@ struct hmfs_nm_info {
  * ioctl commands
  */
 #define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
-
+#define NR_GLOBAL_LOCKS	16
 struct hmfs_sb_info {
 	struct super_block *sb;	/* pointer to VFS super block */
 
@@ -138,6 +138,8 @@ struct hmfs_sb_info {
 	u64 segment_count;
 
 	struct checkpoint_info *cp_info;
+	struct mutex fs_lock[NR_GLOBAL_LOCKS];
+	unsigned char next_lock_num;
 
 	u64 ssa_addr;
 	u64 main_addr_start;
@@ -172,7 +174,6 @@ struct hmfs_inode_info {
 	unsigned long flags;	/* use to pass per-file flags */
 	struct rw_semaphore i_sem;	/* protect fi info */
 	u64 i_pino;		/* parent inode number */
-	rwlock_t i_lock;	/* lock inode when write-back */
 };
 
 struct hmfs_stat_info {
@@ -346,32 +347,42 @@ static inline void clear_inode_flag(struct hmfs_inode_info *fi, int flag)
 		clear_bit(flag, &fi->flags);
 }
 
-static inline void hmfs_inode_read_lock(struct inode *inode)
+static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+	int i;
 
-	read_lock(&inode_info->i_lock);
+	//FIXME:cp_mutex?
+	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
+		mutex_lock(&sbi->fs_lock[i]);
 }
 
-static inline void hmfs_inode_read_unlock(struct inode *inode)
+static inline void mutex_unlock_all(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+	int i;
 
-	read_unlock(&inode_info->i_lock);
+	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
+		mutex_unlock(&sbi->fs_lock[i]);
 }
 
-static inline void hmfs_inode_write_lock(struct inode *inode)
+static inline int mutex_lock_op(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_inode_info *inode_info = HMFS_I(inode);
+	unsigned char next_lock = sbi->next_lock_num % NR_GLOBAL_LOCKS;
+	int i;
 
-	write_lock(&inode_info->i_lock);
+	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
+		if (mutex_trylock(&sbi->fs_lock[i]))
+			return i;
+
+	mutex_lock(&sbi->fs_lock[next_lock]);
+	sbi->next_lock_num++;
+
+	return next_lock;
 }
 
-static inline void hmfs_inode_write_unlock(struct inode *inode)
+static inline void mutex_unlock_op(struct hmfs_sb_info *sbi, int ilock)
 {
-	struct hmfs_inode_info *inode_info = HMFS_I(inode);
-
-	write_unlock(&inode_info->i_lock);
+	BUG_ON(ilock < 0 || ilock >= NR_GLOBAL_LOCKS);
+	mutex_unlock(&sbi->fs_lock[ilock]);
 }
 
 static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
@@ -511,7 +522,6 @@ static inline int hmfs_clear_bit(unsigned int nr, char *addr)
 
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
-void hmfs_update_isize(struct inode *inode);
 int sync_hmfs_inode(struct inode *inode);
 
 /* file.c */

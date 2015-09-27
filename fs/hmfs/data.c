@@ -344,6 +344,7 @@ static int hmfs_write_data_page(struct page *page,
 	    ((unsigned long long)i_size) >> PAGE_CACHE_SHIFT;
 	unsigned offset;
 	int err = 0;
+	int ilock;
 
 	BUG_ON(HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
 	if (page->index < end_index)
@@ -372,7 +373,11 @@ write:
 		//dec_page_count(sbi,HMFS_DIRTY_DENTS);
 		//inode_dec_dirty_dents(inode);
 	}
+
+	ilock = mutex_lock_op(sbi);
 	err = do_write_data_page(page);
+	mutex_unlock_op(sbi, ilock);
+
 	if (err == -ENOENT)
 		goto out;
 	else if (err)
