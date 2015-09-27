@@ -253,7 +253,6 @@ struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
 	if (npages == 0)
 		return NULL;
 	//TODO after add hash.c here will be valid
-	hmfs_inode_read_lock(dir);
 
 	name_hash = hmfs_dentry_hash(child);
 	max_depth = HMFS_I(dir)->i_current_depth;
@@ -264,14 +263,11 @@ struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
 		if (de)
 			break;
 	}
-	hmfs_inode_read_unlock(dir);
 
-	hmfs_inode_write_lock(dir);
 	if (!de && HMFS_I(dir)->chash != name_hash) {
 		HMFS_I(dir)->chash = name_hash;
 		HMFS_I(dir)->clevel = level - 1;
 	}
-	hmfs_inode_write_unlock(dir);
 	return de;
 }
 
@@ -802,7 +798,6 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	//TODO after add inline.c here will be valid
 	//if (hmfs_has_inline_dentry(inode))
 	//      return hmfs_read_inline_dir(file, ctx);
-	hmfs_inode_read_lock(inode);
 	for (; n < npages; n++) {
 		//TODO after add data.c here will be valid
 		//dentry_page = get_lock_data_page(inode, n);
@@ -824,7 +819,6 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 		ctx->pos = (n + 1) * NR_DENTRY_IN_BLOCK;
 	}
 stop:
-	hmfs_inode_read_unlock(inode);
 	vfree(buf);
 	return err;
 }

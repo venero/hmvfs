@@ -84,9 +84,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	inode = hmfs_new_inode(dir, mode);
 	if (IS_ERR(inode))
 		return inode;
-	hmfs_inode_write_lock(dentry->d_parent->d_inode);
 	err = hmfs_add_link(dentry, inode);
-	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
 	if (err)
 		goto out;
 	return inode;
@@ -166,9 +164,7 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 	ihold(inode);
 
 	set_inode_flag(HMFS_I(inode), FI_INC_LINK);
-	hmfs_inode_write_lock(dentry->d_parent->d_inode);
 	err = hmfs_add_link(dentry, inode);
-	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
 	if (err)
 		goto out;
 	d_instantiate(dentry, inode);

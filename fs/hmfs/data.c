@@ -181,7 +181,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 		return ERR_PTR(err);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
-		return -EPERM;
+		return ERR_PTR(-EPERM);
 
 	hn = get_new_node(sbi, dn.nid, inode);
 	if (IS_ERR(hn))
@@ -266,7 +266,7 @@ void *get_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
-		return -EPERM;
+		return ERR_PTR(-EPERM);
 
 	new_addr = get_free_data_block(sbi);
 	if (dn.level)

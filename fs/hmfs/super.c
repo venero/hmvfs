@@ -369,7 +369,6 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	/*TODO: hmfs specific inode_info init work */
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
-	rwlock_init(&fi->i_lock);
 	return &(fi->vfs_inode);
 }
 
@@ -413,7 +412,7 @@ static void hmfs_evict_inode(struct inode *inode)
 
 	hi = get_new_node(sbi, inode->i_ino, inode);
 	if (IS_ERR(hi))
-		return PTR_ERR(hi);
+		return;
 
 	if (inode->i_ino < HMFS_ROOT_INO)
 		goto out;
@@ -429,7 +428,7 @@ static void hmfs_evict_inode(struct inode *inode)
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
 
-	set_new_dnode(&dn, inode, hi, NULL, inode->i_ino);
+	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	truncate_node(&dn);
 
 	sb_end_intwrite(inode->i_sb);

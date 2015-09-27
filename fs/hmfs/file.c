@@ -110,11 +110,9 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 			nr = len - copied;
 		BUG_ON(nr > HMFS_PAGE_SIZE);
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
-		hmfs_inode_read_lock(inode);
 		error =
 		    get_data_blocks(inode, index, index + 1, xip_mem, &size,
 				    RA_END);
-		hmfs_inode_read_unlock(inode);
 
 		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {
@@ -172,9 +170,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		if (bytes > count)
 			bytes = count;
 
-		hmfs_inode_write_lock(inode);
 		xip_mem = get_new_data_block(inode, index);
-		hmfs_inode_write_unlock(inode);
 		if (unlikely(IS_ERR(xip_mem)))
 			break;
 
