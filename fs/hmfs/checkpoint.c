@@ -101,12 +101,10 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	cp = kzalloc(sizeof(struct checkpoint_info), GFP_KERNEL);
 	if (cp == NULL) {
-		printk("[HMFS] No space for checkpoint_info");
 		return -ENOMEM;
 	}
 	new_hmfs_cp_page = alloc_page(GFP_KERNEL);
 	if (new_hmfs_cp_page == NULL) {
-		printk("[HMFS] No space for new checkpoint");
 		kfree(cp);
 		return -ENOMEM;
 	}
@@ -131,9 +129,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	init_orphan_manager(cp);
 
-	printk(KERN_INFO "current-cp:%d-%d %d-%d\n", (int)cp->cur_node_segno,
-	       (int)cp->cur_node_blkoff, (int)cp->cur_data_segno,
-	       (int)cp->cur_data_blkoff);
 	//FIXME: copy all sit journals and nat journals to DRAM
 	for (i = 0; i < NUM_SIT_JOURNALS_IN_CP; ++i)
 		cp->cp->sit_journals[i] = hmfs_cp->sit_journals[i];

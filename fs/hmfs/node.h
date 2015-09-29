@@ -23,6 +23,9 @@ struct free_nid {
 	nid_t nid;
 };
 
+/*
+ * ?????
+ */
 #define make_free_nid(nid,free)		(nid | ((u64)free << 63))
 #define get_free_nid(nid)			((nid << 1) >> 1)
 

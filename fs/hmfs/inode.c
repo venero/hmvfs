@@ -14,8 +14,6 @@ static int do_read_inode(struct inode *inode)
 	struct hmfs_inode *hi;
 
 	if (check_nid_range(sbi, inode->i_ino)) {
-		printk(KERN_INFO "[HMFS] Invalid inode number:%lu\n",
-		       inode->i_ino);
 		return -EINVAL;
 	}
 
@@ -47,18 +45,6 @@ static int do_read_inode(struct inode *inode)
 	fi->flags = 0;
 	fi->i_pino = le32_to_cpu(hi->i_pino);
 	return 0;
-}
-
-void hmfs_update_isize(struct inode *inode)
-{
-	struct super_block *sb = inode->i_sb;
-	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct hmfs_node *hn;
-
-	hn = get_new_node(sbi, inode->i_ino, inode);
-	hn->i.i_size = cpu_to_le64(inode->i_size);
-	hn->i.i_blocks = cpu_to_le64(inode->i_blocks);
-	hn->i.i_ctime = cpu_to_le64(get_seconds());
 }
 
 int sync_hmfs_inode(struct inode *inode)
