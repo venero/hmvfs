@@ -227,6 +227,7 @@ int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_c
 //	Step3: remaining job
 block_t write_checkpoint(struct hmfs_sb_info *sbi)
 {
+	printk(KERN_INFO "Write checkpoint stage 1.\n");
 	u16 cp_checksum;
 	int length;
 //	TODO: Stop writing to current file system
@@ -263,6 +264,7 @@ block_t write_checkpoint(struct hmfs_sb_info *sbi)
 //	TODO: NAT part
 //	nat_bt_entries_root = save_nat_entries(sbi);
 
+	printk(KERN_INFO "Write checkpoint stage 2.\n");
 //	Deal with checkpoint itself
 	set_struct(store_checkpoint,checkpoint_ver,store_version);
 
@@ -294,11 +296,13 @@ block_t write_checkpoint(struct hmfs_sb_info *sbi)
 
 //	Main part of checkpoint is done, begin to deal with add-ons
 
+	printk(KERN_INFO "Write checkpoint stage 3.\n");
 	//TODO:cp_info lock
 	sbi->cp_info->load_version = store_version;
 	sbi->cp_info->store_version = next_checkpoint_ver(store_version);
 	sbi->cp_info->load_checkpoint_addr = store_checkpoint_addr;
 
+	printk(KERN_INFO "Write checkpoint end.\n");
 	return store_checkpoint_addr;
 	//TODO: link this unattached CP to raw_super
 }
@@ -307,6 +311,8 @@ block_t write_checkpoint(struct hmfs_sb_info *sbi)
 //	Step2: set B-tree root to this checkpoint
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 {
+
+	printk(KERN_INFO "Read checkpoint stage 3.\n");
 	struct hmfs_checkpoint *checkpoint = NULL;
 	struct checkpoint_info *cpi = NULL;
 	struct hmfs_super_block *super;
@@ -346,6 +352,7 @@ int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 
 //	cpi->si should be changed when sit is initialed.
 
+	printk(KERN_INFO "Read checkpoint end.\n");
 }
 
 

@@ -148,6 +148,10 @@ out:
 	if (filp)
 		file_accessed(filp);
 
+//	Test checkpoint
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	write_checkpoint(sbi);
+
 	return (copied ? copied : error);
 
 }
