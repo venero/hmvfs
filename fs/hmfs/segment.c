@@ -12,7 +12,6 @@ static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int blkoff,
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
 	long new_vblocks;
-
 	se = &sit_i->sentries[segno];
 	new_vblocks = se->valid_blocks + del;
 
@@ -495,7 +494,8 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 
 	logic_addr = blk_addr - sbi->virt_addr;
 	segno = logic_addr >> HMFS_SEGMENT_SIZE_BITS;
-	summary_blk = ADDR(sbi, segno * HMFS_SUMMARY_BLOCK_SIZE);
+	summary_blk =
+	    ADDR(sbi, sbi->ssa_addr + segno * HMFS_SUMMARY_BLOCK_SIZE);
 
 	blkoff = (logic_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS;
 

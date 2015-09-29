@@ -63,6 +63,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 	int token;
 	substring_t args[MAX_OPT_ARGS];
 	phys_addr_t phys_addr = 0;
+	int option;
 
 	if (!options)
 		return 0;
@@ -81,9 +82,6 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 							  NULL, 0);
 			if (phys_addr == 0
 			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
-				printk
-				    ("Invalid phys addr specification: %s\n",
-				     p);
 				goto bad_val;
 			}
 			//TODO: align
@@ -97,6 +95,18 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 				goto bad_val;
 			sbi->initsize = memparse(args[0].from, &rest);
 			break;
+		case Opt_uid:
+			if (remount)
+				goto bad_opt;
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->uid = make_kuid(current_user_ns(), option);
+			break;
+		case Opt_gid:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->gid = make_kgid(current_user_ns(), option);
+			break;
 		default:
 			goto bad_opt;
 		}
@@ -105,10 +115,8 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 	return 0;
 
 bad_val:
-	printk("Bad value '%s' for mount option '%s'\n", args[0].from, p);
 	return -EINVAL;
 bad_opt:
-	printk("Bad mount option: \"%s\"\n", p);
 	return -EINVAL;
 }
 
@@ -177,11 +185,11 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_links = cpu_to_le32(2);
 
 #ifdef CONFIG_UIDGID_STRICT_TYPE_CHECKS
-	root_node->i.i_uid = cpu_to_le32(current_fsuid().val);
-	root_node->i.i_gid = cpu_to_le32(current_fsgid().val);
+	root_node->i.i_uid = cpu_to_le32(sbi->uid.val);
+	root_node->i.i_gid = cpu_to_le32(sbi->gid.val);
 #else
-	root_node->i.i_uid = cpu_to_le32(current_fsuid());
-	root_node->i.i_gid = cpu_to_le32(current_fsgid());
+	root_node->i.i_uid = cpu_to_le32(sbi->uid);
+	root_node->i.i_gid = cpu_to_le32(sbi->gid);
 #endif
 
 	root_node->i.i_size = cpu_to_le64(HMFS_PAGE_SIZE * 1);
@@ -196,7 +204,6 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_dir_level = DEF_DIR_LEVEL;
 
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
-	printk(KERN_INFO "data segaddr:%lu\n", (unsigned long)data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
@@ -325,7 +332,6 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	checksum = crc16(~0, (void *)super_1, length);
 	real_checksum = le16_to_cpu(super_1->checksum);
 	if (real_checksum == checksum && super_1->magic == HMFS_SUPER_MAGIC) {
-		printk(KERN_INFO "hmfs: get valid super block 1\n");
 		return super_1;
 	}
 
@@ -334,11 +340,9 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	checksum = crc16(~0, (void *)super_2, length);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
-		printk(KERN_INFO "hmfs: get valid super vlock 2\n");
 		return super_2;
 	}
 
-	printk(KERN_INFO "hmfs: can not find valid super block\n");
 	return NULL;
 }
 
@@ -364,7 +368,6 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	/*TODO: hmfs specific inode_info init work */
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
-	rwlock_init(&fi->i_lock);
 	return &(fi->vfs_inode);
 }
 
@@ -381,7 +384,8 @@ static void hmfs_destroy_inode(struct inode *inode)
 
 static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
-	int err;
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	int err, ilock;
 
 	if (inode->i_ino < HMFS_ROOT_INO)
 		return 0;
@@ -389,7 +393,9 @@ static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	if (!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		return 0;
 
+	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
+	mutex_unlock_op(sbi, ilock);
 
 	return err;
 }
@@ -398,6 +404,39 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 {
 	set_inode_flag(HMFS_I(inode), FI_DIRTY_INODE);
 	return;
+}
+
+static void hmfs_evict_inode(struct inode *inode)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct dnode_of_data dn;
+	struct hmfs_node *hi;
+	if (inode->i_ino < HMFS_ROOT_INO)
+		goto out;
+
+	hi = get_node(sbi, inode->i_ino);
+	if (IS_ERR(hi)) {
+		return;
+	}
+
+
+	if (inode->i_nlink || is_bad_inode(inode))
+		goto out;
+
+	sb_start_intwrite(inode->i_sb);
+
+	set_inode_flag(HMFS_I(inode), FI_NO_ALLOC);
+	i_size_write(inode, 0);
+
+	if (inode->i_blocks > 0)
+		hmfs_truncate(inode);
+
+	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
+	truncate_node(&dn);
+
+	sb_end_intwrite(inode->i_sb);
+out:
+	clear_inode(inode);
 }
 
 static void hmfs_put_super(struct super_block *sb)
@@ -413,7 +452,6 @@ static void hmfs_put_super(struct super_block *sb)
 	kfree(sbi);
 
 	if (sbi->virt_addr) {
-		printk("unmapping virtual address!");
 		hmfs_iounmap(sbi->virt_addr);
 	}
 }
@@ -449,7 +487,7 @@ static struct super_operations hmfs_sops = {
 	.destroy_inode = hmfs_destroy_inode,
 	.write_inode = hmfs_write_inode,
 	.dirty_inode = hmfs_dirty_inode,
-//      .evict_inode = hmfs_evict_inode,
+	.evict_inode = hmfs_evict_inode,
 	.put_super = hmfs_put_super,
 	.sync_fs = hmfs_sync_fs,
 	.statfs = hmfs_statfs,
@@ -462,24 +500,25 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	struct hmfs_sb_info *sbi = NULL;
 	struct hmfs_super_block *super = NULL;
 	int retval = 0;
+	int i = 0;
 	unsigned long end_addr;
 
 	/* sbi initialization */
 	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
 	if (sbi == NULL) {
-		printk("[HMFS] No space for sbi!!");
 		return -ENOMEM;
 	}
 
 	/* get phys_addr from @data&virt_addr from ioremap */
 	sb->s_fs_info = sbi;	//link sb and sbi:
+	sbi->uid = current_fsuid();
+	sbi->gid = current_fsgid();
 	if (hmfs_parse_options((char *)data, sbi, 0)) {
 		retval = -EINVAL;
 		goto out;
 	}
 
 	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
-	printk("virtual address is: 0x%p", sbi->virt_addr);
 	if (!sbi->virt_addr) {
 		retval = -EINVAL;
 		goto out;
@@ -487,12 +526,10 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	super = get_valid_super_block(sbi->virt_addr);
 	if (sbi->initsize || !super) {
-		printk(KERN_INFO "hmfs: format device\n");
 		hmfs_format(sb);
 		super = get_valid_super_block(sbi->virt_addr);
 	}
 	if (!super) {
-		printk(KERN_ERR "hmfs: error in format device\n");
 		retval = -EINVAL;
 		goto out;
 	}
@@ -507,6 +544,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
 	sbi->summary_blk = ADDR(sbi, sbi->ssa_addr);
+	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
+		mutex_init(&sbi->fs_lock[i]);
+	sbi->next_lock_num = 0;
 
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
@@ -518,7 +558,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	retval = init_checkpoint_manager(sbi);
 	if (retval)
 		goto out;
-	printk(KERN_ERR "[HMFS] Init checkpoint manager\n");
 
 	/* init nat */
 	retval = build_node_manager(sbi);
@@ -529,24 +568,20 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	printk(KERN_ERR "[HMFS] Init node manager\n");
 	//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
 	if (IS_ERR(root)) {
-		printk("[HMFS] No space for root inode!!\n");
 		retval = PTR_ERR(root);
 		goto free_segment_mgr;
 	}
 
 	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
-		printk(KERN_INFO "[HMFS] Invalid root inode!!\n");
 		goto free_root_inode;
 	}
 
 	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
 	if (!sb->s_root) {
-		printk("[HMFS] No space for root dentry\n");
 		goto free_root_inode;
 	}
 	// create debugfs
@@ -564,7 +599,6 @@ free_cp_mgr:
 out:
 	//TODO:
 	if (sbi->virt_addr) {
-		printk("unmapping virtual address!\n");
 		hmfs_iounmap(sbi->virt_addr);
 	}
 	kfree(sbi);
@@ -576,11 +610,6 @@ struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 {
 	struct dentry *entry;
 	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
-	if (IS_ERR(entry)) {
-		printk("mounting failed!");
-	} else {
-		printk("hmfs mounted!");
-	}
 	return entry;
 }
 
@@ -650,7 +679,6 @@ void exit_hmfs(void)
 	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
-	printk("HMFS is removed!");
 }
 
 module_init(init_hmfs);

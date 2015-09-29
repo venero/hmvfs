@@ -10,7 +10,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	struct hmfs_inode_info *i_info;
 	struct inode *inode;
 	nid_t ino;
-	int err;
+	int err, ilock;
 	bool nid_free = false;
 
 	inode = new_inode(sb);
@@ -56,9 +56,9 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version, true);
+	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
-	printk(KERN_INFO "allocate new inode:%lu, result:%d\n", inode->i_ino,
-	       err);
+	mutex_unlock_op(sbi, ilock);
 	if (!err) {
 		inc_valid_inode_count(sbi);
 		return inode;
@@ -81,16 +81,14 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct inode *inode;
-	int err = 0;
+	int err = 0, ilock;
 
 	inode = hmfs_new_inode(dir, mode);
-	printk(KERN_INFO "add link:%lu\n", PTR_ERR(inode));
 	if (IS_ERR(inode))
 		return inode;
-	hmfs_inode_write_lock(dentry->d_parent->d_inode);
+	ilock = mutex_lock_op(sbi);
 	err = hmfs_add_link(dentry, inode);
-	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
-	printk(KERN_INFO "instantiate:%d\n", err);
+	mutex_unlock_op(sbi, ilock);
 	if (err)
 		goto out;
 	return inode;
@@ -130,10 +128,8 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	struct inode *inode;
 
 	inode = hmfs_make_dentry(dir, dentry, mode);
-	printk(KERN_INFO "make entry\n");
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
-	printk(KERN_INFO "make success\n");
 	inode->i_op = &hmfs_file_inode_operations;
 	inode->i_fop = &hmfs_file_operations;
 	inode->i_mapping->a_ops = &hmfs_dblock_aops;
@@ -166,15 +162,16 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		     struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
-	int err;
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	int err, ilock;
 
 	inode->i_ctime = CURRENT_TIME;
 	ihold(inode);
 
 	set_inode_flag(HMFS_I(inode), FI_INC_LINK);
-	hmfs_inode_write_lock(dentry->d_parent->d_inode);
+	ilock = mutex_lock_op(sbi);
 	err = hmfs_add_link(dentry, inode);
-	hmfs_inode_write_unlock(dentry->d_parent->d_inode);
+	mutex_unlock_op(sbi, ilock);
 	if (err)
 		goto out;
 	d_instantiate(dentry, inode);
@@ -193,7 +190,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 	struct hmfs_dir_entry *de;
 	struct hmfs_dentry_block *res_blk;
 	int err = -ENOENT;
-	int bidx, ofs_in_blk;
+	int bidx, ofs_in_blk, ilock;
 
 	de = hmfs_find_entry(dir, &dentry->d_name, &bidx, &ofs_in_blk);
 	if (!de)
@@ -203,15 +200,18 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto fail;
 
+	ilock = mutex_lock_op(sbi);
 	res_blk = get_new_data_block(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
+		mutex_unlock_op(sbi, ilock);
 		goto fail;
 	}
 	de = &res_blk->dentry[ofs_in_blk];
 	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
 
+	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
 fail:
 	return err;
@@ -236,17 +236,20 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct inode *new_inode = new_dentry->d_inode;
 	struct hmfs_dentry_block *old_dentry_blk, *new_dentry_blk;
 	struct hmfs_dir_entry *old_dir_entry = NULL, *old_entry, *new_entry;
-	int err = -ENOENT;
+	int err = -ENOENT, ilock;
 	int new_ofs, new_bidx, old_bidx, old_ofs;
 
 	old_entry =
 	    hmfs_find_entry(old_dir, &old_dentry->d_name, &old_bidx, &old_ofs);
 	if (!old_entry)
 		goto out;
+
+	ilock = mutex_lock_op(sbi);
+
 	old_dentry_blk = get_new_data_block(old_dir, old_bidx);
 	if (IS_ERR(old_dentry_blk)) {
 		err = PTR_ERR(old_dentry_blk);
-		goto out;
+		goto out_k;
 	}
 	old_entry = &old_dentry_blk->dentry[old_ofs];
 
@@ -255,25 +258,25 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		// .. in hmfs_dentry_block of old_inode
 		old_dir_entry = hmfs_parent_dir(old_inode);
 		if (!old_dir_entry)
-			goto out;
+			goto out_k;
 	}
 
 	if (new_inode) {
 		err = -ENOTEMPTY;
 		if (old_dir_entry && !hmfs_empty_dir(new_inode))
-			goto out;
+			goto out_k;
 
 		err = -ENOENT;
 		new_entry =
 		    hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
 				    &new_ofs);
 		if (!new_entry)
-			goto out;
+			goto out_k;
 
 		new_dentry_blk = get_new_data_block(new_dir, new_bidx);
 		if (IS_ERR(new_dentry_blk)) {
 			err = PTR_ERR(new_dentry_blk);
-			goto out;
+			goto out_k;
 		}
 		new_entry = &new_dentry_blk->dentry[new_ofs];
 
@@ -287,7 +290,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (!new_inode->i_nlink) {
 			err = check_orphan_space(sbi);
 			if (err)
-				goto out;
+				goto out_k;
 
 			add_orphan_inode(sbi, new_inode->i_ino);
 		}
@@ -295,7 +298,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	} else {
 		err = hmfs_add_link(new_dentry, old_inode);
 		if (err)
-			goto out;
+			goto out_k;
 		if (old_dir_entry) {
 			inc_nlink(new_dir);
 			mark_inode_dirty(new_dir);
@@ -315,7 +318,8 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-
+out_k:
+	mutex_unlock_op(sbi, ilock);
 out:
 	return err;
 }
