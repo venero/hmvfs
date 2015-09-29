@@ -412,14 +412,14 @@ static void hmfs_evict_inode(struct inode *inode)
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
 	struct dnode_of_data dn;
 	struct hmfs_node *hi;
+	if (inode->i_ino < HMFS_ROOT_INO)
+		goto out;
 
 	hi = get_node(sbi, inode->i_ino);
 	if (IS_ERR(hi)) {
 		return;
 	}
 
-	if (inode->i_ino < HMFS_ROOT_INO)
-		goto out;
 
 	if (inode->i_nlink || is_bad_inode(inode))
 		goto out;
