@@ -49,7 +49,7 @@ struct sit_info {
 	unsigned int sents_per_block;	/* # of SIT entries per block */
 	struct mutex sentry_lock;	/* to protect SIT cache */
 	struct radix_tree_root sentries_root;
-	rwlock_t sit_tree_rcu_read_lock;	/* protect radix tree */
+	rwlock_t sit_tree_rcu_rw_lock;	/* protect radix tree */
 //	not sure if this is still necessary
 	struct seg_entry *sentries;	/* SIT segment-level cache */
 };

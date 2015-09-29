@@ -1,6 +1,6 @@
 #include "segment.h"		//hmfs.h is included
 
-static void __mark_sit_entry_dirty(struct sit_info *sit_i, u64 segno)
+static void *__mark_sit_entry_dirty(struct sit_info *sit_i, u64 segno)
 {
 	if (!__test_and_set_bit(segno, sit_i->dirty_sentries_bitmap))
 		sit_i->dirty_sentries++;
@@ -320,7 +320,7 @@ static u64 add_CP_sit_entry(struct hmfs_sb_info *sbi)
 //      TODO:[Billy]
 }
 
-static int mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,
+static void mark_dirty_sit_blocks(unsigned long *dirty_sentries_bitmap,
 				 unsigned long *dirty_blocks_bitmap)
 {
 //      TODO:[goku] convert from entry bitmap to block bitmap
@@ -345,8 +345,8 @@ block_t save_sit_entries(struct hmfs_sb_info *sbi)
 /*	Operations for sit entry radix-tree in DRAM 	*/
 
 //      Find sit entry with segment number 'segno'
-//      Called under sit_tree_rcu_read_lock
-static void *lookup_sit_entry(struct sit_info *sit_i, u64 segno)
+//      Called under read sit_tree_rcu_rw_lock
+static void *__lookup_sit_entry(struct sit_info *sit_i, u64 segno)
 {
 	return radix_tree_lookup(&sit_i->sentries_root, segno);
 }
@@ -542,7 +542,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	sit_segs = 0;
 
 	INIT_RADIX_TREE(&sit_i->sentries_root, GFP_KERNEL);	//XXX:check allocating sentries_root
-
+	DEFINE_RWLOCK(sit_tree_rcu_read_lock);
 	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
 	//sit_i->written_valid_blocks = le64_to_cpu(ckpt->valid_block_count);
 	//sit_i->sit_bitmap = dst_bitmap;
@@ -610,6 +610,8 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_i->load_checkpoint_addr);
 
+//	TODO: This method is about to be replaced with On-Demand building
+//	load sit entries one by one
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		struct seg_entry *se = &sit_i->sentries[start];
 		struct hmfs_sit_block *sit_blk;
@@ -626,7 +628,7 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 			}
 		}
 		read_unlock(&cp_i->journal_lock);
-		//XXX : neednt check summay cuz no journal inside
+		//XXX : needn't check summary cuz no journal inside
 
 		sit_blk = get_sit_page(sbi, start);
 
@@ -642,6 +644,64 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 found:
 		seg_info_from_raw_sit(se, &sit);
 	}
+}
+
+//	Lookup sit entry in NVM
+//	TODO: Billy
+struct hmfs_sit_entry *__lookup_sit_entry_btree(__le64 sit_bt_addr, u64 segno)
+{
+
+}
+
+
+//	Return the pointer of a certain sit entry in DRAM
+//	It will always success except NOMEM
+/*	Three status of this entry:
+ *	Status 1: Already in DRAM
+ *	Status 2: [*] In Journal but not in DRAM
+ *	Status 3: In NVM but not in DRAM
+ *	Status 4: Doesn't exist at all
+ */
+static struct seg_entry *lookup_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int *error)
+{
+//	Dealing with status 1
+	struct sit_info *sit_i;
+	sit_i = sbi->sm_info->sit_info;
+	struct hmfs_checkpoint *cp_addr;
+	cp_addr = sbi->cp_info->load_checkpoint_addr;
+	__le64 sit_bt_addr;
+	sit_bt_addr = cp_addr->sit_addr;
+
+	struct seg_entry *se;
+	struct hmfs_sit_entry *hse;
+    read_lock(&sit_i->sit_tree_rcu_rw_lock);
+	se = __lookup_sit_entry(sit_i,segno);
+    read_unlock(&sit_i->sit_tree_rcu_rw_lock);
+    if ( se != NULL )
+	{
+		return se;
+	}
+// If it is not available on DRAM yet, it will need a new space
+    se = kzalloc(sizeof(struct seg_entry), GFP_KERNEL);
+// Consider out of memory (DRAM)
+//	Dealing with status 3
+    hse = __lookup_sit_entry_btree(sit_bt_addr,segno);
+	if ( hse != NULL )
+	{
+		seg_info_from_raw_sit(se, hse);
+	}
+//	Dealing with status 4
+	else
+	{
+		se->mtime = 0;
+		se->valid_blocks = 0;
+		memset_nt(se->cur_valid_map, 0, SIT_VBLOCK_MAP_SIZE);
+	}
+    write_lock(&sit_i->sit_tree_rcu_rw_lock);
+	error = insert_sit_entry(sit_i, se,segno);
+    write_unlock(&sit_i->sit_tree_rcu_rw_lock);
+
+    return se;
 }
 
 static void init_free_segmap(struct hmfs_sb_info *sbi)

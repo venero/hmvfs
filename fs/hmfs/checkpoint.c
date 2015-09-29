@@ -204,12 +204,6 @@ void destroy_checkpoint_caches(void)
 	kmem_cache_destroy(orphan_entry_slab);
 }
 
-int construct_checkpoint(void)
-{
-
-}
-
-
 //	TODO: Find checkpoint by given version number
 int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_checkpoint *checkpoint)
 {
@@ -236,8 +230,8 @@ block_t write_checkpoint(struct hmfs_sb_info *sbi)
 	u16 cp_checksum;
 	int length;
 //	TODO: Stop writing to current file system
-	u32 load_version;
-	u32 store_version;
+	u32 load_version = 0;
+	u32 store_version = 0;
 
 	block_t store_checkpoint_addr = 0;
 	nid_t * store_checkpoint_nid;
@@ -309,6 +303,8 @@ block_t write_checkpoint(struct hmfs_sb_info *sbi)
 	//TODO: link this unattached CP to raw_super
 }
 
+//	Step1: read cp to cpi
+//	Step2: set B-tree root to this checkpoint
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 {
 	struct hmfs_checkpoint *checkpoint = NULL;
@@ -349,6 +345,7 @@ int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 //	FIXME: [Goku] cp_page
 
 //	cpi->si should be changed when sit is initialed.
+
 }
 
 
