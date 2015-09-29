@@ -602,6 +602,8 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
+block_t write_checkpoint(struct hmfs_sb_info *sbi);
+int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
