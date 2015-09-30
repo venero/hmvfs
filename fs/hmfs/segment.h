@@ -130,7 +130,7 @@ static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
 
 static inline void seg_info_from_raw_sit(struct seg_entry *se,
 					struct hmfs_sit_entry *raw_entry){
-	se->valid_blocks = le16_to_cpu(raw_entry);
+	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
 	memcpy(se->cur_valid_map, raw_entry->valid_map, SIT_VBLOCK_MAP_SIZE);
 	se->mtime = le64_to_cpu(raw_entry->mtime);
 }
@@ -154,13 +154,13 @@ static inline void __set_inuse(struct hmfs_sb_info *sbi, unsigned int segno)
 
 static inline u8 hmfs_get_sit_height(u64 init_size)
 {
-	if (init_size > SIT_MAX_SIZE(3))
+	if (init_size > SIT_MAX_SIZE(4))
 		return 4;
-	else if (init_size > SIT_MAX_SIZE(2))
+	else if (init_size > SIT_MAX_SIZE(3))
 		return 3;
-	else if (init_size > SIT_MAX_SIZE(1))
+	else if (init_size > SIT_MAX_SIZE(2))
 		return 2;
-	else if (init_size > SIT_MAX_SIZE(0))
+	else if (init_size > SIT_MAX_SIZE(1))
 		return 1;
 	return 0;
 }

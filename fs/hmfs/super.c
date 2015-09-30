@@ -13,6 +13,7 @@
 
 #include "hmfs_fs.h"		//TODO:add to include/linux
 #include "segment.h"
+#include "node.h"
 
 static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
 
@@ -128,7 +129,7 @@ static int hmfs_format(struct super_block *sb)
 	u64 ssa_pages_count;
 	u64 data_segaddr, node_segaddr;
 	u64 root_node_addr, cp_addr;
-	u64 ssa_addr, sit_addr, nat_addr, main_addr;
+	u64 ssa_addr, nat_addr, main_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
 	int length;
@@ -141,8 +142,13 @@ static int hmfs_format(struct super_block *sb)
 	struct hmfs_dentry_block *dent_blk = NULL;
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
 	u16 cp_checksum, sb_checksum;
+	u8 nat_height;
+
+	block_t *nat_blk_ptr, nat_blk_addr;
+	u64 i;
 
 	sbi = HMFS_SB(sb);
+
 	super = ADDR(sbi, 0);
 
 	init_size = sbi->initsize;
@@ -221,14 +227,20 @@ static int hmfs_format(struct super_block *sb)
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
 	/* setup init nat sit */
-	super->sit_height = hmfs_get_sit_height(init_size);
-	sit_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
-	node_blkoff++;
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
-	node_blkoff++;
-	memset_nt(ADDR(sbi, sit_addr), 0, HMFS_PAGE_SIZE * 2);
+	nat_height = hmfs_get_nat_height();
+	super->nat_height = nat_height;
+	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE * (nat_height+1));
+	nat_blk_addr = nat_addr+HMFS_PAGE_SIZE;
+	nat_blk_ptr = ADDR(sbi, nat_addr);
+	for(i=0;i<nat_height;i++){
+		*nat_blk_ptr = (block_t)nat_blk_addr;
+		nat_blk_ptr=(block_t*)((char*)nat_blk_ptr+HMFS_PAGE_SIZE);
+		nat_blk_addr+=HMFS_PAGE_SIZE;
+	}
+	node_blkoff+=nat_height+1;
 
-	cp_addr = nat_addr + HMFS_PAGE_SIZE * 1;
+	cp_addr = nat_addr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
 	node_blkoff += 1;
 
@@ -236,12 +248,11 @@ static int hmfs_format(struct super_block *sb)
 	sit_journals = cp->sit_journals;
 	nat_journals = cp->nat_journals;
 
-	sit_journals[0].segno = cpu_to_le64(GET_SEGNO(sbi, node_segaddr));
 	memset_nt(sit_journals[0].entry.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
-	hmfs_set_bit(0, (char *)sit_journals[0].entry.valid_map);	/* root inode */
-	hmfs_set_bit(1, (char *)sit_journals[0].entry.valid_map);	/* sit inode */
-	hmfs_set_bit(2, (char *)sit_journals[0].entry.valid_map);	/* nat inode */
-	hmfs_set_bit(3, (char *)sit_journals[0].entry.valid_map);	/* cp */
+	for(i=0;i<node_blkoff;i++){
+		hmfs_set_bit(i, (char *)sit_journals[0].entry.valid_map);
+	}
+
 	sit_journals[0].entry.vblocks = cpu_to_le64(node_blkoff);
 	sit_journals[0].entry.mtime = cpu_to_le64(get_seconds());
 
@@ -254,7 +265,6 @@ static int hmfs_format(struct super_block *sb)
 
 	/* update nat journal */
 	nat_journals[0].nid = cpu_to_le64(HMFS_ROOT_INO);
-	nat_journals[0].entry.version = cpu_to_le64(HMFS_DEF_CP_VER);
 	nat_journals[0].entry.ino = nat_journals[0].nid;
 	nat_journals[0].entry.block_addr = root_node_addr;
 
@@ -275,10 +285,9 @@ static int hmfs_format(struct super_block *sb)
 	/* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
 
-//	Previous address of the first checkpoint is set to SB's address
+//      Previous address of the first checkpoint is set to SB's address
 	set_struct(cp, prev_checkpoint_addr, cpu_to_le64(0));
 
-	set_struct(cp, sit_addr, sit_addr);
 	set_struct(cp, nat_addr, nat_addr);
 
 	set_struct(cp, user_block_count, user_pages_count);
@@ -422,7 +431,6 @@ static void hmfs_evict_inode(struct inode *inode)
 	if (IS_ERR(hi)) {
 		return;
 	}
-
 
 	if (inode->i_nlink || is_bad_inode(inode))
 		goto out;

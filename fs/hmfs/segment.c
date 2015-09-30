@@ -118,103 +118,6 @@ u64 get_free_node_block(struct hmfs_sb_info * sbi)
  * NVM related segment management functions
  */
 
-inline void get_child_sit_addr(struct hmfs_sb_info *sbi, void *root_addr,
-			       u64 segno, void **new_root_addr, u64 * new_segno,
-			       u8 height)
-{
-	block_t *logical_root = (block_t *) root_addr;
-
-	*new_root_addr =
-	    ADDR(sbi, logical_root[segno >> (height * LOG2_ADDRS_PER_BLOCK)]);
-	*new_segno =
-	    segno & ~(ADDRS_PER_BLOCK_MASK << (height * LOG2_ADDRS_PER_BLOCK));
-}
-
-/* get a sit/nat page from sit/nat in-NVM tree */
-void *get_sn_page(struct hmfs_sb_info *sbi, void *root, u64 segno, u8 height)
-{
-	void *new_root;
-	u64 new_segno;
-	block_t *logical_root = (block_t *) root;
-
-	if (!height)
-		return (void *)ADDR(sbi, logical_root[segno]);
-	get_child_sit_addr(sbi, root, segno, &new_root, &new_segno, height);
-	return get_sn_page(sbi, new_root, new_segno, height - 1);
-}
-
-block_t recursive_flush_sit_page(struct hmfs_sb_info * sbi, void *old_addr,
-				 void *cur_addr, u64 segno, u8 height,
-				 struct seg_entry * entry, u16 * alloc_cnt)
-{
-	//FIXME : cannot handle no space
-	void *cur_stored_addr, *old_child_addr, *cur_child_addr;
-	block_t cur_stored_root, *modi_ptr, child_stored_root;
-	u64 new_segno;
-	unsigned long _offset;
-	struct hmfs_sit_entry *raw_entry;
-
-	//1. if leaf, alloc & copy sit entry block 
-	if (!height) {
-		cur_stored_addr = cur_addr;
-		cur_stored_root = NULL;
-		if (old_addr == cur_addr) {
-			//COW
-			cur_stored_root = get_free_node_block(sbi);
-			cur_stored_addr = ADDR(sbi, cur_stored_root);
-			memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
-			*alloc_cnt++;
-		}
-		_offset = segno * sizeof(struct hmfs_sit_entry);
-		raw_entry =
-		    (struct hmfs_sit_entry *)(cur_stored_addr + _offset);
-		seg_info_to_raw_sit(entry, raw_entry);
-		return cur_stored_root;
-	}
-	//2. if this node is not wandered before, COW
-	_offset = (segno >> (height * LOG2_ADDRS_PER_BLOCK)) * sizeof(block_t);
-	cur_stored_addr = cur_addr;
-	cur_stored_root = NULL;
-
-	if (old_addr == cur_addr) {
-		//COW
-		cur_stored_root = get_free_node_block(sbi);
-		cur_stored_addr = ADDR(sbi, cur_stored_root);
-		memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
-
-		//change child addr
-		modi_ptr = (block_t *) (cur_stored_addr + _offset);
-		*modi_ptr = cpu_to_le64(cur_stored_root);
-		*alloc_cnt++;
-	}
-	//3. go to child
-	get_child_sit_addr(sbi, old_addr, segno, &old_child_addr, &new_segno,
-			   height);
-	get_child_sit_addr(sbi, cur_addr, segno, &cur_stored_addr, &new_segno,
-			   height);
-	child_stored_root =
-	    recursive_flush_sit_page(sbi, old_child_addr, cur_stored_addr,
-				     new_segno, height - 1, entry, alloc_cnt);
-	if (child_stored_root != NULL) {
-		*modi_ptr = cpu_to_le64(child_stored_root);
-	}
-	return cur_stored_root;
-}
-
-/* write  inner-NVM tree */
-block_t flush_sit_pages(struct hmfs_sb_info * sbi)	//TODO:@2 should be sit_blk&seg_no
-{
-	struct hmfs_sm_info *sm_info = SM_I(sbi);
-	struct sit_info *sit_info = SIT_I(sbi);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	block_t cur_sit_root = cp_i->cur_sit_root;
-
-	/* TODO : 
-	 * foreach dirty sit page
-	 *      cur_sit_root = recursive_flush_sit_page(sbi, ADDR(sbi, cur_sit_root), 
-	 */
-}
-
 /*
  * DRAM related segment management functions
  */
@@ -287,16 +190,6 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 	old_curseg = curseg->segno;
 	new_curseg(sbi);
 	//TODO:locate_dirty_segment(sbi, old_curseg);
-}
-
-static void *get_sit_page(struct hmfs_sb_info *sbi, u64 segno)
-{
-	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
-	struct checkpoint_info *cp_info = sbi->cp_info;
-
-	return get_sn_page(sbi, ADDR(sbi, cp_info->cur_sit_root), segno,
-			   raw_super->sit_height);
-
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
@@ -402,7 +295,7 @@ static inline void *indirect_to_ptr(void *ptr)
 {
 	return (void *)((unsigned long)ptr & ~RADIX_TREE_INDIRECT_PTR);
 }
-
+/*
 unsigned int
 radix_tree_gang_lookup_tag_with_index(struct hmfs_sb_info *sbi,
 				      unsigned long first_index,
@@ -448,7 +341,7 @@ radix_tree_gang_lookup_tag_with_index(struct hmfs_sb_info *sbi,
 
 	return alloc_cnt;	//returns allocated blocks
 }
-
+*/
 //      Test whether radix tree is dirty
 //      Return the number of dirty sit entry in 'results'
 static unsigned int gang_lookup_sit_entry(struct sit_info *sit_i,
@@ -466,37 +359,6 @@ struct hmfs_sit_journal convert_seg_entry_to_journal(int *index,
 
 }
 
-static unsigned int convert_gang_result_to_journal(struct hmfs_sb_info *sbi,
-						   struct hmfs_sit_journal
-						   *journal)
-{
-	int count, done;
-	struct seg_entry **results;
-	int *index;
-	struct sit_info *sit_i = SIT_I(sbi);
-
-	struct hmfs_sm_info *sm_info = SM_I(sbi);
-	struct sit_info *sit_info = SIT_I(sbi);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
-	block_t cur_sit_root = cp_i->cur_sit_root, new_sit_root, temp_sit_root;
-	void *cur_sit_addr = ADDR(sbi, cur_sit_root);
-
-	count =
-	    radix_tree_gang_lookup_tag_with_index(sbi, 0,
-						  MAX_SIT_ITEMS_FOR_GANG_LOOKUP,
-						  0);
-	done = 0;
-	while (done < count) {
-//              Format change
-//              journal[done++] = convert_seg_entry_to_journal(index[done], results[done]);
-		//      temp_sit_root = recursive_flush_sit_page(sbi, cur_sit_addr, cur_sit_addr, (u64)index[done], raw_super->sit_height, results[done]);
-		if (temp_sit_root != NULL)	//root sit node changed
-			new_sit_root = temp_sit_root;
-		done++;
-	}
-	return done;
-}
 
 /*
  * routines for build segment manager
@@ -629,7 +491,8 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 		read_unlock(&cp_i->journal_lock);
 		//XXX : needn't check summary cuz no journal inside
 
-		sit_blk = get_sit_page(sbi, start);
+		//TODO : get a page from SIT area instead from tree
+		//sit_blk = get_sit_page(sbi, start);
 
 		if (sit_blk == NULL) {
 			sit.mtime = 0;
@@ -647,9 +510,8 @@ found:
 
 //	Lookup sit entry in NVM
 //	TODO: Billy
-struct hmfs_sit_entry *__lookup_sit_entry_btree(__le64 sit_bt_addr, u64 segno)
+struct hmfs_sit_entry *__lookup_sit_entry_btree(struct hmfs_sb_info *sbi, u64 segno)
 {
-
 }
 
 
@@ -684,7 +546,7 @@ static struct seg_entry *lookup_sit_entry(struct hmfs_sb_info *sbi, u64 segno, i
     se = kzalloc(sizeof(struct seg_entry), GFP_KERNEL);
 // Consider out of memory (DRAM)
 //	Dealing with status 3
-    hse = __lookup_sit_entry_btree(sit_bt_addr,segno);
+    hse = __lookup_sit_entry_btree(sbi,segno);
 	if ( hse != NULL )
 	{
 		seg_info_from_raw_sit(se, hse);

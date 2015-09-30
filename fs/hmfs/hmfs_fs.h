@@ -82,13 +82,14 @@ struct hmfs_super_block {
 	__le64 segment_count_main;	/* # of segments for main area */
 
 	__le64 cp_page_addr;	/* start block address of checkpoint */
-	__le32 latest_cp_version;		/* cp version */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	u8 sit_height;
-
+	__le32 latest_cp_version;		/* cp version */
 	__le16 checksum;
+	u8 sit_height;
+	u8 nat_height;
+
 } __attribute__ ((packed));
 
 /**
@@ -126,9 +127,9 @@ struct hmfs_inode {
 /**
  * hmfs node
  */
-#define ADDRS_PER_BLOCK		64//512
-#define LOG2_ADDRS_PER_BLOCK 8//9
-#define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
+#define ADDRS_PER_BLOCK		512
+#define LOG2_ADDRS_PER_BLOCK 9
+#define ADDRS_PER_BLOCK_MASK (ADDRS_PER_BLOCK-1)
 #define NIDS_PER_BLOCK		64
 
 #define NODE_DIR1_BLOCK		(NORMAL_ADDRS_PER_INODE + 1)
@@ -175,24 +176,25 @@ enum JOURNAL_TYPE {
 /**
  * nat inode
  */
-#define NAT_ADDR_PER_BLOCK		64
-#define NAT_ENTRY_PER_BLOCK		200
-#define NAT_TREE_MAX_HEIGHT		4
-struct hmfs_nat_inode {
-	u8 height;
-	__le64 root;
+#define NAT_ADDR_PER_NODE		512
+#define LOG2_NAT_ADDR_PER_NODE 9
+#define BITS_PER_NID 32
+struct hmfs_nat_node {
+	__le64 addr[NAT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 
 struct hmfs_nat_entry {
-	__le64 ino;		/* inode number */
+	__le32 ino;		/* inode number */
 	__le64 block_addr;	/* block address */
-	__u32 version;		/* latest version of cached nat entry */
 } __attribute__ ((packed));
 
 struct hmfs_nat_journal {
-	__le64 nid;
+	__le32 nid;
 	struct hmfs_nat_entry entry;
 } __attribute__ ((packed));
+
+#define NAT_ENTRY_PER_BLOCK		(HMFS_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
+#define NAT_TREE_MAX_HEIGHT		4
 
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
@@ -205,16 +207,15 @@ struct hmfs_nat_block {
 #define SIT_VBLOCK_MAP_SIZE	64
 #define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / sizeof(struct hmfs_sit_entry))
 
-#define SIT_L0_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
-#define SIT_L1_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L0_MAX_SIZE	//^, ~55GB
-#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~27TB
-#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~13EB
-#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~6ZB
+// L1 => depth of a non-leaf node == 1 
+#define SIT_L1_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
+#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~55GB
+#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~27TB
+#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~13EB
+#define SIT_L5_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L4_MAX_SIZE	//^, ~6ZB
 #define SIT_MAX_SIZE(i) SIT_L##i##_MAX_SIZE
 
 struct hmfs_sit_node {
-//      u8 height;
-//      u8 max_height;
 	__le64 addr[SIT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 

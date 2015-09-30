@@ -70,7 +70,8 @@ struct checkpoint_info {
 //	set store_version to the version which it's about to store back to nvm
 	u32 store_version;
 
-	block_t cur_sit_root;//TODO:init while mounting
+	block_t *cur_nat_root;
+
 	u64 cur_node_segno;
 	int cur_node_blkoff;
 
@@ -649,5 +650,14 @@ static inline int hmfs_has_inline_dentry(struct inode *inode)
 {
 	return is_inode_flag_set(HMFS_I(inode), FI_INLINE_DENTRY);
 }
+#endif
 
+#define TEST 1
+#ifdef TEST
+void printtty(const char *format, ...);
+#define print printtty
+#define tprint printtty
+#else
+#define print printk
+#define tprint printk
 #endif
