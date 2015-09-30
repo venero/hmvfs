@@ -77,18 +77,19 @@ struct hmfs_super_block {
 	__le64 segment_count;	/* total # of segments */
 
 	__le32 segment_count_sit;	/* # of segments for SIT */
-	__le32 segment_count_nat;	/* # of segments for NAT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
 
 	__le64 cp_page_addr;	/* start block address of checkpoint */
-	__le32 latest_cp_version;		/* cp version */
+	__le64 sit_blkaddr;	/* start block address of SIT area */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	u8 sit_height;
-
+	__le32 latest_cp_version;		/* cp version */
 	__le16 checksum;
+	u8 sit_height; /* XXX obsolete */
+	u8 nat_height;
+
 } __attribute__ ((packed));
 
 /**
@@ -126,9 +127,9 @@ struct hmfs_inode {
 /**
  * hmfs node
  */
-#define ADDRS_PER_BLOCK		64//512
-#define LOG2_ADDRS_PER_BLOCK 8//9
-#define ADDRS_PER_BLOCK_MASK ~(ADDRS_PER_BLOCK-1)
+#define ADDRS_PER_BLOCK		512
+#define LOG2_ADDRS_PER_BLOCK 9
+#define ADDRS_PER_BLOCK_MASK (ADDRS_PER_BLOCK-1)
 #define NIDS_PER_BLOCK		64
 
 #define NODE_DIR1_BLOCK		(NORMAL_ADDRS_PER_INODE + 1)
@@ -175,24 +176,25 @@ enum JOURNAL_TYPE {
 /**
  * nat inode
  */
-#define NAT_ADDR_PER_BLOCK		64
-#define NAT_ENTRY_PER_BLOCK		200
-#define NAT_TREE_MAX_HEIGHT		4
-struct hmfs_nat_inode {
-	u8 height;
-	__le64 root;
+#define NAT_ADDR_PER_NODE		512
+#define LOG2_NAT_ADDR_PER_NODE 9
+#define BITS_PER_NID 32
+struct hmfs_nat_node {
+	__le64 addr[NAT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 
 struct hmfs_nat_entry {
-	__le64 ino;		/* inode number */
+	__le32 ino;		/* inode number */
 	__le64 block_addr;	/* block address */
-	__u32 version;		/* latest version of cached nat entry */
 } __attribute__ ((packed));
 
 struct hmfs_nat_journal {
-	__le64 nid;
+	__le32 nid;
 	struct hmfs_nat_entry entry;
 } __attribute__ ((packed));
+
+#define NAT_ENTRY_PER_BLOCK		(HMFS_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
+#define NAT_TREE_MAX_HEIGHT		4
 
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
@@ -203,25 +205,26 @@ struct hmfs_nat_block {
  */
 #define SIT_ADDR_PER_NODE	512
 #define SIT_VBLOCK_MAP_SIZE	64
-#define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / sizeof(struct hmfs_sit_entry))
+#define SIT_ENTRY_SIZE (sizeof(struct hmfs_sit_entry))
+#define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / SIT_ENTRY_SIZE)
 
-#define SIT_L0_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
-#define SIT_L1_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L0_MAX_SIZE	//^, ~55GB
-#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~27TB
-#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~13EB
-#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~6ZB
+// L1 => depth of a non-leaf node == 1 
+#define SIT_L1_MAX_SIZE SIT_ENTRY_PER_BLOCK*HMFS_SEGMENT_SIZE	//Byte, ~110MB
+#define SIT_L2_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L1_MAX_SIZE	//^, ~55GB
+#define SIT_L3_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L2_MAX_SIZE	//^, ~27TB
+#define SIT_L4_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L3_MAX_SIZE	//^, ~13EB
+#define SIT_L5_MAX_SIZE SIT_ADDR_PER_NODE*SIT_L4_MAX_SIZE	//^, ~6ZB
 #define SIT_MAX_SIZE(i) SIT_L##i##_MAX_SIZE
 
 struct hmfs_sit_node {
-//      u8 height;
-//      u8 max_height;
 	__le64 addr[SIT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 
 struct hmfs_sit_entry {
-	__u8 valid_map[SIT_VBLOCK_MAP_SIZE];	/* bitmap for valid blocks */
-	__le64 mtime;		/* segment age for cleaning */
+//	__u8 valid_map[SIT_VBLOCK_MAP_SIZE];	/* bitmap for valid blocks */
+	__le32 mtime;		/* segment age for cleaning */
 	__le16 vblocks;		/* reference above */
+	__le16 waste;
 } __attribute__ ((packed));
 
 struct hmfs_sit_block {
@@ -316,7 +319,7 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
  * from node's page's beginning to get a data block address.
  * ex) data_blkaddr = (block_t)(nodepage_start_address + ofs_in_node)
  */
-#define ENTRIES_IN_SUM		512
+#define SUM_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE/sizeof(struct hmfs_summary))
 #define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
@@ -337,10 +340,10 @@ struct hmfs_summary {
 #define SUM_TYPE_SIT		(4)
 #define SUM_TYPE_CP			(8)
 
-#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
+//#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 /* 8KB-sized summary block structure */
 struct hmfs_summary_block {
-	struct hmfs_summary entries[ENTRIES_IN_SUM];
+	struct hmfs_summary entries[SUM_ENTRY_PER_BLOCK];
 } __attribute__ ((packed));
 
 static inline void memset_nt(void *dest, uint32_t dword, size_t length)

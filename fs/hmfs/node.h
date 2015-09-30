@@ -52,4 +52,15 @@ static inline void set_nid(struct hmfs_node *hn, int off, nid_t nid, bool in_i)
 		hn->in.nid[off] = cpu_to_le64(nid);
 }
 
+static inline u8 hmfs_get_nat_height(void){
+	u64 size; 
+	u8 height=0;
+	size = (1 << (BITS_PER_NID-HMFS_PAGE_SIZE_BITS))*sizeof(struct hmfs_nat_entry);
+	do {
+		size >>= LOG2_NAT_ADDR_PER_NODE;
+		height++;
+	}while(size);
+	return height;
+}
+
 #endif

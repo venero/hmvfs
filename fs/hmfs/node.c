@@ -13,7 +13,7 @@ static nid_t hmfs_max_nid(void)
 	nid_t nid = 1;
 	int height = 0;
 	while (++height < NAT_TREE_MAX_HEIGHT)
-		nid *= NAT_ADDR_PER_BLOCK;
+		nid *= NAT_ADDR_PER_NODE;
 	nid *= NAT_ENTRY_PER_BLOCK;
 	return nid;
 }
@@ -744,3 +744,116 @@ void destroy_node_manager_caches(void)
 {
 	kmem_cache_destroy(nat_entry_slab);
 }
+
+/* NAT index-tree on NVM */
+inline void get_child_nat_addr(struct hmfs_sb_info *sbi, block_t *cur_node,
+			       u32 nid, block_t **next_node, u32 *new_nid,
+			       u8 height)
+{
+	if(cur_node == NULL){
+		*next_node == NULL;
+		return;
+	}
+	u16 _ofs = height * LOG2_ADDRS_PER_BLOCK;
+
+	*next_node = ADDR(sbi, cur_node[nid >> _ofs]);
+	*new_nid = nid & ((1 << _ofs) - 1);
+}
+
+/* get a nat/nat page from nat/nat in-NVM tree */
+static void *__get_nat_page(struct hmfs_sb_info *sbi, block_t *cur_node, u32 nid, u8 height)
+{
+	block_t *next_node;
+	u64 new_nid;
+
+	if (cur_node == sbi->virt_addr){
+		//uninitialized
+		return NULL;
+	}
+	height--;
+	if (!height)
+		return (void *)ADDR(sbi, cur_node[nid]);
+	get_child_nat_addr(sbi, cur_node, nid, &next_node, &new_nid, height);
+
+	return __get_nat_page(sbi, next_node, new_nid, height);
+}
+
+void *get_nat_page(struct hmfs_sb_info *sbi, u32 nid)
+{
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
+	struct checkpoint_info *cp_info = sbi->cp_info;
+
+	return __get_nat_page(sbi, cp_info->cur_nat_root, nid,
+			   raw_super->sit_height);
+}
+/*
+block_t recursive_flush_nat_page(struct hmfs_sb_info * sbi, void *old_addr,
+				 void *cur_addr, u64 segno, u8 height,
+				 struct seg_entry * entry, u16 * alloc_cnt)
+{
+	//FIXME : cannot handle no space
+	void *cur_stored_addr, *old_child_addr, *cur_child_addr;
+	block_t cur_stored_root, *modi_ptr, child_stored_root;
+	u64 new_segno;
+	unsigned long _offset;
+	struct hmfs_nat_entry *raw_entry;
+
+	//1. if leaf, alloc & copy nat entry block 
+	if (!height) {
+		cur_stored_addr = cur_addr;
+		cur_stored_root = NULL;
+		if (old_addr == NULL){
+			//only allocate new entry_blk
+			cur_stored_root = get_free_node_block(sbi);
+			cur_stored_addr = ADDR(sbi, cur_stored_root);
+			*alloc_cnt++;
+
+		}
+		else if (old_addr == cur_addr) {
+			//COW
+			cur_stored_root = get_free_node_block(sbi);
+			cur_stored_addr = ADDR(sbi, cur_stored_root);
+			memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
+			*alloc_cnt++;
+		}
+		_offset = segno * sizeof(struct hmfs_nat_entry);
+		raw_entry =
+		    (struct hmfs_nat_entry *)(cur_stored_addr + _offset);
+		seg_info_to_raw_nat(entry, raw_entry);
+		return cur_stored_root;
+	}
+
+	//2. if this node is not wandered before, COW
+	_offset = (segno >> (height * LOG2_ADDRS_PER_BLOCK)) * sizeof(block_t);
+	cur_stored_addr = cur_addr;
+	cur_stored_root = NULL;
+
+	if (old_addr == NULL){
+		//only allocate new node_blk
+		cur_stored_root = get_free_node_block(sbi);
+		cur_stored_addr = ADDR(sbi, cur_stored_root);
+		memset_nt(cur_stored_addr, 0, HMFS_PAGE_SIZE);
+		*alloc_cnt++;
+	}
+	else if (old_addr == cur_addr) {
+		//COW
+		cur_stored_root = get_free_node_block(sbi);
+		cur_stored_addr = ADDR(sbi, cur_stored_root);
+		memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
+		*alloc_cnt++;
+	}
+
+	//3. go to child
+	get_child_nat_addr(sbi, old_addr, segno, &old_child_addr, &new_segno,
+			   height);
+	get_child_nat_addr(sbi, cur_addr, segno, &cur_stored_addr, &new_segno,
+			   height);
+	child_stored_root =
+	    recursive_flush_nat_page(sbi, old_child_addr, cur_stored_addr,
+				     new_segno, height - 1, entry, alloc_cnt);
+	if (child_stored_root != NULL) {
+		*modi_ptr = cpu_to_le64(child_stored_root);
+	}
+	return cur_stored_root;
+}
+*/
