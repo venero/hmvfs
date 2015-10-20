@@ -321,22 +321,21 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 #define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
-	__le64 nid;		/* parent node id */
-	union {
-		__u8 reserved[8];
-		struct {
-			__u32 version;	/* node version number & summary type */
-			__le32 ofs_in_node;	/* block index in parent node */
-		} __attribute__ ((packed));
-	};
+		__le32 nid;		/* parent node id */
+		__le32 end_ver;	/* version of last checkpoint that contains this block */
+		__le32 count;		/*  */
+		__le16 ofs_in_node;
+		__le16 type;
 } __attribute__ ((packed));
 
 /* summary block type, node or data, is stored to the summary_footer */
-#define SUM_TYPE_NODE		(1)
-#define SUM_TYPE_DATA		(0)
-#define SUM_TYPE_NAT		(2)
-#define SUM_TYPE_SIT		(4)
-#define SUM_TYPE_CP			(8)
+#define SUM_TYPE_DATA		(0)	//	data block
+#define SUM_TYPE_INODE	(1)	//	inode block
+#define SUM_TYPE_IDN			(2)	//	indirect block
+#define SUM_TYPE_DN			(4)	//	direct block
+#define SUM_TYPE_CP			(8)	//	checkpoint block
+#define SUM_TYPE_NATN		(16)	//	nat node block
+#define SUM_TYPE_NATD		(32)	//	nat data block
 
 #define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 /* 8KB-sized summary block structure */

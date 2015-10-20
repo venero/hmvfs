@@ -589,6 +589,9 @@ void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
 u64 get_free_data_block(struct hmfs_sb_info *sbi);
 u64 get_free_node_block(struct hmfs_sb_info *sbi);
 u64 save_sit_entries(struct hmfs_sb_info *sbi);
+void *dc_nat_root(struct hmfs_sb_info *sbi,void *nat_root_addr);
+void *dc_checkpoint(struct hmfs_sb_info *sbi,void *cp_addr);
+void *dc_block(struct hmfs_sb_info *sbi, void *blk_addr);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);

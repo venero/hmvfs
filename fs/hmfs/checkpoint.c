@@ -199,10 +199,10 @@ void destroy_checkpoint_caches(void)
 	kmem_cache_destroy(orphan_entry_slab);
 }
 
-//	TODO: Find checkpoint by given version number
-int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_checkpoint *checkpoint)
+//	Find checkpoint by given version number
+u32 find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_checkpoint *checkpoint)
 {
-	struct hmfs_checkpoint *cp;
+	struct hmfs_checkpoint *cp = NULL;
 	u32 ver;
 	cp = ADDR(sbi, sbi->cp_info->load_checkpoint_addr);
 	ver = cp->checkpoint_ver;
@@ -214,6 +214,27 @@ int find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_c
 			return version;
 	}
 	checkpoint = cp;
+	return 0;
+}
+
+//	Find checkpoint whose prev_checkpoint version is given version number
+u32 find_next_checkpoint_version(struct hmfs_sb_info *sbi, u32 version, struct hmfs_checkpoint *checkpoint)
+{
+	struct hmfs_checkpoint *cp_next = NULL;
+	struct hmfs_checkpoint *cp = NULL;
+	u32 ver;
+	cp_next = ADDR(sbi, sbi->cp_info->load_checkpoint_addr);
+	cp = ADDR(sbi, cp_next->prev_checkpoint_addr);
+	ver = cp->checkpoint_ver;
+	while(ver != version)
+	{
+		cp_next = cp;
+		cp = ADDR(sbi, cp->prev_checkpoint_addr);
+		ver = le32_to_cpu(cp->checkpoint_ver);
+		if (cp->prev_checkpoint_addr == 0)
+			return version;
+	}
+	checkpoint = cp_next;
 	return 0;
 }
 
@@ -350,6 +371,36 @@ int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 	printk(KERN_INFO "Read checkpoint end.\n");
 }
 
+//	Step1: delete all valid counter
+//	Step2: construct bypass link
+//	Step3: delete checkpoint itself
+int delete_checkpoint(struct hmfs_sb_info *sbi, u32 version)
+{
+	printk(KERN_INFO "Delete checkpoint stage 1.\n");
+	struct hmfs_checkpoint *checkpoint = NULL;
+	struct hmfs_checkpoint *next_checkpoint = NULL;
+	void *nat_root_addr = NULL;
+	int ret;
+	ret = find_checkpoint_version(sbi, version, checkpoint);
+	if ( ret != 0)
+	{
+		printk("Version %d not found.\n",ret);
+		return -1;
+	}
+	nat_root_addr = le64_to_cpu(checkpoint->nat_addr);
+	dc_nat_root(sbi,nat_root_addr);
+
+	printk(KERN_INFO "Delete checkpoint stage 2.\n");
+	ret = find_next_checkpoint_version(sbi, version, next_checkpoint);
+	if ( ret != 0)
+	{
+		printk("Version %d not found.\n",ret);
+		return -1;
+	}
+	next_checkpoint->prev_checkpoint_addr = checkpoint->prev_checkpoint_addr;
+	printk(KERN_INFO "Delete checkpoint stage 3.\n");
+	dc_checkpoint_block(sbi,checkpoint);
+}
 
 
 
