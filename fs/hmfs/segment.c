@@ -207,7 +207,7 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 //      Modify itself and levels of branches up there.
 //      Input: dirty block bit map or specific to one single sit entry
 //      return an sit b-tree root address.
-static u64 add_CP_sit_entry(struct hmfs_sb_info *sbi)
+void add_CP_sit_entry(struct hmfs_sb_info *sbi)
 {
 //      TODO:[Billy]
 }
@@ -230,7 +230,7 @@ block_t save_sit_entries(struct hmfs_sb_info *sbi)
 	struct radix_tree_root root = sbi->sm_info->sit_info->sentries_root;
 
 	u64 sit_bt_entries_root;
-	sit_bt_entries_root = add_CP_sit_entry(sbi);
+//	sit_bt_entries_root = add_CP_sit_entry(sbi);
 	return sit_bt_entries_root;
 }
 
@@ -527,14 +527,14 @@ static struct seg_entry *lookup_sit_entry(struct hmfs_sb_info *sbi, u64 segno, i
 {
 //	Dealing with status 1
 	struct sit_info *sit_i;
+	__le64 sit_bt_addr;
+	struct seg_entry *se;
+	struct hmfs_sit_entry *hse;
 	sit_i = sbi->sm_info->sit_info;
 	struct hmfs_checkpoint *cp_addr;
 	cp_addr = sbi->cp_info->load_checkpoint_addr;
-	__le64 sit_bt_addr;
 	sit_bt_addr = cp_addr->sit_addr;
 
-	struct seg_entry *se;
-	struct hmfs_sit_entry *hse;
     read_lock(&sit_i->sit_tree_rcu_rw_lock);
 	se = __lookup_sit_entry(sit_i,segno);
     read_unlock(&sit_i->sit_tree_rcu_rw_lock);
@@ -718,30 +718,30 @@ void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr)
 
 
 // Counter operations
-//	dc: decrease count by one
+//	dc: decrease counter by one
 
 //	Decrease the count of NAT root block
 //	Should be triggered by checkpoint deletion only
 //	Output: The block which decreasing operation ends
-static void *dc_nat_root(struct hmfs_sb_info *sbi, void *nat_root_addr)
+void *dc_nat_root(struct hmfs_sb_info *sbi, void *nat_root_addr)
 {
 	return dc_block(sbi, nat_root_addr);
 }
 
 //	Decrease the count of checkpoint block itself
 //	Should be triggered by checkpoint deletion only
-static void *dc_checkpoint(struct hmfs_sb_info *sbi, void *cp_addr)
+void *dc_checkpoint(struct hmfs_sb_info *sbi, void *cp_addr)
 {
 	return dc_checkpoint_block(sbi, cp_addr);
 }
 
 //	Entrance function for decreasing block count
 //	Switch blk_addr to 7 different handlers
-static void *dc_block(struct hmfs_sb_info *sbi, void *blk_addr)
+void *dc_block(struct hmfs_sb_info *sbi, void *blk_addr)
 {
 	struct hmfs_summary *summary;
 	summary = get_summary_by_addr(sbi, blk_addr);
-	int type = le16_to_cpu(summary->type);
+	int type = le16_to_cpu(get_summary_type(summary));
 	switch (type) {
 		case SUM_TYPE_DATA	:
 			return dc_data(sbi,blk_addr);
@@ -789,6 +789,8 @@ void *dc_nat_branch(struct hmfs_sb_info *sbi, void *nat_branch_addr)
 {
 	int count = 0;
 	int i = 0;
+	struct hmfs_nat_node *nb = nat_branch_addr;
+	struct hmfs_nat_node *ptr = NULL;
 	count = dc_itself(sbi, nat_branch_addr);
 	if (unlikely(count==-1))
 	{
@@ -799,17 +801,21 @@ void *dc_nat_branch(struct hmfs_sb_info *sbi, void *nat_branch_addr)
 	invalidate_block(sbi, nat_branch_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
-//		TODO: Billy
-//		struct of nat branch
-//		TODO: venero
-//		traverse each pointer in nat branch
+		ptr = dc_block(sbi, nb->addr[i]);
+		if ( ptr != NULL )
+		{
+			return ptr;
+		}
 	}
+	return NULL;
 }
 
 void *dc_nat_block(struct hmfs_sb_info *sbi, void *nat_block_addr)
 {
 	int count = 0;
 	int i = 0;
+	struct hmfs_nat_node *nb = nat_block_addr;
+	struct hmfs_nat_entry *ptr = NULL;
 	count = dc_itself(sbi, nat_block_addr);
 	if (unlikely(count==-1))
 	{
@@ -820,17 +826,18 @@ void *dc_nat_block(struct hmfs_sb_info *sbi, void *nat_block_addr)
 	invalidate_block(sbi, nat_block_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
-//		TODO: Billy
-//		struct of nat block
-//		TODO: venero
-//		traverse each pointer in nat branch
+		ptr = dc_block(sbi, nb->addr[i]);
+		if ( ptr != NULL )
+		{
+			return ptr;
+		}
 	}
+	return NULL;
 }
 
 void *dc_checkpoint_block(struct hmfs_sb_info *sbi, void *checkpoint_block_addr)
 {
 	int count = 0;
-	int i = 0;
 	count = dc_itself(sbi, checkpoint_block_addr);
 	if (unlikely(count==-1))
 	{
@@ -858,7 +865,7 @@ void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr)
 	invalidate_block(sbi, direct_block_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
-		ptr = dc_block(dn->addr[i]);
+		ptr = dc_block(sbi, dn->addr[i]);
 		if ( ptr != NULL )
 		{
 			return ptr;
@@ -870,17 +877,15 @@ void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr)
 void *dc_indirect(struct hmfs_sb_info *sbi, void *indirect_block_addr)
 {
 	int count = 0;
-	int i = 0;
-	void *ptr = NULL;
 	struct indirect_node *idn = indirect_block_addr;
-	count = dc_itself(sbi, indirect_block_addr);
+	count = dc_itself(sbi, idn);
 	if (unlikely(count==-1))
 	{
-		return indirect_block_addr;
+		return idn;
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, indirect_block_addr);
+	invalidate_block(sbi, idn);
 	return NULL;
 }
 
@@ -890,17 +895,17 @@ void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr)
 	int i = 0;
 	void *ptr = NULL;
 	struct hmfs_inode *hi = inode_block_addr;
-	count = dc_itself(sbi, inode_block_addr);
+	count = dc_itself(sbi, hi);
 	if (unlikely(count==-1))
 	{
-		return inode_block_addr;
+		return hi;
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, inode_block_addr);
+	invalidate_block(sbi, hi);
 	for (i=0;i<NORMAL_ADDRS_PER_INODE;++i)
 	{
-		ptr = dc_block(hi->i_addr[i]);
+		ptr = dc_block(sbi, hi->i_addr[i]);
 		if ( ptr != NULL )
 		{
 			return ptr;
@@ -912,16 +917,27 @@ void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr)
 void *dc_data(struct hmfs_sb_info *sbi, void *data_block_addr)
 {
 	int count = 0;
-	int i = 0;
-	void *ptr = NULL;
 	void *data = data_block_addr;
-	count = dc_itself(sbi, data_block_addr);
+	count = dc_itself(sbi, data);
 	if (unlikely(count==-1))
 	{
-		return data_block_addr;
+		return data;
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, data_block_addr);
+	invalidate_block(sbi, data);
 	return NULL;
+}
+
+//	ic: increase counter by one
+//	Increase the count of a block
+int ic_itself(struct hmfs_sb_info *sbi, void *blk_addr)
+{
+	struct hmfs_summary *summary;
+	int count = 0;
+	summary = get_summary_by_addr(sbi, ADDR(sbi,blk_addr));
+	count = le32_to_cpu(summary->count);
+	count = count + 1;
+	summary->count = cpu_to_le32(count);
+	return count;
 }

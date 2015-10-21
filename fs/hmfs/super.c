@@ -269,6 +269,7 @@ static int hmfs_format(struct super_block *sb)
 	nat_journals[0].entry.block_addr = root_node_addr;
 
 	/* update SSA */
+	/* temporally removed for new make_summary_entry()
 	node_summary_block = ADDR(sbi, ssa_addr);
 	data_summary_block = ADDR(sbi, ssa_addr + HMFS_SUMMARY_BLOCK_SIZE);
 
@@ -282,6 +283,7 @@ static int hmfs_format(struct super_block *sb)
 			   HMFS_DEF_CP_VER, 0, SUM_TYPE_NAT);
 	make_summary_entry(&node_summary_block->entries[3], HMFS_ROOT_INO,
 			   HMFS_DEF_CP_VER, 0, SUM_TYPE_CP);
+	*/
 	/* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
 
