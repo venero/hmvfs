@@ -85,10 +85,11 @@ struct hmfs_super_block {
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
+	u8 nat_height;
+
 	__le32 latest_cp_version;		/* cp version */
 	__le16 checksum;
 	u8 sit_height; /* XXX obsolete */
-	u8 nat_height;
 
 } __attribute__ ((packed));
 
@@ -184,6 +185,7 @@ struct hmfs_nat_node {
 } __attribute__ ((packed));
 
 struct hmfs_nat_entry {
+//	FIXME: Find out the use of ino, otherwise discard it.
 	__le32 ino;		/* inode number */
 	__le64 block_addr;	/* block address */
 } __attribute__ ((packed));
@@ -323,22 +325,21 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 #define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
-	__le64 nid;		/* parent node id */
-	union {
-		__u8 reserved[8];
-		struct {
-			__u32 version;	/* node version number & summary type */
-			__le32 ofs_in_node;	/* block index in parent node */
-		} __attribute__ ((packed));
-	};
+		__le32 nid;		/* parent node id */
+		__le32 dead_ver;	/* version of last checkpoint that contains this block */
+		__le32 start_ver;	/* version of last checkpoint that doesn't contains this block */
+		__le16 count;		/*  */
+		__le16 ont;		/* offset_in_node and type. [1-9]: offset [10-16] type*/
 } __attribute__ ((packed));
 
 /* summary block type, node or data, is stored to the summary_footer */
-#define SUM_TYPE_NODE		(1)
-#define SUM_TYPE_DATA		(0)
-#define SUM_TYPE_NAT		(2)
-#define SUM_TYPE_SIT		(4)
-#define SUM_TYPE_CP			(8)
+#define SUM_TYPE_DATA		(0)	//	data block
+#define SUM_TYPE_INODE	(1)	//	inode block
+#define SUM_TYPE_IDN			(2)	//	indirect block
+#define SUM_TYPE_DN			(4)	//	direct block
+#define SUM_TYPE_CP			(8)	//	checkpoint block
+#define SUM_TYPE_NATN		(16)	//	nat node block
+#define SUM_TYPE_NATD		(32)	//	nat data block
 
 //#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 /* 8KB-sized summary block structure */
@@ -383,41 +384,63 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 }
 
 static inline void make_summary_entry(struct hmfs_summary *summary,
-				      unsigned long nid, unsigned int version,
-				      unsigned int ofs_in_node,
-				      unsigned char type)
+				      unsigned int nid, unsigned int dead_version,unsigned int start_version,
+				      unsigned int count,unsigned int offset,
+				      unsigned int type)
 {
-	summary->nid = cpu_to_le64(nid);
-	summary->ofs_in_node = cpu_to_le32(ofs_in_node);
-	version = ((version << 4) | (type & 0x0e));
-	summary->version = cpu_to_le32(version);
+	summary->nid = cpu_to_le32(nid);
+	summary->dead_ver = cpu_to_le32(dead_version);
+	summary->start_ver = cpu_to_le32(start_version);
+	summary->count = cpu_to_le16(count);
+	if(unlikely((offset&0xfe00)!=0))
+	{
+		printk(KERN_INFO "Invalid offset number:%d \n", offset);
+	}
+	if(unlikely((type&0xff80)!=0))
+	{
+		printk(KERN_INFO "Invalid type number:%d \n", type);
+	}
+	offset = ((offset << 7) | (type & 0x7f));
+	summary->ont = cpu_to_le16(offset);
 }
 
 static inline unsigned long get_summary_nid(struct hmfs_summary *summary)
 {
-	return le64_to_cpu(summary->nid);
+	return le32_to_cpu(summary->nid);
 }
 
-static inline unsigned int get_summary_node_ofs(struct hmfs_summary *summary)
+static inline unsigned long get_summary_dead(struct hmfs_summary *summary)
 {
-	return le32_to_cpu(summary->ofs_in_node);
+	return le32_to_cpu(summary->dead_ver);
+}
+
+static inline unsigned long get_summary_start(struct hmfs_summary *summary)
+{
+	return le32_to_cpu(summary->start_ver);
+}
+
+static inline unsigned int get_summary_count(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->count);
+}
+
+static inline unsigned int get_summary_offset(struct hmfs_summary *summary)
+{
+	unsigned int version;
+
+	version = le16_to_cpu(summary->ont);
+	return version >> 7;
 }
 
 static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 {
 	unsigned int version;
 
-	version = le32_to_cpu(summary->version);
-	return version & 0x0e;
+	version = le16_to_cpu(summary->ont);
+	return version & 0x007f;
 }
 
-static inline unsigned int get_summary_version(struct hmfs_summary *summary)
-{
-	unsigned int version;
 
-	version = le32_to_cpu(summary->version);
-	return version >> 4;
-}
 
 /*
  * checkpoint

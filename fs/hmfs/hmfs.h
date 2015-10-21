@@ -586,10 +586,22 @@ void destroy_segment_manager(struct hmfs_sb_info *);
 void allocate_new_segments(struct hmfs_sb_info *sbi);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 					 void *blk_addr);
-void invalidate_blocks(struct hmfs_sb_info *sbi, u64 blk_addr);
+void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr);
 u64 get_free_data_block(struct hmfs_sb_info *sbi);
 u64 get_free_node_block(struct hmfs_sb_info *sbi);
 u64 save_sit_entries(struct hmfs_sb_info *sbi);
+void *dc_nat_root(struct hmfs_sb_info *sbi,void *nat_root_addr);
+void *dc_checkpoint(struct hmfs_sb_info *sbi,void *cp_addr);
+void *dc_block(struct hmfs_sb_info *sbi, void *blk_addr);
+int dc_itself(struct hmfs_sb_info *sbi, void *blk_addr);
+void *dc_nat_branch(struct hmfs_sb_info *sbi, void *nat_branch_addr);
+void *dc_nat_block(struct hmfs_sb_info *sbi, void *nat_block_addr);
+void *dc_checkpoint_block(struct hmfs_sb_info *sbi, void *checkpoint_block_addr);
+void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr);
+void *dc_indirect(struct hmfs_sb_info *sbi, void *indirect_block_addr);
+void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr);
+void *dc_data(struct hmfs_sb_info *sbi, void *data_block_addr);
+int ic_itself(struct hmfs_sb_info *sbi, void *blk_addr);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
