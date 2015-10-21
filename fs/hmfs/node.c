@@ -228,7 +228,7 @@ void truncate_node(struct dnode_of_data *dn)
 
 	BUG_ON(ni.blk_addr == NULL_ADDR);
 
-	invalidate_blocks(sbi, ni.blk_addr);
+	invalidate_block(sbi, ni.blk_addr);
 	dec_valid_node_count(sbi, dn->inode, 1);
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino,
 			 NULL_ADDR, CURCP_I(sbi)->store_version, true);
@@ -540,7 +540,7 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 
 	if (!IS_ERR(src)) {
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->store_version)
+		if (get_summary_start(summary) == cp_i->store_version)
 			return src;
 	}
 
@@ -562,9 +562,8 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	}
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->store_version, 0,
-			   SUM_TYPE_NODE);
-
+//	FIXME: 'SUM_TYPE_INODE' here should be classified to SUM_TYPE_INODE or SUM_TYPE_IDN or SUM_TYPE_DN by given type
+	make_summary_entry(summary, inode->i_ino,0, cp_i->store_version, 1,0,SUM_TYPE_INODE);
 	//TODO: cache nat
 	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->store_version, true);
 	return dest;

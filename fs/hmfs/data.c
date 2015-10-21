@@ -195,7 +195,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 	if (src_addr != NULL_ADDR) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->store_version)
+		if (get_summary_start(summary) == cp_i->store_version)
 			return src;
 	}
 
@@ -225,7 +225,7 @@ void *get_new_data_partial_block(struct inode *inode, int block, int left,
 		memset_nt(dest + left, 0, right - left);
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->store_version, dn.ofs_in_node,
+	make_summary_entry(summary, inode->i_ino,0, cp_i->store_version,1, dn.ofs_in_node,
 			   SUM_TYPE_DATA);
 
 	return dest;
@@ -259,7 +259,7 @@ void *get_new_data_block(struct inode *inode, int block)
 	if (src_addr != NULL_ADDR) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_version(summary) == cp_i->store_version)
+		if (get_summary_start(summary) == cp_i->store_version)
 			return src;
 	}
 	if (!inc_valid_block_count(sbi, inode, 1))
@@ -280,7 +280,7 @@ void *get_new_data_block(struct inode *inode, int block)
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 
 	summary = get_summary_by_addr(sbi, dest);
-	make_summary_entry(summary, inode->i_ino, cp_i->store_version, dn.ofs_in_node,
+	make_summary_entry(summary, inode->i_ino, 0,cp_i->store_version, 1,dn.ofs_in_node,
 			   SUM_TYPE_DATA);
 
 	return dest;

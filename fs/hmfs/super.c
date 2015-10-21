@@ -129,7 +129,7 @@ static int hmfs_format(struct super_block *sb)
 	unsigned long long  ssa_pages_count, sit_area_size;
 	u64 data_segaddr, node_segaddr;
 	u64 root_node_addr, cp_addr;
-	u64 ssa_addr, sit_addr, nat_addr, main_addr;
+	u64 ssa_addr, nat_addr, main_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
 	int length;
@@ -233,7 +233,6 @@ static int hmfs_format(struct super_block *sb)
 
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
-
 	/* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	nat_height = hmfs_get_nat_height();
@@ -255,7 +254,6 @@ static int hmfs_format(struct super_block *sb)
 	/* segment 0 is first node segment */
 	sit_journals = cp->sit_journals;
 	nat_journals = cp->nat_journals;
-
 	sit_journals[0].entry.vblocks = cpu_to_le64(node_blkoff);
 	sit_journals[0].entry.mtime = cpu_to_le64(get_seconds()>>10);
 
@@ -278,6 +276,7 @@ static int hmfs_format(struct super_block *sb)
 
 	/* update SSA */
 	/* TODO : fit new make summary_block
+	/* temporally removed for new make_summary_entry()
 	node_summary_block = ADDR(sbi, ssa_addr);
 	data_summary_block = ADDR(sbi, ssa_addr + HMFS_SUMMARY_BLOCK_SIZE);
 
