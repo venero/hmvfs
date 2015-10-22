@@ -702,7 +702,7 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 	return &summary_blk->entries[blkoff];
 }
 
-void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr)
+void invalidate_block_after_dc(struct hmfs_sb_info *sbi, u64 blk_addr)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	u64 segno = GET_SEGNO(sbi, blk_addr);
@@ -715,10 +715,32 @@ void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr)
 
 	mutex_unlock(&sit_i->sentry_lock);
 }
+//	SSA operations
+//	make a new ssa entry with:
+//	count=1 start_ver=this_version dead_ver=0
+static inline void make_new_summary_entry(struct hmfs_sb_info *sbi,struct hmfs_summary *summary,
+				      unsigned int nid, unsigned int offset, unsigned int type)
+{
+	unsigned int ver = find_this_version(sbi);
+	make_summary_entry(summary,nid, 0,ver,1,offset,type);
+}
 
+//	mark a dead ssa entry with: dead_ver=this_version
+static inline void mark_dead_summary_entry(struct hmfs_sb_info *sbi,struct hmfs_summary *summary)
+{
+	unsigned int ver = find_this_version(sbi);
+	summary->dead_ver = cpu_to_le32(ver);
+}
 
 // Counter operations
 //	dc: decrease counter by one
+/*
+ * Workflow:
+ * [1] Decrease the count of this block
+ * [2] If the count is greater than 0, RETURN
+ * [3] Initial invalidate_block() to claim this block is now invalid
+ * [4] Traverse each pointer of its children, GOTO [1] with its block address
+*/
 
 //	Decrease the count of NAT root block
 //	Should be triggered by checkpoint deletion only
@@ -798,7 +820,7 @@ void *dc_nat_branch(struct hmfs_sb_info *sbi, void *nat_branch_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, nat_branch_addr);
+	invalidate_block_after_dc(sbi, nat_branch_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
 		ptr = dc_block(sbi, nb->addr[i]);
@@ -823,7 +845,7 @@ void *dc_nat_block(struct hmfs_sb_info *sbi, void *nat_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, nat_block_addr);
+	invalidate_block_after_dc(sbi, nat_block_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
 		ptr = dc_block(sbi, nb->addr[i]);
@@ -845,7 +867,7 @@ void *dc_checkpoint_block(struct hmfs_sb_info *sbi, void *checkpoint_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, checkpoint_block_addr);
+	invalidate_block_after_dc(sbi, checkpoint_block_addr);
 	return NULL;
 }
 
@@ -862,7 +884,7 @@ void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, direct_block_addr);
+	invalidate_block_after_dc(sbi, direct_block_addr);
 	for (i=0;i<ADDRS_PER_BLOCK;++i)
 	{
 		ptr = dc_block(sbi, dn->addr[i]);
@@ -885,7 +907,7 @@ void *dc_indirect(struct hmfs_sb_info *sbi, void *indirect_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, idn);
+	invalidate_block_after_dc(sbi, idn);
 	return NULL;
 }
 
@@ -902,7 +924,7 @@ void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, hi);
+	invalidate_block_after_dc(sbi, hi);
 	for (i=0;i<NORMAL_ADDRS_PER_INODE;++i)
 	{
 		ptr = dc_block(sbi, hi->i_addr[i]);
@@ -925,19 +947,23 @@ void *dc_data(struct hmfs_sb_info *sbi, void *data_block_addr)
 	}
 	if (count != 0) return NULL;
 //	If count has decreased to 0
-	invalidate_block(sbi, data);
+	invalidate_block_after_dc(sbi, data);
 	return NULL;
 }
 
 //	ic: increase counter by one
 //	Increase the count of a block
-int ic_itself(struct hmfs_sb_info *sbi, void *blk_addr)
+int ic_block(struct hmfs_sb_info *sbi, void *blk_addr)
 {
 	struct hmfs_summary *summary;
 	int count = 0;
 	summary = get_summary_by_addr(sbi, ADDR(sbi,blk_addr));
 	count = le32_to_cpu(summary->count);
 	count = count + 1;
+	if (unlikely(count>>15==1))
+	{
+		printk(KERN_INFO "Counter of block %d has reached half of maximum value",blk_addr);
+	}
 	summary->count = cpu_to_le32(count);
 	return count;
 }

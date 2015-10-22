@@ -586,7 +586,6 @@ void destroy_segment_manager(struct hmfs_sb_info *);
 void allocate_new_segments(struct hmfs_sb_info *sbi);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 					 void *blk_addr);
-void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr);
 u64 get_free_data_block(struct hmfs_sb_info *sbi);
 u64 get_free_node_block(struct hmfs_sb_info *sbi);
 u64 save_sit_entries(struct hmfs_sb_info *sbi);
@@ -601,7 +600,7 @@ void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr);
 void *dc_indirect(struct hmfs_sb_info *sbi, void *indirect_block_addr);
 void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr);
 void *dc_data(struct hmfs_sb_info *sbi, void *data_block_addr);
-int ic_itself(struct hmfs_sb_info *sbi, void *blk_addr);
+int ic_block(struct hmfs_sb_info *sbi, void *blk_addr);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -618,6 +617,7 @@ int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
 block_t write_checkpoint(struct hmfs_sb_info *sbi);
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
+unsigned int find_this_version(struct hmfs_sb_info *sbi);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,

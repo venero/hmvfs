@@ -286,7 +286,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		else
 			new_node->i.i_addr[ofs] = NULL_ADDR;
 
-		invalidate_block(sbi, addr);
+		dc_block(sbi, addr);
 		nr_free++;
 	}
 	if (nr_free) {

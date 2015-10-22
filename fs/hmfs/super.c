@@ -130,6 +130,7 @@ static int hmfs_format(struct super_block *sb)
 	u64 data_segaddr, node_segaddr;
 	u64 root_node_addr, cp_addr;
 	u64 ssa_addr, nat_addr, main_addr;
+	u64 sit_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
 	int length;

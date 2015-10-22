@@ -5,13 +5,13 @@
 
 static struct kmem_cache *orphan_entry_slab;
 
-static u32 next_checkpoint_ver(u32 version)
+static unsigned int next_checkpoint_ver(u32 version)
 {
 //	TODO: version GC
 	return version + 1;
 }
 
-static u32 find_this_version(struct hmfs_sb_info *sbi)
+unsigned int find_this_version(struct hmfs_sb_info *sbi)
 {
 	return sbi->cp_info->load_version;
 }

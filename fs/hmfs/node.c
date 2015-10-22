@@ -228,7 +228,7 @@ void truncate_node(struct dnode_of_data *dn)
 
 	BUG_ON(ni.blk_addr == NULL_ADDR);
 
-	invalidate_block(sbi, ni.blk_addr);
+	dc_block(sbi, ni.blk_addr);
 	dec_valid_node_count(sbi, dn->inode, 1);
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino,
 			 NULL_ADDR, CURCP_I(sbi)->store_version, true);
