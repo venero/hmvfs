@@ -6,8 +6,7 @@ static void *__mark_sit_entry_dirty(struct sit_info *sit_i, u64 segno)
 		sit_i->dirty_sentries++;
 }
 
-static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int blkoff,
-			     int del)
+static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int del)
 {
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -19,16 +18,7 @@ static void update_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int blkoff,
 
 	se->valid_blocks = new_vblocks;
 	se->mtime = get_mtime(0);
-
-	if (del > 0) {
-		if (hmfs_set_bit(blkoff, se->cur_valid_map))
-			BUG();
-	} else {
-		if (!hmfs_clear_bit(blkoff, se->cur_valid_map))
-			BUG();
-	}
-
-	__mark_sit_entry_dirty(sit_i, segno);
+	__mark_sit_entry_dirty(sit_i, segno);//TODO:mark in radix-tree
 }
 
 static void reset_curseg(struct curseg_info *seg_i)
@@ -87,7 +77,7 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 	page_addr = cal_page_addr(sbi, seg_i);
 
 	mutex_lock(&sit_i->sentry_lock);
-	update_sit_entry(sbi, seg_i->segno, seg_i->next_blkoff, 1);
+	update_sit_entry(sbi, seg_i->segno, 1);
 	mutex_unlock(&sit_i->sentry_lock);
 
 	seg_i->next_blkoff++;
@@ -168,6 +158,7 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	//reset_curseg(sbi, type, 1); 
 }
 
+/* @obsolete
 static unsigned short __next_free_blkoff(struct hmfs_sb_info *sbi,
 					 struct curseg_info *seg, block_t start)
 {
@@ -180,6 +171,7 @@ static unsigned short __next_free_blkoff(struct hmfs_sb_info *sbi,
 	seg->next_blkoff = ofs;
 	return ofs;
 }
+*/
 
 void allocate_new_segments(struct hmfs_sb_info *sbi)
 {
@@ -386,25 +378,11 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i->dirty_sentries_bitmap)
 		return -ENOMEM;
 
-	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
-		sit_i->sentries[start].cur_valid_map
-		    = kzalloc(SIT_VBLOCK_MAP_SIZE, GFP_KERNEL);
-		//TODO: checkpoint
-		if (!sit_i->sentries[start].cur_valid_map)
-			return -ENOMEM;
-	}
-
-	//TODO: allocate bitmap according to checkpoint design
-	/* setup SIT bitmap from ckeckpoint pack */
-	//bitmap_size = __bitmap_size(sbi, SIT_BITMAP);
-	//src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
-
-//FIXME:cal sit_segs
 	sit_segs = 0;
 
 	INIT_RADIX_TREE(&sit_i->sentries_root, GFP_KERNEL);	//XXX:check allocating sentries_root
 	DEFINE_RWLOCK(sit_tree_rcu_read_lock);
-	sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
+	//#sit_i->sit_blocks = sit_segs << HMFS_PAGE_PER_SEG_BITS;
 	//sit_i->written_valid_blocks = le64_to_cpu(ckpt->valid_block_count);
 	//sit_i->sit_bitmap = dst_bitmap;
 	sit_i->bitmap_size = bitmap_size;
@@ -467,102 +445,21 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 static void build_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	u64 start;
+	unsigned long long start, total_count;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_i->load_checkpoint_addr);
+	struct seg_entry *se=sit_i->sentries;
+	struct hmfs_sit_entry *raw_sit = ADDR(sbi, sbi->sit_addr);
+
+
 
 //	TODO: This method is about to be replaced with On-Demand building
-//	load sit entries one by one
-	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
-		struct seg_entry *se = &sit_i->sentries[start];
-		struct hmfs_sit_block *sit_blk;
-		struct hmfs_sit_entry sit;
-		int i;
-
-		read_lock(&cp_i->journal_lock);
-		for (i = 0; i < NUM_SIT_JOURNALS_IN_CP; ++i) {
-			if (le64_to_cpu(hmfs_cp->sit_journals[i].segno) ==
-			    start) {
-				sit = hmfs_cp->sit_journals[i].entry;
-				read_unlock(&cp_i->journal_lock);
-				goto found;
-			}
-		}
-		read_unlock(&cp_i->journal_lock);
-		//XXX : needn't check summary cuz no journal inside
-
-		//TODO : get a page from SIT area instead from tree
-		//sit_blk = get_sit_page(sbi, start);
-
-		if (sit_blk == NULL) {
-			sit.mtime = 0;
-			sit.vblocks = 0;
-			//memset_nt(sit.valid_map, 0, SIT_VBLOCK_MAP_SIZE);
-		} else
-			sit = sit_blk->entries[SIT_ENTRY_OFFSET(sit_i, start)];
-
-		//TODO : invalid block not checked yet 
-		//check_block_count(sbi, start, &sit);
-found:
-		seg_info_from_raw_sit(se, &sit);
+	total_count = TOTAL_SEGS(sbi);
+	for (start = 0; start < total_count; start++) {
+		seg_info_from_raw_sit(se, raw_sit);
+		se ++;
+		raw_sit ++;
 	}
-}
-
-//	Lookup sit entry in NVM
-//	TODO: Billy
-struct hmfs_sit_entry *__lookup_sit_entry_btree(struct hmfs_sb_info *sbi, u64 segno)
-{
-}
-
-
-//	Return the pointer of a certain sit entry in DRAM
-//	It will always success except NOMEM
-/*	Three status of this entry:
- *	Status 1: Already in DRAM
- *	Status 2: [*] In Journal but not in DRAM
- *	Status 3: In NVM but not in DRAM
- *	Status 4: Doesn't exist at all
- */
-static struct seg_entry *lookup_sit_entry(struct hmfs_sb_info *sbi, u64 segno, int *error)
-{
-//	Dealing with status 1
-	struct sit_info *sit_i;
-	__le64 sit_bt_addr;
-	struct seg_entry *se;
-	struct hmfs_sit_entry *hse;
-	sit_i = sbi->sm_info->sit_info;
-	struct hmfs_checkpoint *cp_addr;
-	cp_addr = sbi->cp_info->load_checkpoint_addr;
-	sit_bt_addr = cp_addr->sit_addr;
-
-    read_lock(&sit_i->sit_tree_rcu_rw_lock);
-	se = __lookup_sit_entry(sit_i,segno);
-    read_unlock(&sit_i->sit_tree_rcu_rw_lock);
-    if ( se != NULL )
-	{
-		return se;
-	}
-// If it is not available on DRAM yet, it will need a new space
-    se = kzalloc(sizeof(struct seg_entry), GFP_KERNEL);
-// Consider out of memory (DRAM)
-//	Dealing with status 3
-    hse = __lookup_sit_entry_btree(sbi,segno);
-	if ( hse != NULL )
-	{
-		seg_info_from_raw_sit(se, hse);
-	}
-//	Dealing with status 4
-	else
-	{
-		se->mtime = 0;
-		se->valid_blocks = 0;
-		memset_nt(se->cur_valid_map, 0, SIT_VBLOCK_MAP_SIZE);
-	}
-    write_lock(&sit_i->sit_tree_rcu_rw_lock);
-	error = insert_sit_entry(sit_i, se,segno);
-    write_unlock(&sit_i->sit_tree_rcu_rw_lock);
-
-    return se;
 }
 
 static void init_free_segmap(struct hmfs_sb_info *sbi)
@@ -601,7 +498,6 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
 	sm_info->main_segments = le64_to_cpu(raw_super->segment_count_main);
 	sm_info->ssa_blkaddr = le64_to_cpu(raw_super->ssa_blkaddr);
-	//TODO: reserved & overprovisioned segment in ckpt
 
 	err = build_sit_info(sbi);
 	if (err)
@@ -661,11 +557,6 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i)
 		return;
 
-	if (sit_i->sentries) {
-		for (start = 0; start < TOTAL_SEGS(sbi); start++) {
-			kfree(sit_i->sentries[start].cur_valid_map);
-		}
-	}
 	vfree(sit_i->sentries);
 	kfree(sit_i->dirty_sentries_bitmap);
 
@@ -711,7 +602,7 @@ void invalidate_block(struct hmfs_sb_info *sbi, u64 blk_addr)
 
 	mutex_lock(&sit_i->sentry_lock);
 
-	update_sit_entry(sbi, segno, blkoff, -1);
+	update_sit_entry(sbi, segno, -1);
 
 	mutex_unlock(&sit_i->sentry_lock);
 }

@@ -146,7 +146,8 @@ static int hmfs_format(struct super_block *sb)
 	u16 cp_checksum, sb_checksum;
 	u8 nat_height;
 
-	block_t *nat_blk_ptr, nat_blk_addr;
+	struct hmfs_nat_node *nat_node;
+	block_t nat_node_addr;
 	unsigned long long i;
 
 	sbi = HMFS_SB(sb);
@@ -186,8 +187,6 @@ static int hmfs_format(struct super_block *sb)
 	sbi->main_addr_start = main_addr;
 	data_segaddr = area_addr + HMFS_SEGMENT_SIZE;
 
-	tprint("ssa_addr:%p sit_addr:%p, main_addr:%p", ssa_addr, sit_addr, main_addr);
-	tprint("user_segments_count:%3u ssa_size:%lld sit_size:%lld", user_segments_count, sit_addr-ssa_addr, main_addr-sit_addr);
 	/* setup root inode */
 	root_node_addr = node_segaddr;
 	root_node = ADDR(sbi, node_segaddr);
@@ -237,43 +236,22 @@ static int hmfs_format(struct super_block *sb)
 
 	/* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
+	tprint("<%s> nat_addr:%p", __FUNCTION__, ADDR(sbi, nat_addr));
 	nat_height = hmfs_get_nat_height();
-	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE * (nat_height+1));
-	nat_blk_addr = nat_addr+HMFS_PAGE_SIZE;
-	nat_blk_ptr = ADDR(sbi, nat_addr);
-	for(i=0;i<nat_height;i++){
-		*nat_blk_ptr = (block_t)nat_blk_addr;
-		nat_blk_ptr=(block_t*)((char*)nat_blk_ptr+HMFS_PAGE_SIZE);
-		nat_blk_addr+=HMFS_PAGE_SIZE;
-	}
-	node_blkoff+=nat_height+1;
+	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE);
+	node_blkoff+=1;
 
 	cp_addr = nat_addr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
 	node_blkoff += 1;
 
 	/* segment 0 is first node segment */
-	sit_journals = cp->sit_journals;
 	nat_journals = cp->nat_journals;
-	sit_journals[0].entry.vblocks = cpu_to_le64(node_blkoff);
-	sit_journals[0].entry.mtime = cpu_to_le64(get_seconds()>>10);
-
-	/* segment 1 is first data segment */
-	sit_journals[1].segno = cpu_to_le64(GET_SEGNO(sbi, data_segaddr));
-	sit_journals[1].entry.vblocks = cpu_to_le64(data_blkoff);
-	sit_journals[1].entry.mtime = cpu_to_le64(get_seconds());
 
 	/* update nat journal */
 	nat_journals[0].nid = cpu_to_le64(HMFS_ROOT_INO);
 	nat_journals[0].entry.ino = nat_journals[0].nid;
 	nat_journals[0].entry.block_addr = root_node_addr;
-
-	/* update SIT */
-	sit_entry = ADDR(sbi, sit_addr);
-	sit_entry[0].mtime = cpu_to_le64(get_seconds())>>10;
-	sit_entry[0].vblocks = cpu_to_le64(node_blkoff);
-	sit_entry[1].mtime = cpu_to_le64(get_seconds())>>10;
-	sit_entry[1].vblocks = cpu_to_le64(data_blkoff);
 
 	/* update SSA */
 	/* TODO : fit new make summary_block
@@ -323,7 +301,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, log_pagesize, HMFS_PAGE_SIZE_BITS);
 	set_struct(super, log_pages_per_seg, HMFS_PAGE_PER_SEG_BITS);
 	set_struct(super, page_count, user_pages_count);
-	set_struct(super, segment_count, init_size>>HMFS_SEGMENT_SIZE);
+	set_struct(super, segment_count, init_size>>HMFS_SEGMENT_SIZE_BITS);
 
 	set_struct(super, segment_count_sit, sit_area_size >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(super, segment_count_ssa, ssa_area_size >> HMFS_SEGMENT_SIZE_BITS);
@@ -334,12 +312,11 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, sit_blkaddr, sit_addr);
 	set_struct(super, main_blkaddr, main_addr);
 
-	set_struct(super, nat_height, nat_height);
-
 	set_struct(super, latest_cp_version, HMFS_DEF_CP_VER);
 	length = (void *)(&super->checksum) - (void *)super;
 	sb_checksum = crc16(~0, (void *)super, length);
 	set_struct(super, checksum, sb_checksum);
+	set_struct(super, nat_height, nat_height);
 
 	/* copy another super block */
 	area_addr = sizeof(struct hmfs_super_block);
@@ -562,8 +539,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	sbi->page_count = le64_to_cpu(super->page_count);
-	sbi->segment_count = le64_to_cpu(super->segment_count);
+	sbi->segment_count = le64_to_cpu(super->segment_count_main);
 	sbi->ssa_addr = le64_to_cpu(super->ssa_blkaddr);
+	sbi->sit_addr = le64_to_cpu(super->sit_blkaddr);
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
 	end_addr =
 	    sbi->main_addr_start +
@@ -614,6 +592,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	// create debugfs
 	hmfs_build_stats(sbi);
 
+	//TEST
+	int do_flush_nat_page_test(struct hmfs_sb_info *sbi);
+	do_flush_nat_page_test(sbi);
 	return 0;
 free_root_inode:
 	iput(root);

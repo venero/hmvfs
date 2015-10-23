@@ -45,6 +45,7 @@ typedef u64 block_t;		//bits per NVM page address
 				case 8: set_struct_le64(sb, member, val); break; \
 				case 4: set_struct_le32(sb, member, val); break; \
 				case 2: set_struct_le16(sb, member, val); break; \
+				case 1: sb->member = val; break; \
 				} \
 			} while(0)
 
@@ -85,11 +86,10 @@ struct hmfs_super_block {
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	u8 nat_height;
-
 	__le32 latest_cp_version;		/* cp version */
 	__le16 checksum;
 	u8 sit_height; /* XXX obsolete */
+	u8 nat_height;
 
 } __attribute__ ((packed));
 
@@ -178,7 +178,7 @@ enum JOURNAL_TYPE {
  * nat inode
  */
 #define NAT_ADDR_PER_NODE		512
-#define LOG2_NAT_ADDR_PER_NODE 9
+#define LOG2_NAT_ADDRS_PER_NODE 9
 #define BITS_PER_NID 32
 struct hmfs_nat_node {
 	__le64 addr[NAT_ADDR_PER_NODE];
@@ -196,6 +196,8 @@ struct hmfs_nat_journal {
 } __attribute__ ((packed));
 
 #define NAT_ENTRY_PER_BLOCK		(HMFS_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
+#define LOG2_NAT_ENTRY_PER_BLOCK 9//relatedd to ^
+#define NAT_WASTE_SIZE_BITS (LOG2_NAT_ADDRS_PER_NODE*hmfs_get_nat_height()+LOG2_NAT_ENTRY_PER_BLOCK-BITS_PER_NID)
 #define NAT_TREE_MAX_HEIGHT		4
 
 struct hmfs_nat_block {
@@ -473,8 +475,7 @@ struct hmfs_checkpoint {
 
 	__le64 next_scan_nid;
 
-	/* SIT and NAT version bitmap */
-	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];
+	/* NAT version bitmap */
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
 	__le16 checksum;

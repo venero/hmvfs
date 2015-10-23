@@ -33,14 +33,13 @@
 
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
-	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
+//	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
 	unsigned long long mtime;	/* modification time of the segment */
 };
 
 struct sit_info {
 	const struct segment_allocation *s_ops;
 
-	block_t sit_blocks;	/* # of blocks used by SIT file */
 	block_t written_valid_blocks;	/* # of valid blocks in main area */
 	unsigned long long bitmap_size;
 
@@ -131,7 +130,6 @@ static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
 static inline void seg_info_from_raw_sit(struct seg_entry *se,
 					struct hmfs_sit_entry *raw_entry){
 	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
-	//memcpy(se->cur_valid_map, raw_entry->valid_map, SIT_VBLOCK_MAP_SIZE);
 	se->mtime = le32_to_cpu(raw_entry->mtime);
 }
 
@@ -139,7 +137,6 @@ static inline void seg_info_to_raw_sit(struct seg_entry *se,
 					struct hmfs_sit_entry *raw_entry)
 {
 	raw_entry->vblocks = cpu_to_le16(se->valid_blocks);
-	//memcpy(raw_entry->valid_map, se->cur_valid_map, SIT_VBLOCK_MAP_SIZE);
 	raw_entry->mtime = cpu_to_le32(se->mtime);
 }
 

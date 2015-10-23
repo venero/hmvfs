@@ -126,12 +126,10 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cp->load_checkpoint_addr = cp_addr;
 	cp->cp = kmap(new_hmfs_cp_page);
 	cp->cp_page = new_hmfs_cp_page;
+	cp->cur_nat_root = le64_to_cpu(hmfs_cp->nat_addr);
+	tprint("<%s> nat_root:%p", __FUNCTION__, ADDR(sbi, cp->cur_nat_root));
 
 	init_orphan_manager(cp);
-
-	//FIXME: copy all sit journals and nat journals to DRAM
-	for (i = 0; i < NUM_SIT_JOURNALS_IN_CP; ++i)
-		cp->cp->sit_journals[i] = hmfs_cp->sit_journals[i];
 
 	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i)
 		cp->cp->nat_journals[i] = hmfs_cp->nat_journals[i];

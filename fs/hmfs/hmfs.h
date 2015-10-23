@@ -61,7 +61,7 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 //      }
 }
 
-typedef u64 nid_t;
+typedef u32 nid_t;
 struct free_nid;
 
 struct checkpoint_info {
@@ -70,7 +70,7 @@ struct checkpoint_info {
 //	set store_version to the version which it's about to store back to nvm
 	u32 store_version;
 
-	block_t *cur_nat_root;
+	u64 cur_nat_root;
 
 	u64 cur_node_segno;
 	int cur_node_blkoff;

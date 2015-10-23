@@ -29,6 +29,13 @@ struct free_nid {
 #define make_free_nid(nid,free)		(nid | ((u64)free << 63))
 #define get_free_nid(nid)			((nid << 1) >> 1)
 
+static inline void node_info_to_raw_nat(struct node_info *ni,
+					  struct hmfs_nat_entry *ne)
+{
+	ne->ino = cpu_to_le32(ni->ino);
+	ne->block_addr = cpu_to_le64(ni->blk_addr);
+}
+
 static inline void node_info_from_raw_nat(struct node_info *ni,
 					  struct hmfs_nat_entry *ne)
 {
@@ -57,7 +64,7 @@ static inline u8 hmfs_get_nat_height(void){
 	u8 height=0;
 	size = (1 << (BITS_PER_NID-HMFS_PAGE_SIZE_BITS))*sizeof(struct hmfs_nat_entry);
 	do {
-		size >>= LOG2_NAT_ADDR_PER_NODE;
+		size >>= LOG2_NAT_ADDRS_PER_NODE;
 		height++;
 	}while(size);
 	return height;
