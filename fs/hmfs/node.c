@@ -118,11 +118,19 @@ static struct nat_entry *__lookup_nat_cache(struct hmfs_nm_info *nm_i, nid_t n)
 	return radix_tree_lookup(&nm_i->nat_root, n);
 }
 
+void destroy_node_manager(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_nm_info *info = NM_I(sbi);
+	kfree(info->free_nids);
+	kfree(info);
+}
+
 static int init_node_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_checkpoint *cp = ADDR(sbi, cp_i->load_checkpoint_addr);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct checkpoint_info *cp_i = cm_i->last_cp_i;
+	struct hmfs_checkpoint *cp = cp_i->cp;
 
 	nm_i->max_nid = hmfs_max_nid();
 	nm_i->nat_cnt = 0;
@@ -161,7 +169,6 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 int build_node_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nm_info *info;
-	struct super_block *sb = sbi->sb;
 	int err;
 
 	info = kzalloc(sizeof(struct hmfs_nm_info), GFP_KERNEL);
@@ -174,24 +181,10 @@ int build_node_manager(struct hmfs_sb_info *sbi)
 		goto free_nm;
 	}
 
-	info->nat_inode = hmfs_iget(sb, HMFS_NAT_INO);
-
-	if (IS_ERR(info->nat_inode)) {
-		err = PTR_ERR(info->nat_inode);
-		goto free_nm;
-	}
-
 	return 0;
 free_nm:
 	kfree(info);
 	return err;
-}
-
-static struct hmfs_nat_block *get_current_nat_block(struct hmfs_sb_info *sbi,
-						    nid_t nid)
-{
-	//TODO:
-	return NULL;
 }
 
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
@@ -214,6 +207,10 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	return new;
 }
 
+/*
+ * when truncate an inode, we should call setup_summary_of_delete_node
+ * after this function
+ */
 void truncate_node(struct dnode_of_data *dn)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
@@ -228,10 +225,9 @@ void truncate_node(struct dnode_of_data *dn)
 
 	BUG_ON(ni.blk_addr == NULL_ADDR);
 
-	dc_block(sbi, ni.blk_addr);
 	dec_valid_node_count(sbi, dn->inode, 1);
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino,
-			 NULL_ADDR, CURCP_I(sbi)->store_version, true);
+			 NULL_ADDR, CM_I(sbi)->new_version, true);
 
 	/*
 	 * ????
@@ -276,39 +272,62 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 	unsigned int child_nofs;
 	int freed = 0;
 	int i, ret;
+	struct node_info ni;
 
 	if (dn->nid == 0)
 		return NIDS_PER_BLOCK + 1;
 
-	hn = get_new_node(sbi, dn->nid, dn->inode);
+	hn = alloc_new_node(sbi, dn->nid, dn->inode,SUM_TYPE_IDN);
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
 
 	if (depth < 3) {
 		for (i = ofs; i < NIDS_PER_BLOCK; i++, freed++) {
-			child_nid = le64_to_cpu(hn->in.nid[i]);
+			child_nid = le32_to_cpu(hn->in.nid[i]);
 			if (child_nid == 0)
 				continue;
 			rdn.nid = child_nid;
 			rdn.inode = dn->inode;
+
+			/* 
+			 * Now we just decrease count of child, and count of this node
+			 * would be decreased by its father node. And we should call
+			 * this function before another truncate_xxx()
+			 */
+			ret=get_node_info(sbi,rdn.nid,&ni);
+			if(ret)
+				continue;
+
 			ret = truncate_dnode(&rdn);
 			if (ret < 0)
 				goto out_err;
 			set_nid(hn, i, 0, false);
+			setup_summary_of_delete_node(sbi,ni.blk_addr);
 		}
 	} else {
 		child_nofs = nofs + ofs * (NIDS_PER_BLOCK + 1) + 1;
 		for (i = ofs; i < NIDS_PER_BLOCK; i++) {
-			child_nid = le64_to_cpu(hn->in.nid[i]);
+			child_nid = le32_to_cpu(hn->in.nid[i]);
 			if (child_nid == 0) {
 				child_nofs += NIDS_PER_BLOCK + 1;
 				continue;
 			}
 			rdn.nid = child_nid;
 			rdn.inode = dn->inode;
+			
+			/* 
+			 * Now we just decrease count of child, and count of this node
+			 * would be decreased by its father node. And we should call
+			 * this function before another truncate_xxx()
+			 */
+			ret=get_node_info(sbi,rdn.nid,&ni);
+			if(ret)
+				continue;
+
 			ret = truncate_nodes(&rdn, child_nofs, 0, depth - 1);
 			if (ret == (NIDS_PER_BLOCK + 1)) {
 				set_nid(hn, i, 0, false);
+				setup_summary_of_delete_node(sbi,ni.blk_addr);
 				child_nofs += ret;
 			} else if (ret && ret != -ENODATA)
 				goto out_err;
@@ -325,6 +344,13 @@ out_err:
 	return ret;
 }
 
+/* return address of node in historic checkpoint */
+struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
+			     struct checkpoint_info *cp_i, nid_t nid)
+{
+	return NULL;
+}
+
 static int truncate_partial_nodes(struct dnode_of_data *dn,
 				  struct hmfs_inode *hi, int *offset, int depth)
 {
@@ -335,6 +361,7 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 	int err = 0;
 	int i;
 	int idx = depth - 2;
+	struct node_info ni;
 
 	nid[0] = le64_to_cpu(hi->i_nid[offset[0] - NODE_DIR1_BLOCK]);
 	if (!nid[0])
@@ -357,14 +384,23 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 		if (!child_nid)
 			continue;
 		dn->nid = child_nid;
+
+		err=get_node_info(sbi,child_nid,&ni);
+		if(err)
+		{
+			BUG();
+			continue;
+		}
+
 		err = truncate_dnode(dn);
 		if (err < 0)
 			goto fail;
-		nodes[idx] = get_new_node(sbi, nid[idx], dn->inode);
+		nodes[idx] = alloc_new_node(sbi, nid[idx], dn->inode,SUM_TYPE_IDN);
 		if (IS_ERR(nodes[idx])) {
 			err = PTR_ERR(nodes[idx]);
 			goto fail;
 		}
+		setup_summary_of_delete_node(sbi,ni.blk_addr);
 		set_nid(nodes[idx], i, 0, false);
 	}
 
@@ -380,6 +416,22 @@ fail:
 	return err;
 }
 
+void setup_summary_of_delete_node(struct hmfs_sb_info *sbi,block_t blk_addr){
+	struct hmfs_summary *sum;
+	struct hmfs_cm_info *cm_i=CM_I(sbi);
+	int count;
+
+	sum=get_summary_by_addr(sbi,blk_addr);
+	count=get_summary_count(sum)-1;
+	BUG_ON(count<0);
+	set_summary_count(sum,count);
+	set_summary_dead_version(sum,cm_i->new_version);
+
+	if(!count){
+		invalidate_block_after_dc(sbi,blk_addr);
+	}
+}
+
 int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
@@ -388,6 +440,7 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 	unsigned int nofs = 0;
 	struct hmfs_node *hn;
 	struct dnode_of_data dn;
+	struct node_info ni;
 
 	level = get_node_path(from, offset, noffset);
 	hn = get_node(sbi, inode->i_ino);
@@ -422,7 +475,10 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 	}
 skip_partial:
 	while (cont) {
-		dn.nid = le64_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
+		dn.nid = le32_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
+
+		err=get_node_info(sbi,dn.nid,&ni);
+
 		switch (offset[0]) {
 		case NODE_DIR1_BLOCK:
 		case NODE_DIR2_BLOCK:
@@ -442,11 +498,12 @@ skip_partial:
 		if (err < 0 && err != -ENODATA)
 			goto fail;
 		if (offset[1] == 0 && hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]) {
-			hn = get_new_node(sbi, inode->i_ino, inode);
+			hn = alloc_new_node(sbi, inode->i_ino, inode,SUM_TYPE_INODE);
 			if (IS_ERR(hn)) {
 				err = PTR_ERR(hn);
 				goto fail;
 			}
+			setup_summary_of_delete_node(sbi,ni.blk_addr);
 			hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK] = 0;
 		}
 		offset[1] = 0;
@@ -481,31 +538,12 @@ retry:
 	write_unlock(&nm_i->nat_tree_lock);
 }
 
-static void _cache_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-			     unsigned long blk_addr, unsigned int version)
+static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
+					  u64 cur_node_segno,
+					  u64 cur_node_blkoff)
 {
-	struct nat_entry *e;
-retry:
-	e = __lookup_nat_cache(nm_i, nid);
-	if (!e) {
-		e = grab_nat_entry(nm_i, nid);
-		if (!e) {
-			goto retry;
-		}
-	}
-	e->ni.ino = ino;
-	e->ni.blk_addr = blk_addr;
-	e->ni.version = version;
-	printk(KERN_INFO "cache nat nid:%d ino:%d blk:%d-%d\n", nid, ino,
-	       blk_addr >> HMFS_SEGMENT_SIZE_BITS,
-	       (blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS);
-
-}
-
-static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi, u64 cur_node_segno, u64 cur_node_blkoff)
-{
-	return (cur_node_segno<< HMFS_SEGMENT_SIZE_BITS) +
-	    (cur_node_blkoff<< HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
+	return (cur_node_segno << HMFS_SEGMENT_SIZE_BITS) +
+	    (cur_node_blkoff << HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
 }
 
 /*
@@ -528,21 +566,127 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	return ADDR(sbi, ni.blk_addr);
 }
 
-void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
+static void alloc_direct_node_success(struct hmfs_sb_info *sbi,struct direct_node *dn){
+	int i;
+	block_t blk_addr;
+	struct hmfs_summary *summary;
+
+	for(i=0;i<ADDRS_PER_BLOCK;i++){
+		if(!dn->addr[i]){
+			blk_addr=le64_to_cpu(dn->addr[i]);
+			summary=get_summary_by_addr(sbi,blk_addr);			
+			inc_summary_count(summary);
+		}
+	}
+}
+
+static void alloc_indirect_node_success(struct hmfs_sb_info *sbi,struct indirect_node *idn){
+	int i,ret;
+	struct hmfs_summary *summary;
+	nid_t nid;
+	struct node_info ni;
+
+	for(i=0;i<NIDS_PER_BLOCK;i++){
+		if(!idn->nid[i]){
+			nid=le32_to_cpu(idn->nid[i]);
+			ret=get_node_info(sbi,nid,&ni);
+			if(!ret)
+				continue;
+			
+			summary=get_summary_by_addr(sbi,ni.blk_addr);
+			inc_summary_count(summary);
+		}
+	}
+}
+
+static void alloc_inode_success(struct hmfs_sb_info *sbi,struct hmfs_inode *hi)
+{
+	int i,ret;
+	struct hmfs_summary *summary;
+	nid_t nid;
+	struct node_info ni;
+
+	for(i=0;i<NORMAL_ADDRS_PER_INODE;++i){
+		if(!hi->i_addr[i]){
+			ni.blk_addr=le64_to_cpu(hi->i_addr[i]);
+			summary=get_summary_by_addr(sbi,ni.blk_addr);
+			inc_summary_count(summary);
+		}
+	}
+	for(i=NODE_DIR1_BLOCK;i<NODE_DIND_BLOCK;++i){
+		nid=le32_to_cpu(hi->i_nid[i-NODE_DIR1_BLOCK]);
+		if(!nid){
+			ret=get_node_info(sbi,nid,&ni);
+			if(!ret)
+				continue;
+
+			summary=get_summary_by_addr(sbi,ni.blk_addr);
+			inc_summary_count(summary);
+		}
+	}
+}
+
+static void alloc_nat_node_success(struct hmfs_sb_info *sbi,struct hmfs_nat_node *nat_node){}
+
+/*
+ * Call this function when allocating a new node successfully
+ * for direct node, indirect node, inode, nat node and nat block
+ */
+void alloc_new_node_success(struct hmfs_sb_info *sbi,void *new_node,int type){
+	switch(type){
+			case SUM_TYPE_DN:
+				alloc_direct_node_success(sbi,new_node);
+				break;
+			case SUM_TYPE_IDN:
+				alloc_indirect_node_success(sbi,new_node);
+				break;
+			case SUM_TYPE_INODE:
+				alloc_inode_success(sbi,new_node);
+				break;
+			case SUM_TYPE_NATN:
+				alloc_nat_node_success(sbi,new_node);
+				break;
+			case SUM_TYPE_NATD:
+			default:
+					BUG();
+	}
+}
+
+static void setup_summary_of_new_node(struct hmfs_sb_info *sbi,block_t new_node_addr,block_t src_addr,nid_t ino,unsigned int ofs_in_node,char sum_type){
+	struct hmfs_summary *src_sum,*dest_sum;
+	struct hmfs_cm_info *cm_i=CM_I(sbi);
+
+	dest_sum=get_summary_by_addr(sbi,new_node_addr);
+	make_summary_entry(dest_sum,ino,cm_i->new_version,1,ofs_in_node,sum_type);
+	alloc_new_node_success(sbi,ADDR(sbi,new_node_addr),sum_type);
+	
+	/* Now we could set dead_version of source node  */
+	if(src_addr){
+		src_sum=get_summary_by_addr(sbi,src_addr);
+		set_summary_dead_version(src_sum,cm_i->new_version);
+	}
+}
+
+static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
+					struct inode *inode,char sum_type)
 {
 	void *src;
-	unsigned long block;
+	block_t blk_addr,src_addr;
 	struct hmfs_node *dest;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_summary *summary = NULL;
+	unsigned int ofs_in_node=NID_TO_BLOCK_OFS(nid);
+	
 	src = get_node(sbi, nid);
 
 	if (!IS_ERR(src)) {
-		summary = get_summary_by_addr(sbi, src);
-		if (get_summary_start(summary) == cp_i->store_version)
+	src_addr=(char*)src-(char*)sbi->virt_addr;
+		summary = get_summary_by_addr(sbi, src_addr);
+		if (get_summary_start_version(summary) == cp_i->version)
 			return src;
 	}
+	else src_addr=0;
 
 	if (!inc_valid_node_count(sbi, inode, 1))
 		return ERR_PTR(-ENOSPC);
@@ -550,32 +694,41 @@ void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode)
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return ERR_PTR(-EPERM);
 
-	block = get_free_node_block(sbi);
-	dest = ADDR(sbi, block);
+	blk_addr = alloc_free_node_block(sbi);
+	dest = ADDR(sbi, blk_addr);
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	} else {
 		memset_nt(dest, 0, HMFS_PAGE_SIZE - sizeof(struct node_footer));
 		dest->footer.ino = cpu_to_le64(inode->i_ino);
 		dest->footer.nid = cpu_to_le64(nid);
-		dest->footer.cp_ver = cpu_to_le32(cp_i->store_version);
+		dest->footer.cp_ver = cpu_to_le32(cp_i->version);
 	}
 
-	summary = get_summary_by_addr(sbi, dest);
-//	FIXME: 'SUM_TYPE_INODE' here should be classified to SUM_TYPE_INODE or SUM_TYPE_IDN or SUM_TYPE_DN by given type
-	make_summary_entry(summary, inode->i_ino,0, cp_i->store_version, 1,0,SUM_TYPE_INODE);
+	setup_summary_of_new_node(sbi,blk_addr,src_addr,inode->i_ino,ofs_in_node,sum_type);
 	//TODO: cache nat
-	update_nat_entry(nm_i, nid, inode->i_ino, block, cp_i->store_version, true);
+	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr, cp_i->version, true);
 	return dest;
+}
+
+void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,char sum_type)
+{
+	unsigned long long addr;
+
+	if (likely(inode))
+		return __alloc_new_node(sbi, nid, inode,sum_type);
+
+	sbi = HMFS_I_SB(inode);
+	addr = alloc_free_node_block(sbi);
+	return ADDR(sbi, addr);
 }
 
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 {
 	struct checkpoint_info *cp_info = CURCP_I(sbi);
-	struct hmfs_nat_entry ne;
-	nid_t start_nid = START_NID(nid);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_nat_entry ne, *ne_local;
 	struct nat_entry *e;
-	struct hmfs_nat_block *nat_block;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	int i;
 	bool dirty;
@@ -592,23 +745,26 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	}
 
 	/* search nat journals */
+	read_lock(&cm_i->journal_lock);
 	i = lookup_journal_in_cp(cp_info, NAT_JOURNAL, nid, 0);
+	read_unlock(&cm_i->journal_lock);
 	if (i >= 0) {
+		read_lock(&cm_i->journal_lock);
 		ne = nat_in_journal(cp_info, i);
+		read_unlock(&cm_i->journal_lock);
 		node_info_from_raw_nat(ni, &ne);
 		dirty = true;
 		goto cache;
 	}
 
 	/* search in main area */
-	nat_block = get_current_nat_block(sbi, start_nid);
-	if (nat_block == NULL)
+	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
+	if (ne_local == NULL)
 		return -ENODATA;
-	ne = nat_block->entries[nid - start_nid];
-	node_info_from_raw_nat(ni, &ne);
+	node_info_from_raw_nat(ni, ne_local);
 	dirty = false;
 cache:
-	//TODO: add nat cache
+	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, ni->version, false);
 	return 0;
 }
 
@@ -623,13 +779,13 @@ static void add_free_nid(struct hmfs_nm_info *nm_i, nid_t nid, u64 free,
 static void recycle_nat_journals(struct hmfs_sb_info *sbi,
 				 struct hmfs_nm_info *nm_i, int *pos)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_checkpoint *hmfs_cp = cp_i->cp;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = CURCP_I(sbi)->cp;
 	int i;
 	nid_t nid;
 	u64 blk_addr;
 
-	write_lock(&cp_i->journal_lock);
+	write_lock(&cm_i->journal_lock);
 	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP && *pos >= 0; ++i) {
 		nid = le64_to_cpu(hmfs_cp->nat_journals[i].nid);
 		blk_addr =
@@ -640,7 +796,12 @@ static void recycle_nat_journals(struct hmfs_sb_info *sbi,
 			*pos = *pos - 1;
 		}
 	}
-	write_unlock(&cp_i->journal_lock);
+	write_unlock(&cm_i->journal_lock);
+}
+
+block_t flush_nat_entries(struct hmfs_sb_info *sbi)
+{
+	return 0;
 }
 
 static nid_t scan_nat_block(struct hmfs_nm_info *nm_i,
@@ -683,7 +844,9 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 	recycle_nat_journals(sbi, nm_i, &pos);
 
 	while (pos >= 0 && nid < nm_i->max_nid) {
-		nat_block = get_current_nat_block(sbi, nid);
+		nat_block =
+		    get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
+					nid);
 		nid = scan_nat_block(nm_i, nat_block, nid, &pos);
 	}
 
@@ -694,11 +857,11 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 bool alloc_nid(struct hmfs_sb_info * sbi, nid_t * nid)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int num;
 
 retry:
-	if (cp_i->valid_node_count + 1 >= nm_i->max_nid)
+	if (cm_i->valid_node_count + 1 >= nm_i->max_nid)
 		return false;
 
 	spin_lock(&nm_i->free_nid_list_lock);
@@ -721,14 +884,6 @@ retry:
 	goto retry;
 }
 
-void destroy_node_manager(struct hmfs_sb_info *sbi)
-{
-	struct hmfs_nm_info *info = NM_I(sbi);
-	kfree(info->free_nids);
-	iput(info->nat_inode);
-	kfree(info);
-}
-
 int create_node_manager_caches(void)
 {
 	nat_entry_slab = hmfs_kmem_cache_create("nat_entry",
@@ -744,115 +899,48 @@ void destroy_node_manager_caches(void)
 	kmem_cache_destroy(nat_entry_slab);
 }
 
-/* NAT index-tree on NVM */
-inline void get_child_nat_addr(struct hmfs_sb_info *sbi, block_t *cur_node,
-			       u32 nid, block_t **next_node, u32 *new_nid,
-			       u8 height)
+static struct hmfs_nat_block *__get_nat_entry_block(struct hmfs_sb_info *sbi,
+						    struct hmfs_nat_node
+						    *nat_node, unsigned blk_id,
+						    char height)
 {
-	if(cur_node == NULL){
-		*next_node == NULL;
-		return;
-	}
-	u16 _ofs = height * LOG2_ADDRS_PER_BLOCK;
+	unsigned long long next_addr;
+	unsigned blk_index;
 
-	*next_node = ADDR(sbi, cur_node[nid >> _ofs]);
-	*new_nid = nid & ((1 << _ofs) - 1);
-}
-
-/* get a nat/nat page from nat/nat in-NVM tree */
-static void *__get_nat_page(struct hmfs_sb_info *sbi, block_t *cur_node, u32 nid, u8 height)
-{
-	block_t *next_node;
-	u64 new_nid;
-
-	if (cur_node == sbi->virt_addr){
-		//uninitialized
-		return NULL;
-	}
-	height--;
 	if (!height)
-		return (void *)ADDR(sbi, cur_node[nid]);
-	get_child_nat_addr(sbi, cur_node, nid, &next_node, &new_nid, height);
+		return (struct hmfs_nat_block *)nat_node;
 
-	return __get_nat_page(sbi, next_node, new_nid, height);
+	blk_index = blk_id >> ((height - 1) * NAT_SEARCH_SHIFT);
+	blk_index = blk_index & NAT_SEARCH_MASK;
+	next_addr = le64_to_cpu(nat_node->addr[blk_index]);
+	if (!next_addr)
+		return NULL;
+	nat_node = ADDR(sbi, next_addr);
+
+	return __get_nat_entry_block(sbi, nat_node, blk_id, height - 1);
+
 }
 
-void *get_nat_page(struct hmfs_sb_info *sbi, u32 nid)
+struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
+					   unsigned int version, nid_t nid)
 {
-	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
-	struct checkpoint_info *cp_info = sbi->cp_info;
+	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version);
+	//FIXME:fast calculate blk_id
+	unsigned int blk_id = nid / NAT_ENTRY_PER_BLOCK;
+	struct hmfs_nat_node *nat_root = cp_i->nat_root;
+	char nat_height = sbi->nat_height;
 
-	return __get_nat_page(sbi, cp_info->cur_nat_root, nid,
-			   raw_super->sit_height);
+	return __get_nat_entry_block(sbi, nat_root, blk_id, nat_height);
 }
-/*
-block_t recursive_flush_nat_page(struct hmfs_sb_info * sbi, void *old_addr,
-				 void *cur_addr, u64 segno, u8 height,
-				 struct seg_entry * entry, u16 * alloc_cnt)
+
+struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi,
+				     unsigned int version, nid_t nid)
 {
-	//FIXME : cannot handle no space
-	void *cur_stored_addr, *old_child_addr, *cur_child_addr;
-	block_t cur_stored_root, *modi_ptr, child_stored_root;
-	u64 new_segno;
-	unsigned long _offset;
-	struct hmfs_nat_entry *raw_entry;
+	struct hmfs_nat_block *nat_block;
+	unsigned int rem = nid % NAT_ENTRY_PER_BLOCK;
 
-	//1. if leaf, alloc & copy nat entry block 
-	if (!height) {
-		cur_stored_addr = cur_addr;
-		cur_stored_root = NULL;
-		if (old_addr == NULL){
-			//only allocate new entry_blk
-			cur_stored_root = get_free_node_block(sbi);
-			cur_stored_addr = ADDR(sbi, cur_stored_root);
-			*alloc_cnt++;
-
-		}
-		else if (old_addr == cur_addr) {
-			//COW
-			cur_stored_root = get_free_node_block(sbi);
-			cur_stored_addr = ADDR(sbi, cur_stored_root);
-			memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
-			*alloc_cnt++;
-		}
-		_offset = segno * sizeof(struct hmfs_nat_entry);
-		raw_entry =
-		    (struct hmfs_nat_entry *)(cur_stored_addr + _offset);
-		seg_info_to_raw_nat(entry, raw_entry);
-		return cur_stored_root;
-	}
-
-	//2. if this node is not wandered before, COW
-	_offset = (segno >> (height * LOG2_ADDRS_PER_BLOCK)) * sizeof(block_t);
-	cur_stored_addr = cur_addr;
-	cur_stored_root = NULL;
-
-	if (old_addr == NULL){
-		//only allocate new node_blk
-		cur_stored_root = get_free_node_block(sbi);
-		cur_stored_addr = ADDR(sbi, cur_stored_root);
-		memset_nt(cur_stored_addr, 0, HMFS_PAGE_SIZE);
-		*alloc_cnt++;
-	}
-	else if (old_addr == cur_addr) {
-		//COW
-		cur_stored_root = get_free_node_block(sbi);
-		cur_stored_addr = ADDR(sbi, cur_stored_root);
-		memcpy(cur_stored_addr, old_addr, HMFS_PAGE_SIZE);
-		*alloc_cnt++;
-	}
-
-	//3. go to child
-	get_child_nat_addr(sbi, old_addr, segno, &old_child_addr, &new_segno,
-			   height);
-	get_child_nat_addr(sbi, cur_addr, segno, &cur_stored_addr, &new_segno,
-			   height);
-	child_stored_root =
-	    recursive_flush_nat_page(sbi, old_child_addr, cur_stored_addr,
-				     new_segno, height - 1, entry, alloc_cnt);
-	if (child_stored_root != NULL) {
-		*modi_ptr = cpu_to_le64(child_stored_root);
-	}
-	return cur_stored_root;
+	nat_block = get_nat_entry_block(sbi, version, nid);
+	if (!nat_block)
+		return NULL;
+	return &nat_block->entries[rem];
 }
-*/

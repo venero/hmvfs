@@ -55,7 +55,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->store_version, true);
+	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version, true);
 	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
 	mutex_unlock_op(sbi, ilock);
@@ -201,7 +201,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	ilock = mutex_lock_op(sbi);
-	res_blk = get_new_data_block(dir, bidx);
+	res_blk = alloc_new_data_block(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		mutex_unlock_op(sbi, ilock);
@@ -246,7 +246,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	ilock = mutex_lock_op(sbi);
 
-	old_dentry_blk = get_new_data_block(old_dir, old_bidx);
+	old_dentry_blk = alloc_new_data_block(old_dir, old_bidx);
 	if (IS_ERR(old_dentry_blk)) {
 		err = PTR_ERR(old_dentry_blk);
 		goto out_k;
@@ -273,7 +273,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (!new_entry)
 			goto out_k;
 
-		new_dentry_blk = get_new_data_block(new_dir, new_bidx);
+		new_dentry_blk = alloc_new_data_block(new_dir, new_bidx);
 		if (IS_ERR(new_dentry_blk)) {
 			err = PTR_ERR(new_dentry_blk);
 			goto out_k;

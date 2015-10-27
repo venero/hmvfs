@@ -282,7 +282,7 @@ struct hmfs_dir_entry *hmfs_parent_dir(struct inode *dir)
 
 	// add data.c here will become valid
 	//page = get_lock_data_page(dir, 0);
-	dentry_blk = get_new_data_block(dir, 0);
+	dentry_blk = alloc_new_data_block(dir, 0);
 	if (IS_ERR(dentry_blk))
 		return NULL;
 
@@ -375,7 +375,7 @@ static int make_empty_dir(struct inode *inode,
 {
 	struct hmfs_dentry_block *dentry_blk = NULL;
 	struct hmfs_dentry_ptr d;
-	dentry_blk = get_new_data_block(inode, 0);
+	dentry_blk = alloc_new_data_block(inode, 0);
 	if (IS_ERR(dentry_blk))
 		return PTR_ERR(dentry_blk);
 
@@ -395,7 +395,7 @@ struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
 	struct hmfs_node *hn = NULL;
 
 	//FIXME: inode block have been copied two times
-	hn = get_new_node(sbi, inode->i_ino, inode);
+	hn = alloc_new_node(sbi, inode->i_ino, inode,SUM_TYPE_INODE);
 	if (IS_ERR(hn))
 		return hn;
 
@@ -557,7 +557,7 @@ start:
 	for (block = bidx; block <= (bidx + nblock - 1); block++) {
 		//FIXME: use bat process to reduce read time
 		if (block > end_blk) {
-			dentry_blk = get_new_data_block(dir, block);
+			dentry_blk = alloc_new_data_block(dir, block);
 			memset_nt(dentry_blk, 0, HMFS_PAGE_SIZE);
 			bit_pos = 0;
 			goto add_dentry;
@@ -571,7 +571,7 @@ start:
 			bit_pos = room_for_filename(&dentry_blk->dentry_bitmap,
 						    slots, NR_DENTRY_IN_BLOCK);
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
-				dentry_blk = get_new_data_block(dir, block);
+				dentry_blk = alloc_new_data_block(dir, block);
 				if (IS_ERR(dentry_blk)) {
 					err = PTR_ERR(dentry_blk);
 					goto fail;

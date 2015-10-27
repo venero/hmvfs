@@ -23,7 +23,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	inode->i_op = &hmfs_symlink_inode_operations;
 	inode->i_mapping->a_ops = &hmfs_dblock_aops;
 
-	data_blk = get_new_data_block(inode, 0);
+	data_blk = alloc_new_data_block(inode, 0);
 	if (IS_ERR(data_blk))
 		return PTR_ERR(data_blk);
 	hmfs_memcpy(data_blk, (void *)symname, symlen);
@@ -61,7 +61,7 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
 	if (err || size != 1 || data_blk[0] == NULL)
 		return ERR_PTR(-ENODATA);
-//	err = vfs_follow_link(nd, data_blk[0]);
+//      err = vfs_follow_link(nd, data_blk[0]);
 	return ERR_PTR(err);
 }
 

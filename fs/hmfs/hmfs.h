@@ -11,6 +11,7 @@
 #include <linux/spinlock.h>
 #include <linux/radix-tree.h>
 #include "hmfs_fs.h"
+#include "checkpoint.h"
 //#include "segment.h"
 
 #ifdef CONFIG_HMFS_CHECK_FS
@@ -29,7 +30,7 @@
 
 #define HMFS_DEF_FILE_MODE	0664
 
-#define HMFS_DEF_FILE_MODE	0664
+#define DEF_OP_SEGMENTS		6	/* default percentage of overprovision segments */
 
 /*
  * For INODE and NODE manager
@@ -61,44 +62,22 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
 //      }
 }
 
-typedef u64 nid_t;
+typedef unsigned int nid_t;
 struct free_nid;
 
+enum SEG_TYPE {
+	TYPE_NODE = 0,
+	TYPE_DATA = 1
+};
+
 struct checkpoint_info {
-//	set load_version to the version number when loaded
-	u32 load_version;
-//	set store_version to the version which it's about to store back to nvm
-	u32 store_version;
+	struct list_head list;
 
-	block_t *cur_nat_root;
-
-	u64 cur_node_segno;
-	int cur_node_blkoff;
-
-	u64 cur_data_segno;
-	int cur_data_blkoff;
-
-	u64 valid_inode_count;
-	u64 valid_node_count;
-
-	u64 valid_block_count;
-	u64 user_block_count;
-	u64 alloc_valid_block_count;
-
-	u64 load_checkpoint_addr;
-
-	rwlock_t journal_lock;
-
-	struct mutex orphan_inode_mutex;
-	struct list_head orphan_inode_list;
-	u64 n_orphans;
-
+	unsigned int version;
+	unsigned int next_version;
+	struct hmfs_nat_node *nat_root;
+	/* only useful for current checkpoint_info */
 	struct hmfs_checkpoint *cp;
-	struct page *cp_page;
-
-	struct sit_info *si;
-
-	spinlock_t stat_lock;
 };
 
 struct orphan_inode_entry {
@@ -107,7 +86,6 @@ struct orphan_inode_entry {
 };
 
 struct hmfs_nm_info {
-	struct inode *nat_inode;
 	nid_t max_nid;		/* maximum possible node ids */
 	nid_t next_scan_nid;	/* the next nid to be scanned */
 
@@ -143,17 +121,24 @@ struct hmfs_sb_info {
 	kuid_t uid;
 	kgid_t gid;
 
-	u64 page_count;
-	u64 segment_count;
+	unsigned long long page_count;
+	unsigned long long segment_count;
+	unsigned long long segment_count_main;
 
-	struct checkpoint_info *cp_info;
+	struct hmfs_cm_info *cm_info;
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];
 	unsigned char next_lock_num;
 
-	u64 ssa_addr;
-	unsigned long long sit_addr;
-	u64 main_addr_start;
-	u64 main_addr_end;
+	/* GC */
+	struct mutex gc_mutex;
+	struct hmfs_gc_kthread *gc_thread;
+	unsigned int last_victim[2];
+
+	struct hmfs_sit_entry *sit_entries;
+	struct hmfs_summary *ssa_entries;
+	unsigned long long main_addr_start;
+	unsigned long long main_addr_end;
+	char nat_height;
 
 	struct rw_semaphore cp_rwsem;	/* blocking FS operations */
 
@@ -161,17 +146,10 @@ struct hmfs_sb_info {
 	 * statiatic infomation, for debugfs
 	 */
 	struct hmfs_stat_info *stat_info;
-
 	struct hmfs_nm_info *nm_info;
-
 	struct hmfs_sm_info *sm_info;	/* segment manager */
 
-	struct inode *sit_inode;
-	struct inode *ssa_inode;
-
 	int por_doing;		/* recovery is doing or not */
-
-	void *summary_blk;
 };
 
 struct hmfs_inode_info {
@@ -286,9 +264,14 @@ static inline struct hmfs_sb_info *HMFS_SB(struct super_block *sb)
 	return sb->s_fs_info;
 }
 
+static inline struct hmfs_cm_info *CM_I(struct hmfs_sb_info *sbi)
+{
+	return sbi->cm_info;
+}
+
 static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
 {
-	return sbi->cp_info;
+	return CM_I(sbi)->cur_cp_i;
 }
 
 static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
@@ -296,9 +279,9 @@ static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
 	return (sbi->virt_addr + logic_addr);
 }
 
-static inline block_t DEADDR(struct hmfs_sb_info *sbi, void* ptr)
+static inline block_t DEADDR(struct hmfs_sb_info *sbi, void *ptr)
 {
-	return (block_t)(ptr - sbi->virt_addr);
+	return (block_t) (ptr - sbi->virt_addr);
 }
 
 static inline nid_t START_NID(nid_t nid)
@@ -313,7 +296,7 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 	return HMFS_SB(inode->i_sb);
 }
 
-static inline u64 GET_SEGNO(struct hmfs_sb_info *sbi, u64 addr)
+static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, u64 addr)
 {
 	return (addr - sbi->main_addr_start) >> HMFS_SEGMENT_SIZE_BITS;
 }
@@ -403,23 +386,23 @@ static inline void mutex_unlock_op(struct hmfs_sb_info *sbi, int ilock)
 static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	u64 alloc_valid_block_count;
 
-	spin_lock(&cp_i->stat_lock);
-	alloc_valid_block_count = cp_i->alloc_valid_block_count + count;
+	spin_lock(&cm_i->stat_lock);
+	alloc_valid_block_count = cm_i->alloc_block_count + count;
 
-	if (alloc_valid_block_count > cp_i->user_block_count) {
-		spin_unlock(&cp_i->stat_lock);
+	if (alloc_valid_block_count > cm_i->user_block_count) {
+		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
 
 	if (inode)
 		inode->i_blocks += count;
 
-	cp_i->valid_node_count += count;
-	cp_i->alloc_valid_block_count = alloc_valid_block_count;
-	spin_unlock(&cp_i->stat_lock);
+	cm_i->valid_node_count += count;
+	cm_i->alloc_block_count = alloc_valid_block_count;
+	spin_unlock(&cm_i->stat_lock);
 
 	return true;
 }
@@ -427,63 +410,61 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	spin_lock(&cp_i->stat_lock);
-	cp_i->valid_node_count -= count;
-	cp_i->alloc_valid_block_count -= count;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	spin_lock(&cm_i->stat_lock);
+	cm_i->valid_node_count -= count;
 	if (likely(inode))
 		inode->i_blocks -= count;
-	spin_unlock(&cp_i->stat_lock);
+	spin_unlock(&cm_i->stat_lock);
 }
 
 static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	spin_lock(&cp_i->stat_lock);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	spin_lock(&cm_i->stat_lock);
 	inode->i_blocks -= count;
-	cp_i->valid_block_count -= count;
-	cp_i->alloc_valid_block_count -= count;
-	spin_unlock(&cp_i->stat_lock);
+	cm_i->valid_block_count -= count;
+	spin_unlock(&cm_i->stat_lock);
 	return 0;
 }
 
 static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 					 struct inode *inode, int count)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	u64 alloc_block_count;
 
-	spin_lock(&cp_i->stat_lock);
-	alloc_block_count = cp_i->alloc_valid_block_count + count;
+	spin_lock(&cm_i->stat_lock);
+	alloc_block_count = cm_i->alloc_block_count + count;
 	//FIXME: need this check ?
-	if (alloc_block_count > cp_i->user_block_count) {
-		spin_unlock(&cp_i->stat_lock);
+	if (alloc_block_count > cm_i->user_block_count) {
+		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
 	inode->i_blocks += count;
-	cp_i->alloc_valid_block_count = alloc_block_count;
-	cp_i->valid_block_count += count;
-	spin_unlock(&cp_i->stat_lock);
+	cm_i->alloc_block_count = alloc_block_count;
+	cm_i->valid_block_count += count;
+	spin_unlock(&cm_i->stat_lock);
 	return true;
 }
 
 static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	spin_lock(&cp_i->stat_lock);
-	cp_i->valid_inode_count--;
-	spin_unlock(&cp_i->stat_lock);
+	spin_lock(&cm_i->stat_lock);
+	cm_i->valid_inode_count--;
+	spin_unlock(&cm_i->stat_lock);
 }
 
 static inline void inc_valid_inode_count(struct hmfs_sb_info *sbi)
 {
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	spin_lock(&cp_i->stat_lock);
-	cp_i->valid_inode_count++;
-	spin_unlock(&cp_i->stat_lock);
+	spin_lock(&cm_i->stat_lock);
+	cm_i->valid_inode_count++;
+	spin_unlock(&cm_i->stat_lock);
 }
 
 static inline loff_t hmfs_max_size(void)
@@ -498,15 +479,6 @@ static inline loff_t hmfs_max_size(void)
 	if (res > MAX_LFS_FILESIZE)
 		res = MAX_LFS_FILESIZE;
 	return res;
-}
-
-static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
-{
-	//TODO:
-	return 0;
-//      struct sit_info *sit_i = SIT_I(sbi);
-//      return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
-//                                              sit_i->mounted_time;
 }
 
 static inline int hmfs_test_bit(unsigned int nr, char *addr)
@@ -567,40 +539,53 @@ int build_node_manager(struct hmfs_sb_info *sbi);
 void destroy_node_manager(struct hmfs_sb_info *sbi);
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
 void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
+struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,struct checkpoint_info *cp_i,nid_t nid);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
-void *get_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *);
+void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,char sum_type);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
+block_t flush_nat_entries(struct hmfs_sb_info *sbi);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 void truncate_node(struct dnode_of_data *dn);
+struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
+					   unsigned version, nid_t nid);
+struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, unsigned version,
+				     nid_t nid);
+void setup_summary_of_delete_node(struct hmfs_sb_info *sbi,block_t blk_addr);
 
 /* segment.c*/
+void flush_sit_entries(struct hmfs_sb_info *sbi);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
 void allocate_new_segments(struct hmfs_sb_info *sbi);
+struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
+					     unsigned long segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-					 void *blk_addr);
-u64 get_free_data_block(struct hmfs_sb_info *sbi);
-u64 get_free_node_block(struct hmfs_sb_info *sbi);
-u64 save_sit_entries(struct hmfs_sb_info *sbi);
-void *dc_nat_root(struct hmfs_sb_info *sbi,void *nat_root_addr);
-void *dc_checkpoint(struct hmfs_sb_info *sbi,void *cp_addr);
-void *dc_block(struct hmfs_sb_info *sbi, void *blk_addr);
-int dc_itself(struct hmfs_sb_info *sbi, void *blk_addr);
-void *dc_nat_branch(struct hmfs_sb_info *sbi, void *nat_branch_addr);
-void *dc_nat_block(struct hmfs_sb_info *sbi, void *nat_block_addr);
-void *dc_checkpoint_block(struct hmfs_sb_info *sbi, void *checkpoint_block_addr);
-void *dc_direct(struct hmfs_sb_info *sbi, void *direct_block_addr);
-void *dc_indirect(struct hmfs_sb_info *sbi, void *indirect_block_addr);
-void *dc_inode(struct hmfs_sb_info *sbi, void *inode_block_addr);
-void *dc_data(struct hmfs_sb_info *sbi, void *data_block_addr);
-int ic_block(struct hmfs_sb_info *sbi, void *blk_addr);
+					 block_t blk_addr);
+block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
+block_t alloc_free_node_block(struct hmfs_sb_info *sbi);
+unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
+				   unsigned long long segno, int blkoff);
+void dc_nat_root(struct hmfs_sb_info *sbi, block_t nat_root_addr);
+void dc_checkpoint(struct hmfs_sb_info *sbi, block_t cp_addr);
+void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr);
+void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr);
+void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr);
+void dc_nat_block(struct hmfs_sb_info *sbi, block_t nat_block_addr);
+void dc_checkpoint_block(struct hmfs_sb_info *sbi,
+			  block_t checkpoint_block_addr);
+void dc_direct(struct hmfs_sb_info *sbi, block_t direct_block_addr);
+void dc_indirect(struct hmfs_sb_info *sbi, block_t indirect_block_addr);
+void dc_inode(struct hmfs_sb_info *sbi, block_t inode_block_addr);
+void dc_data(struct hmfs_sb_info *sbi, block_t data_block_addr);
+int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr);
+void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
@@ -615,15 +600,18 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-block_t write_checkpoint(struct hmfs_sb_info *sbi);
+void write_checkpoint(struct hmfs_sb_info *sbi);
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
 unsigned int find_this_version(struct hmfs_sb_info *sbi);
+struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
+					    unsigned int version);
+struct checkpoint_info *get_next_cp_i(struct hmfs_sb_info *sbi,struct checkpoint_info *cp_i);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
-void *get_new_data_block(struct inode *inode, int block);
-void *get_new_data_partial_block(struct inode *inode, int block, int start,
+void *alloc_new_data_block(struct inode *inode, int block);
+void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
 				 int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
 
