@@ -39,7 +39,7 @@ static const match_table_t tokens = {
 static inline void *hmfs_ioremap(struct super_block *sb, phys_addr_t phys_addr,
 				 ssize_t size)
 {
-	void __iomem * retval = NULL;
+	void __iomem *retval = NULL;
 	retval = ioremap_cache(phys_addr, size);
 	return (void __force *)retval;
 }
@@ -115,8 +115,10 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 
 	return 0;
 
- bad_val:return -EINVAL;
- bad_opt:return -EINVAL;
+bad_val:
+	return -EINVAL;
+bad_opt:
+	return -EINVAL;
 }
 
 static int hmfs_format(struct super_block *sb)
@@ -168,7 +170,7 @@ static int hmfs_format(struct super_block *sb)
 	area_addr += (ssa_pages_count << HMFS_PAGE_SIZE_BITS);
 	sit_addr = area_addr;
 	sbi->sit_entries = ADDR(sbi, sit_addr);
-	sit_area_size = user_segments_count * SIT_ENTRY_SIZE;	//FIXME if entry_size is not aligned, this is not aligned
+	sit_area_size = user_segments_count * SIT_ENTRY_SIZE;
 	memset_nt(ADDR(sbi, sit_addr), 0, sit_area_size);
 
 /* prepare main area */
@@ -373,7 +375,6 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	if (!fi)
 		return NULL;
 	init_once((void *)fi);
-/*TODO: hmfs specific inode_info init work */
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
 	return &(fi->vfs_inode);
@@ -451,7 +452,8 @@ static void hmfs_evict_inode(struct inode *inode)
 	}
 
 	sb_end_intwrite(inode->i_sb);
- out:	clear_inode(inode);
+out:
+	clear_inode(inode);
 }
 
 static void hmfs_put_super(struct super_block *sb)
@@ -604,7 +606,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
 	if (IS_ERR(root)) {
@@ -624,12 +625,15 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	hmfs_build_stats(sbi);
 
 	return 0;
- free_root_inode:iput(root);
- free_segment_mgr:destroy_segment_manager(sbi);
+free_root_inode:
+	iput(root);
+free_segment_mgr:
+	destroy_segment_manager(sbi);
 
 	destroy_node_manager(sbi);
- free_cp_mgr:destroy_checkpoint_manager(sbi);
- out:
+free_cp_mgr:
+	destroy_checkpoint_manager(sbi);
+out:
 //TODO:
 	if (sbi->virt_addr) {
 		hmfs_iounmap(sbi->virt_addr);
@@ -652,11 +656,6 @@ struct file_system_type hmfs_fs_type = {
 	.mount = hmfs_mount,
 	.kill_sb = kill_anon_super,
 };
-
-/*
- * Module Specific Info
- * TODO: add your personal info here
- */
 
 #define AUTHOR_INFO "RADLAB SJTU"
 #define DEVICE_TYPE "Hybrid in-Memory File System"
@@ -694,16 +693,19 @@ int init_hmfs(void)
 		goto fail_reg;
 	hmfs_create_root_stat();
 	return 0;
- fail_reg:destroy_checkpoint_caches();
- fail_cp:destroy_node_manager_caches();
- fail_node:destroy_inodecache();
- fail:	return err;
+fail_reg:
+	destroy_checkpoint_caches();
+fail_cp:
+	destroy_node_manager_caches();
+fail_node:
+	destroy_inodecache();
+fail:
+	return err;
 
 }
 
 void exit_hmfs(void)
 {
-// TO BE FIXED
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();

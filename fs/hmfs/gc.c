@@ -220,6 +220,7 @@ static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 
 		move_data_block(sbi, segno, off, sum);
 	}
+	recycle_segment(sbi, segno);
 }
 
 static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
@@ -278,8 +279,8 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 			((struct hmfs_checkpoint *) this)->nat_addr = cpu_to_le64(
 					args.dest_addr);
 		} else {
-			((struct hmfs_nat_block *) this)->entries[args.ofs_in_node].block_addr =
-					cpu_to_le64(args.dest_addr);
+			((struct hmfs_nat_block *) this)->entries[args.ofs_in_node].block_addr = cpu_to_le64(
+					args.dest_addr);
 		}
 
 		last = this;
@@ -320,6 +321,33 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, int src_segno,
 	cp_i->cp = (struct hmfs_checkpoint *) args.dest_addr;
 }
 
+static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_sit_entry *sit_entry;
+	struct seg_entry *seg_entry;
+
+	mutex_lock(&sit_i->sentry_lock);
+
+	/* clean dirty bit */
+	if (test_and_clean_bit(segno, sit_i->dirty_sentries_bitmap)) {
+		sit_i->dirty_sentries--;
+	}
+	sit_entry = get_sit_entry(sbi, segno);
+	seg_entry = get_seg_entry(sbi, segno);
+	seg_entry->valid_blocks = 0;
+	seg_entry->mtime = get_seconds();
+	seg_info_to_raw_sit(seg_entry, sit_entry);
+
+	mutex_unlock(&sit_i->sentry_lock);
+
+	write_lock(&free_i->segmap_lock);
+	/* set free bit */
+	if (!test_and_set_bit(segno, free_i->free_segmap))
+		free_i->free_segments++;
+	write_unlock(&free_i->segmap_lock);
+}
+
 static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 		unsigned int segno)
 {
@@ -351,8 +379,7 @@ static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			BUG();
 			break;
 		}
-		//TODO: update SIT in NVM
-
+		recycle_segment(sbi, segno);
 	}
 }
 
