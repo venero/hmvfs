@@ -216,6 +216,7 @@ next:
 static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
@@ -239,6 +240,11 @@ static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
 	if (!test_and_set_bit(segno, free_i->free_segmap))
 		free_i->free_segments++;
 	write_unlock(&free_i->segmap_lock);
+
+	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
+	spin_lock(&cm_i->stat_lock);
+
+	spin_unlock(&cm_i->stat_lock);
 }
 
 static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
@@ -313,9 +319,9 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 			((struct hmfs_checkpoint *)this)->nat_addr =
 			 cpu_to_le64(args.dest_addr);
 		} else {
-			((struct hmfs_nat_block *)this)->
-			 entries[args.ofs_in_node].block_addr =
-			 cpu_to_le64(args.dest_addr);
+			((struct hmfs_nat_block *)this)->entries[args.
+								 ofs_in_node].
+			 block_addr = cpu_to_le64(args.dest_addr);
 		}
 
 		last = this;
@@ -419,7 +425,7 @@ gc_more:
 
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
-		//TODO:write_checkpoint?
+		write_checkpoint(sbi);
 	}
 
 	if (!get_victim(sbi, &segno, gc_type))
@@ -436,7 +442,7 @@ gc_more:
 		goto gc_more;
 
 	if (gc_type == FG_GC) {
-		// TODO:write_checkpoint        
+		write_checkpoint(sbi);
 	}
 out:
 	mutex_unlock(&sbi->gc_mutex);

@@ -424,7 +424,9 @@ void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr)
 
 	sum = get_summary_by_addr(sbi, blk_addr);
 	count = get_summary_count(sum) - 1;
+#ifdef CONFIG_DEBUG
 	BUG_ON(count < 0);
+#endif
 	set_summary_count(sum, count);
 	set_summary_dead_version(sum, cm_i->new_version);
 
@@ -723,7 +725,6 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 
 	setup_summary_of_new_node(sbi, blk_addr, src_addr, inode->i_ino,
 				  ofs_in_node, sum_type);
-	//TODO: cache nat
 	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr, cp_i->version,
 			 true);
 	return dest;

@@ -120,7 +120,6 @@ struct hmfs_sb_info {
 	kuid_t uid;
 	kgid_t gid;
 
-	unsigned long long page_count;
 	unsigned long long segment_count;
 	unsigned long long segment_count_main;
 
@@ -642,7 +641,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 			       umode_t mode);
 
 /* gc.c */
-int hmfs_gc(struct hmfs_sb_info *sbi,int gc_type);
+int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)

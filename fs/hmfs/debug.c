@@ -27,7 +27,7 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "initial size:%lu\n",
 			   (unsigned long)si->sbi->initsize);
 		seq_printf(s, "page count:%lu\n",
-			   (unsigned long)si->sbi->page_count);
+			   (unsigned long)cm_i->user_block_count);
 		seq_printf(s, "segment count:%lu\n",
 			   (unsigned long)si->sbi->segment_count);
 		seq_printf(s, "SSA start address:%lu\n",

@@ -417,13 +417,14 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sbi->sm_info = sm_info;
 	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
 	sm_info->main_segments = le64_to_cpu(raw_super->segment_count_main);
-	sm_info->ovp_segments = sm_info->main_segments * DEF_OP_SEGMENTS / 100;
-	if (sm_info->ovp_segments == 0)
-		sm_info->ovp_segments = 1;
-	sm_info->limit_invalid_blocks = sm_info->segment_count
-	 * LIMIT_INVALID_BLOCKS / 100;
-	sm_info->limit_free_blocks = sm_info->segment_count * LIMIT_FREE_BLOCKS
-	 / 100;
+	sm_info->ovp_segments =
+	 sm_info->main_segments - sm_info->main_segments * (100 -
+							    DEF_OP_SEGMENTS) /
+	 100;
+	sm_info->limit_invalid_blocks =
+	 sm_info->segment_count * LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_free_blocks =
+	 sm_info->segment_count * LIMIT_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);
 	if (err)
@@ -545,9 +546,7 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr)
 	 (blk_addr & (HMFS_SEGMENT_SIZE - 1)) >> HMFS_PAGE_SIZE_BITS;
 
 	mutex_lock(&sit_i->sentry_lock);
-
 	update_sit_entry(sbi, segno, blkoff, -1);
-
 	mutex_unlock(&sit_i->sentry_lock);
 }
 

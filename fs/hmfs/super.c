@@ -135,7 +135,8 @@ bad_opt:
 
 static int hmfs_format(struct super_block *sb)
 {
-	u64 pages_count, user_segments_count, user_pages_count;
+	u64 pages_count, main_segments_count, user_segments_count,
+	 user_pages_count;
 	u64 init_size;
 	u64 area_addr, end_addr;
 	unsigned long long ssa_pages_count, sit_area_size;
@@ -172,24 +173,26 @@ static int hmfs_format(struct super_block *sb)
 	area_addr <<= 1;	/* two copy of super block */
 	ssa_addr = area_addr;
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
-	user_segments_count = (end_addr - area_addr)
+	main_segments_count = (end_addr - area_addr)
 	 / (HMFS_SEGMENT_SIZE + SIT_ENTRY_SIZE +
 	    HMFS_PAGE_PER_SEG * sizeof(struct hmfs_summary));
-	ssa_pages_count = (user_segments_count * HMFS_SUMMARY_BLOCK_SIZE
+	ssa_pages_count = (main_segments_count * HMFS_SUMMARY_BLOCK_SIZE
 			   + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
 /* prepare SIT area */
 	area_addr += (ssa_pages_count << HMFS_PAGE_SIZE_BITS);
 	sit_addr = area_addr;
 	sbi->sit_entries = ADDR(sbi, sit_addr);
-	sit_area_size = user_segments_count * SIT_ENTRY_SIZE;
+	sit_area_size = main_segments_count * SIT_ENTRY_SIZE;
 	memset_nt(ADDR(sbi, sit_addr), 0, sit_area_size);
 
 /* prepare main area */
 	area_addr += sit_area_size;
 	area_addr = align_segment_right(area_addr);
 
-	user_segments_count = (end_addr - area_addr) >> HMFS_SEGMENT_SIZE_BITS;
+	main_segments_count = (end_addr - area_addr) >> HMFS_SEGMENT_SIZE_BITS;
+	user_segments_count =
+	 main_segments_count * (100 - DEF_OP_SEGMENTS) / 100;
 	user_pages_count = user_segments_count << HMFS_PAGE_PER_SEG_BITS;
 
 	data_blkoff = 0;
@@ -299,7 +302,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, next_cp_addr, cpu_to_le64(cp_addr));
 	set_struct(cp, nat_addr, nat_addr);
 
-	set_struct(cp, user_block_count, user_pages_count);
+	set_struct(cp, alloc_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, valid_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, free_segment_count, (user_segments_count - 2));
 	set_struct(cp, cur_node_segno, GET_SEGNO(sbi, node_segaddr));
@@ -325,9 +328,9 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, log_pagesize, HMFS_PAGE_SIZE_BITS);
 	set_struct(super, log_pages_per_seg, HMFS_PAGE_PER_SEG_BITS);
 
-	set_struct(super, page_count, user_pages_count);
 	set_struct(super, segment_count, init_size >> HMFS_SEGMENT_SIZE_BITS);
-	set_struct(super, segment_count_main, user_segments_count);
+	set_struct(super, segment_count_main, main_segments_count);
+	set_struct(super, user_block_count, user_pages_count);
 	set_struct(super, ssa_blkaddr, ssa_addr);
 	set_struct(super, sit_blkaddr, sit_addr);
 	set_struct(super, main_blkaddr, main_addr);
@@ -492,10 +495,10 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 	buf->f_type = HMFS_SUPER_MAGIC;
 	buf->f_bsize = HMFS_PAGE_SIZE;
-	buf->f_blocks = sbi->page_count;
-	buf->f_bfree = sbi->page_count - cm_i->valid_block_count;
+	buf->f_blocks = cm_i->user_block_count;
+	buf->f_bfree = cm_i->user_block_count - cm_i->valid_block_count;
 	buf->f_bavail = buf->f_bfree;
-	buf->f_files = cm_i->user_block_count;
+	buf->f_files = cm_i->valid_inode_count;
 	buf->f_ffree = cm_i->user_block_count - cm_i->valid_block_count;
 	buf->f_namelen = HMFS_NAME_LEN;
 	return 0;
@@ -591,7 +594,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		goto out;
 	}
 
-	sbi->page_count = le64_to_cpu(super->page_count);
 	sbi->segment_count = le64_to_cpu(super->segment_count);
 	sbi->segment_count_main = le64_to_cpu(super->segment_count_main);
 	ssa_addr = le64_to_cpu(super->ssa_blkaddr);

@@ -46,6 +46,7 @@ typedef unsigned long long block_t;	//bits per NVM page address
 				case 8: set_struct_le64(sb, member, val); break; \
 				case 4: set_struct_le32(sb, member, val); break; \
 				case 2: set_struct_le16(sb, member, val); break; \
+				case 1: (sb->member = val); break; \
 				} \
 			} while(0)
 
@@ -74,12 +75,12 @@ struct hmfs_super_block {
 	__le16 minor_ver;	/* Minor Version */
 	__le32 log_pagesize;	/* log2 block size in bytes */
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
-	__le64 page_count;	/* total # of user blocks */
 	__le64 segment_count;	/* total # of segments */
 
 	__le32 segment_count_sit;	/* # of segments for SIT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
+	__le64 user_block_count;	/* # of user blocks */
 
 	__le64 cp_page_addr;	/* start block address of checkpoint */
 	__le64 sit_blkaddr;	/* start block address of SIT area */
@@ -443,7 +444,7 @@ static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block
 #define NUM_NAT_JOURNALS_IN_CP	8
 struct hmfs_checkpoint {
 	__le32 checkpoint_ver;	/* checkpoint block version number */
-	__le64 user_block_count;	/* # of user blocks */
+	__le64 alloc_block_count;	/* # of alloc blocks in main area */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
 	__le64 free_segment_count;	/* # of free segments in main area */
 

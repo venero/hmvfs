@@ -12,8 +12,11 @@ struct hmfs_cm_info {
 	int valid_inode_count;
 	int valid_node_count;
 
+	/* block whose count in summary is > 0 */
 	int valid_block_count;
+	/* maximum # of blocks users could get */
 	int user_block_count;
+	/* # of blocks of all dirty ,full and current segments */
 	int alloc_block_count;
 
 	rwlock_t journal_lock;
