@@ -43,8 +43,8 @@ struct hmfs_dentry_ptr {
 	int max;
 };
 
-static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
-				   void *src, int type)
+static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
+				   int type)
 {
 	//XXX;type always == 1?
 //      if (type == 1) {
@@ -66,8 +66,7 @@ typedef unsigned int nid_t;
 struct free_nid;
 
 enum SEG_TYPE {
-	TYPE_NODE = 0,
-	TYPE_DATA = 1
+	TYPE_NODE = 0, TYPE_DATA = 1
 };
 
 struct checkpoint_info {
@@ -200,14 +199,11 @@ enum DATA_RA_TYPE {
 };
 
 enum ADDR_TYPE {
-	NULL_ADDR = 0,
-	NEW_ADDR = -1,
-	FREE_ADDR = -2,
+	NULL_ADDR = 0, NEW_ADDR = -1, FREE_ADDR = -2,
 };
 
 enum READ_DNODE_TYPE {
-	ALLOC_NODE,
-	LOOKUP_NODE,
+	ALLOC_NODE, LOOKUP_NODE,
 };
 
 /*
@@ -286,7 +282,7 @@ static inline block_t DEADDR(struct hmfs_sb_info *sbi, void *ptr)
 
 static inline nid_t START_NID(nid_t nid)
 {
-	//TODO
+//TODO
 	return ((nid / NAT_ENTRY_PER_BLOCK) * NAT_ENTRY_PER_BLOCK);
 
 }
@@ -349,7 +345,7 @@ static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
 {
 	int i;
 
-	//FIXME:cp_mutex?
+//FIXME:cp_mutex?
 	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
 		mutex_lock(&sbi->fs_lock[i]);
 }
@@ -437,7 +433,7 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 
 	spin_lock(&cm_i->stat_lock);
 	alloc_block_count = cm_i->alloc_block_count + count;
-	//FIXME: need this check ?
+//FIXME: need this check ?
 	if (alloc_block_count > cm_i->user_block_count) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
@@ -539,12 +535,14 @@ int build_node_manager(struct hmfs_sb_info *sbi);
 void destroy_node_manager(struct hmfs_sb_info *sbi);
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
 void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
-struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,struct checkpoint_info *cp_i,nid_t nid);
+struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
+			     struct checkpoint_info *cp_i, nid_t nid);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
-void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,char sum_type);
+void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,
+		     char sum_type);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
@@ -557,7 +555,7 @@ struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 					   unsigned version, nid_t nid);
 struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, unsigned version,
 				     nid_t nid);
-void setup_summary_of_delete_node(struct hmfs_sb_info *sbi,block_t blk_addr);
+void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* segment.c*/
 void flush_sit_entries(struct hmfs_sb_info *sbi);
@@ -579,7 +577,7 @@ void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr);
 void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr);
 void dc_nat_block(struct hmfs_sb_info *sbi, block_t nat_block_addr);
 void dc_checkpoint_block(struct hmfs_sb_info *sbi,
-			  block_t checkpoint_block_addr);
+			 block_t checkpoint_block_addr);
 void dc_direct(struct hmfs_sb_info *sbi, block_t direct_block_addr);
 void dc_indirect(struct hmfs_sb_info *sbi, block_t indirect_block_addr);
 void dc_inode(struct hmfs_sb_info *sbi, block_t inode_block_addr);
@@ -605,14 +603,15 @@ int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
 unsigned int find_this_version(struct hmfs_sb_info *sbi);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    unsigned int version);
-struct checkpoint_info *get_next_cp_i(struct hmfs_sb_info *sbi,struct checkpoint_info *cp_i);
+struct checkpoint_info *get_next_cp_i(struct hmfs_sb_info *sbi,
+				      struct checkpoint_info *cp_i);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
 void *alloc_new_data_block(struct inode *inode, int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
-				 int size, bool fill_zero);
+				   int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
 
 /* dir.c */

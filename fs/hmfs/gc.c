@@ -138,7 +138,7 @@ static int prepare_move_arguments(struct gc_move_arg *arg,
 	if (type == TYPE_DATA)
 		arg->dest = alloc_new_data_block(NULL, 0);
 	else
-		arg->dest = alloc_new_node(sbi, 0, NULL,0);
+		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
 
 	if (IS_ERR(arg->dest))
 		return -ENOSPC;

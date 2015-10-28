@@ -176,6 +176,30 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 
 void flush_sit_entries(struct hmfs_sb_info *sbi)
 {
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned long offset = 0;
+	unsigned int nrdirty = 0;
+	unsigned long total_segs = TOTAL_SEGS(sbi);
+	struct hmfs_sit_entry *sit_entry;
+	struct seg_entry *seg_entry;
+
+	mutex_lock(&sit_i->sentry_lock);
+	while (1) {
+		offset = find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
+				offset);
+		if (offset < total_segs) {
+			sit_entry = get_sit_entry(sbi, offset);
+			seg_entry = get_seg_entry(sbi, offset);
+			offset = offset + 1;
+			nrdirty++;
+			seg_info_to_raw_sit(seg_entry, sit_entry);
+		} else
+			break;
+	}
+	BUG_ON(nrdirty != sit_i->dirty_sentries);
+	sit_i->dirty_sentries = 0;
+	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
+	mutex_unlock(&sit_i->sentry_lock);
 }
 
 void allocate_new_segments(struct hmfs_sb_info *sbi)
@@ -475,8 +499,7 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 		unsigned long segno)
 {
-	struct hmfs_summary_block *summary_blk =
-			(struct hmfs_summary_block *) sbi->ssa_entries;
+	struct hmfs_summary_block *summary_blk = (struct hmfs_summary_block *) sbi->ssa_entries;
 
 	return &summary_blk[segno];
 }
@@ -678,6 +701,6 @@ int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr)
 	if (unlikely(count >> 15 == 1))
 		BUG();
 
-	set_summary_count(summary,count);
+	set_summary_count(summary, count);
 	return count;
 }

@@ -56,8 +56,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	}
 
 	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
-out:
-	mutex_unlock(&inode->i_mutex);
+ out:	mutex_unlock(&inode->i_mutex);
 	return ret;
 }
 
@@ -140,7 +139,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		offset &= ~HMFS_PAGE_MASK;
 	} while (copied < len);
 
-out:
+ out:
 	mutex_unlock(&inode->i_mutex);
 	*ppos = pos + copied;
 	if (filp)
@@ -225,8 +224,10 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	current->backing_dev_info = mapping->backing_dev_info;
 
 	ret = generic_write_checks(filp, &pos, &count, S_ISBLK(inode->i_mode));
+
 	if (ret)
 		goto out_backing;
+
 	if (count == 0)
 		goto out_backing;
 
@@ -245,28 +246,29 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	mutex_unlock_op(sbi, ilock);
 
 	mark_inode_dirty(inode);
-out_backing:
+ out_backing:
 	current->backing_dev_info = NULL;
-out_up:
+ out_up:
 	mutex_unlock(&inode->i_mutex);
 	return ret;
 
 }
 
-static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,block_t blk_addr)
+static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
+					  block_t blk_addr)
 {
 	struct hmfs_summary *sum;
-	struct hmfs_cm_info *cm_i=CM_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int count;
 
-	sum=get_summary_by_addr(sbi,blk_addr);
-	count=get_summary_count(sum)-1;
-	set_summary_count(sum,count);
-	set_summary_dead_version(sum,cm_i->new_version);
-	BUG_ON(count<0);
+	sum = get_summary_by_addr(sbi, blk_addr);
+	count = get_summary_count(sum) - 1;
+	set_summary_count(sum, count);
+	set_summary_dead_version(sum, cm_i->new_version);
+	BUG_ON(count < 0);
 
-	if(!count){
-		invalidate_block_after_dc(sbi,blk_addr);
+	if (!count) {
+		invalidate_block_after_dc(sbi, blk_addr);
 	}
 }
 
@@ -282,10 +284,9 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	nid_t nid;
 	char sum_type;
 
-	nid=le32_to_cpu(raw_node->footer.nid);
-	sum_type=dn->level?SUM_TYPE_DN:SUM_TYPE_INODE;
-	new_node =
-	    alloc_new_node(sbi, nid, dn->inode,sum_type);
+	nid = le32_to_cpu(raw_node->footer.nid);
+	sum_type = dn->level ? SUM_TYPE_DN : SUM_TYPE_INODE;
+	new_node = alloc_new_node(sbi, nid, dn->inode, sum_type);
 
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
@@ -303,7 +304,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		else
 			new_node->i.i_addr[ofs] = NULL_ADDR;
 
-		setup_summary_of_delete_block(sbi,addr);
+		setup_summary_of_delete_block(sbi, addr);
 		nr_free++;
 	}
 	if (nr_free) {
@@ -326,7 +327,7 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 	if (!offset)
 		return;
 	alloc_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
-				   HMFS_PAGE_SIZE, true);
+				     HMFS_PAGE_SIZE, true);
 	return;
 }
 
@@ -361,8 +362,7 @@ static int truncate_blocks(struct inode *inode, u64 from)
 		free_from += count;
 	}
 
-free_next:
-	err = truncate_inode_blocks(inode, free_from);
+ free_next:err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
 	mutex_unlock_op(sbi, ilock);
@@ -371,8 +371,9 @@ free_next:
 
 void hmfs_truncate(struct inode *inode)
 {
-	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
-	      || S_ISLNK(inode->i_mode)))
+	if (!
+	    (S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
+	     || S_ISLNK(inode->i_mode)))
 		return;
 
 	if (!truncate_blocks(inode, i_size_read(inode))) {
@@ -547,7 +548,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 //      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
 
 //      Prepare to write
-go_write:
+ go_write:
 
 //      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 
@@ -607,12 +608,12 @@ long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 //      TODO: Inode flag operations
 //      [Inode Flag]
-		/*
-		   case HMFS_IOC_GETFLAGS:
-		   return hmfs_ioc_getflags(filp, arg);
-		   case HMFS_IOC_SETFLAGS:
-		   return hmfs_ioc_setflags(filp, arg);
-		 */
+/*
+ case HMFS_IOC_GETFLAGS:
+ return hmfs_ioc_getflags(filp, arg);
+ case HMFS_IOC_SETFLAGS:
+ return hmfs_ioc_setflags(filp, arg);
+ */
 	case HMFS_IOC_GETVERSION:
 		return hmfs_ioc_getversion(filp, arg);
 	default:

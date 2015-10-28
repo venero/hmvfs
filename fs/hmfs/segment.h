@@ -9,8 +9,6 @@
 #define NR_CURSEG_NODE_TYPE	(1)
 #define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
 
-//#define SIT_ENTRY_NOT_EXIST           3
-//#define SIT_ENTRY_NOT_SET             2
 #define SIT_ENTRY_CLEAN			0
 #define SIT_ENTRY_DIRTY				1
 
@@ -33,20 +31,20 @@
 #define LIMIT_FREE_BLOCKS		50	/* percentage of free blocks over total user space */
 
 struct seg_entry {
-	unsigned short valid_blocks;	/* # of valid blocks */
-	unsigned long mtime;	/* modification time of the segment */
+	unsigned short valid_blocks; /* # of valid blocks */
+	unsigned long mtime; /* modification time of the segment */
 };
 
 struct sit_info {
-	block_t sit_blocks;	/* # of blocks used by SIT file */
-	block_t written_valid_blocks;	/* # of valid blocks in main area */
+	block_t sit_blocks; /* # of blocks used by SIT file */
+	block_t written_valid_blocks; /* # of valid blocks in main area */
 	unsigned long long bitmap_size;
 
-	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
-	unsigned int dirty_sentries;	/* # of dirty sentries */
-	unsigned int sents_per_block;	/* # of SIT entries per block */
-	struct mutex sentry_lock;	/* to protect SIT cache */
-	struct seg_entry *sentries;	/* SIT segment-level cache */
+	unsigned long *dirty_sentries_bitmap; /* bitmap for dirty sentries */
+	unsigned int dirty_sentries; /* # of dirty sentries */
+	unsigned int sents_per_block; /* # of SIT entries per block */
+	struct mutex sentry_lock; /* to protect SIT cache */
+	struct seg_entry *sentries; /* SIT segment-level cache */
 
 	/* for cost-benefit valuing */
 	//TODO: write elapsed_time to checkpoint
@@ -62,32 +60,32 @@ struct dirty_seglist_info {
 };
 
 struct free_segmap_info {
-	unsigned int free_segments;	/* # of free segments */
-	rwlock_t segmap_lock;	/* free segmap lock */
-	unsigned long *free_segmap;	/* free segment bitmap */
+	unsigned int free_segments; /* # of free segments */
+	rwlock_t segmap_lock; /* free segmap lock */
+	unsigned long *free_segmap; /* free segment bitmap */
 };
 /* for active log information */
 struct curseg_info {
-	struct mutex curseg_mutex;	/* lock for consistency */
-	struct hmfs_summary_block *sum_blk;	/* cached summary block */
+	struct mutex curseg_mutex; /* lock for consistency */
+	struct hmfs_summary_block *sum_blk; /* cached summary block */
 	//unsigned char alloc_type;               /* current allocation type */
-	u64 segno;		/* current segment number */
-	unsigned short next_blkoff;	/* next block offset to write */
-	u64 next_segno;		/* preallocated segment */
+	u64 segno; /* current segment number */
+	unsigned short next_blkoff; /* next block offset to write */
+	u64 next_segno; /* preallocated segment */
 };
 
 struct hmfs_sm_info {
-	struct sit_info *sit_info;	/* whole segment information */
-	struct free_segmap_info *free_info;	/* free segment information */
-	struct dirty_seglist_info *dirty_info;	/* dirty segment information */
-	struct curseg_info *curseg_array;	/* active segment information */
+	struct sit_info *sit_info; /* whole segment information */
+	struct free_segmap_info *free_info; /* free segment information */
+	struct dirty_seglist_info *dirty_info; /* dirty segment information */
+	struct curseg_info *curseg_array; /* active segment information */
 
-	unsigned int segment_count;	/* total # of segments */
-	unsigned int main_segments;	/* # of segments in main area */
-	unsigned int reserved_segments;	/* # of reserved segments */
-	unsigned int ovp_segments;	/* # of overprovision segments */
-	unsigned long limit_invalid_blocks;	/* # of limit invalid blocks */
-	unsigned long limit_free_blocks;	/* # of limit free blocks */
+	unsigned int segment_count; /* total # of segments */
+	unsigned int main_segments; /* # of segments in main area */
+	unsigned int reserved_segments; /* # of reserved segments */
+	unsigned int ovp_segments; /* # of overprovision segments */
+	unsigned long limit_invalid_blocks; /* # of limit invalid blocks */
+	unsigned long limit_free_blocks; /* # of limit free blocks */
 };
 
 /* Segment inlined functions */
@@ -98,23 +96,23 @@ static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 
 static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
 {
-	return (struct sit_info *)(SM_I(sbi)->sit_info);
+	return (struct sit_info *) (SM_I(sbi)->sit_info);
 }
 
 static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
-					      unsigned long segno)
+		unsigned long segno)
 {
 	return &(SIT_I(sbi)->sentries[segno]);
 }
 
 static inline unsigned int get_valid_blocks(struct hmfs_sb_info *sbi,
-					    unsigned long segno)
+		unsigned long segno)
 {
 	return get_seg_entry(sbi, segno)->valid_blocks;
 }
 
 static inline struct hmfs_sit_entry *get_sit_entry(struct hmfs_sb_info *sbi,
-						   unsigned int segno)
+		unsigned int segno)
 {
 	return &sbi->sit_entries[segno];
 }
@@ -131,7 +129,7 @@ static inline struct free_segmap_info *FREE_I(struct hmfs_sb_info *sbi)
 
 static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 {
-	return (struct dirty_seglist_info *)(SM_I(sbi)->dirty_info);
+	return (struct dirty_seglist_info *) (SM_I(sbi)->dirty_info);
 }
 
 static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
@@ -147,7 +145,7 @@ static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
 }
 
 static inline unsigned int find_next_inuse(struct free_segmap_info *free_i,
-					   unsigned int max, unsigned int segno)
+		unsigned int max, unsigned int segno)
 {
 	unsigned int ret;
 	read_lock(&free_i->segmap_lock);
@@ -176,22 +174,20 @@ static inline u64 free_segments(struct hmfs_sb_info *sbi)
 static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
-	    sit_i->mounted_time;
+	return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec - sit_i->mounted_time;
 }
 
 static inline void seg_info_from_raw_sit(struct seg_entry *se,
-					 struct hmfs_sit_entry *raw_entry)
+		struct hmfs_sit_entry *raw_entry)
 {
 	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
 	se->mtime = le32_to_cpu(raw_entry->mtime);
 }
 
 static inline void seg_info_to_raw_sit(struct seg_entry *se,
-				       struct hmfs_sit_entry *raw_entry)
+		struct hmfs_sit_entry *raw_entry)
 {
 	raw_entry->vblocks = cpu_to_le16(se->valid_blocks);
-	//memcpy(raw_entry->valid_map, se->cur_valid_map, SIT_VBLOCK_MAP_SIZE);
 	raw_entry->mtime = cpu_to_le32(se->mtime);
 }
 

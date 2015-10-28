@@ -21,8 +21,7 @@ static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
  * For mount
  */
 enum {
-	Opt_addr = 0, Opt_size, Opt_num_inodes,
-	Opt_mode, Opt_uid, Opt_gid
+	Opt_addr = 0, Opt_size, Opt_num_inodes, Opt_mode, Opt_uid, Opt_gid
 };
 
 static const match_table_t tokens = {
@@ -40,7 +39,7 @@ static const match_table_t tokens = {
 static inline void *hmfs_ioremap(struct super_block *sb, phys_addr_t phys_addr,
 				 ssize_t size)
 {
-	void __iomem *retval = NULL;
+	void __iomem * retval = NULL;
 	retval = ioremap_cache(phys_addr, size);
 	return (void __force *)retval;
 }
@@ -77,10 +76,10 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 		switch (token) {
 		case Opt_addr:
 			if (remount)
-				goto bad_opt;	//remount on another area isn't allowed
-			phys_addr =
-			    (phys_addr_t) simple_strtoull(args[0].from,
-							  NULL, 0);
+				goto bad_opt;
+			//remount on another area isn't allowed
+			phys_addr = (phys_addr_t) simple_strtoull(args[0].from,
+								  NULL, 0);
 			if (phys_addr == 0
 			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
 				goto bad_val;
@@ -90,7 +89,8 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			break;
 		case Opt_size:
 			if (remount)
-				goto bad_opt;	//change size isn't allowed
+				goto bad_opt;
+			//change size isn't allowed
 			/* memparse() accepts a K/M/G without a digit */
 			if (!isdigit(*args[0].from))
 				goto bad_val;
@@ -115,10 +115,8 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 
 	return 0;
 
-bad_val:
-	return -EINVAL;
-bad_opt:
-	return -EINVAL;
+ bad_val:return -EINVAL;
+ bad_opt:return -EINVAL;
 }
 
 static int hmfs_format(struct super_block *sb)
@@ -154,28 +152,26 @@ static int hmfs_format(struct super_block *sb)
 
 	pages_count = init_size >> HMFS_PAGE_SIZE_BITS;
 
-	/* prepare SSA area */
+/* prepare SSA area */
 	area_addr = sizeof(struct hmfs_super_block);
 	area_addr = align_page_right(area_addr);
 	area_addr <<= 1;	/* two copy of super block */
 	ssa_addr = area_addr;
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
-	user_segments_count =
-	    (end_addr - area_addr) / (HMFS_SEGMENT_SIZE + SIT_ENTRY_SIZE +
-				      HMFS_PAGE_PER_SEG *
-				      sizeof(struct hmfs_summary));
-	ssa_pages_count =
-	    (user_segments_count * HMFS_SUMMARY_BLOCK_SIZE + HMFS_PAGE_SIZE -
-	     1) >> HMFS_PAGE_SIZE_BITS;
+	user_segments_count = (end_addr - area_addr)
+	    / (HMFS_SEGMENT_SIZE + SIT_ENTRY_SIZE +
+	       HMFS_PAGE_PER_SEG * sizeof(struct hmfs_summary));
+	ssa_pages_count = (user_segments_count * HMFS_SUMMARY_BLOCK_SIZE
+			   + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
-	/* prepare SIT area */
+/* prepare SIT area */
 	area_addr += (ssa_pages_count << HMFS_PAGE_SIZE_BITS);
 	sit_addr = area_addr;
 	sbi->sit_entries = ADDR(sbi, sit_addr);
 	sit_area_size = user_segments_count * SIT_ENTRY_SIZE;	//FIXME if entry_size is not aligned, this is not aligned
 	memset_nt(ADDR(sbi, sit_addr), 0, sit_area_size);
 
-	/* prepare main area */
+/* prepare main area */
 	area_addr += sit_area_size;
 	area_addr = align_segment_right(area_addr);
 
@@ -189,10 +185,10 @@ static int hmfs_format(struct super_block *sb)
 	sbi->main_addr_start = main_addr;
 	data_segaddr = area_addr + HMFS_SEGMENT_SIZE;
 
-	/* setup root inode */
+/* setup root inode */
 	root_node_addr = node_segaddr;
 	root_node = ADDR(sbi, node_segaddr);
-	/* node[0]: root inode */
+/* node[0]: root inode */
 	node_blkoff += 1;
 	root_node->footer.nid = cpu_to_le64(HMFS_ROOT_INO);
 	root_node->footer.ino = cpu_to_le64(HMFS_ROOT_INO);
@@ -237,26 +233,26 @@ static int hmfs_format(struct super_block *sb)
 
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
-	/* setup & init nat */
+/* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
-	/* node[1]: nat root */
+/* node[1]: nat root */
 	node_blkoff++;
 	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE);
 
 	cp_addr = nat_addr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
-	/* node[2]: init cp */
+/* node[2]: init cp */
 	node_blkoff += 1;
 
-	/* segment 0 is first node segment */
+/* segment 0 is first node segment */
 	nat_journals = cp->nat_journals;
 
-	/* update nat journal */
+/* update nat journal */
 	nat_journals[0].nid = cpu_to_le32(HMFS_ROOT_INO);
 	nat_journals[0].entry.ino = nat_journals[0].nid;
 	nat_journals[0].entry.block_addr = root_node_addr;
 
-	/* update SIT */
+/* update SIT */
 	sit_entry = get_sit_entry(sbi, 0);
 	sit_entry->mtime = cpu_to_le32(get_seconds());
 	sit_entry->vblocks = cpu_to_le16(node_blkoff);
@@ -265,26 +261,26 @@ static int hmfs_format(struct super_block *sb)
 	sit_entry->mtime = cpu_to_le32(get_seconds());
 	sit_entry->vblocks = cpu_to_le16(data_blkoff);
 
-	/* update SSA */
+/* update SSA */
 	node_summary_block = get_summary_block(sbi, 0);
 	data_summary_block = get_summary_block(sbi, 1);
 
 	summary = &node_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER,
-			   1, 0, SUM_TYPE_INODE);
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 1, 0,
+			   SUM_TYPE_INODE);
 	summary = &node_summary_block->entries[1];
 	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 1, 0, SUM_TYPE_NATN);
 	summary = &node_summary_block->entries[2];
 	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 1, 0, SUM_TYPE_CP);
 
 	summary = &data_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER,
-			   1, 0, SUM_TYPE_DATA);
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 1, 0,
+			   SUM_TYPE_DATA);
 
-	/* prepare checkpoint */
+/* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
 
-	/* Previous address of the first checkpoint is itself */
+/* Previous address of the first checkpoint is itself */
 	set_struct(cp, prev_cp_addr, cpu_to_le64(cp_addr));
 	set_struct(cp, next_cp_addr, cpu_to_le64(cp_addr));
 	set_struct(cp, nat_addr, nat_addr);
@@ -297,7 +293,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, cur_data_segno, GET_SEGNO(sbi, data_segaddr));
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
-	/* sit, nat, root */
+/* sit, nat, root */
 	set_struct(cp, valid_node_count, 3);
 	set_struct(cp, next_scan_nid, 4);
 	set_struct(cp, elapsed_time, 0);
@@ -306,7 +302,7 @@ static int hmfs_format(struct super_block *sb)
 	cp_checksum = crc16(~0, (void *)cp, length);
 	cp->checksum = cpu_to_le16(cp_checksum);
 
-	/* setup super block */
+/* setup super block */
 	set_struct(super, magic, HMFS_SUPER_MAGIC);
 	set_struct(super, major_ver, HMFS_MAJOR_VERSION);
 	set_struct(super, minor_ver, HMFS_MINOR_VERSION);
@@ -327,7 +323,7 @@ static int hmfs_format(struct super_block *sb)
 	sb_checksum = crc16(~0, (char *)super, length);
 	set_struct(super, checksum, sb_checksum);
 
-	/* copy another super block */
+/* copy another super block */
 	super = next_super_block(super);
 	hmfs_memcpy(super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
 	return retval;
@@ -371,13 +367,13 @@ static void init_once(void *foo)
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;
-	/* free me when umount */
+/* free me when umount */
 	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
 							GFP_NOFS | __GFP_ZERO);
 	if (!fi)
 		return NULL;
 	init_once((void *)fi);
-	/*TODO: hmfs specific inode_info init work */
+/*TODO: hmfs specific inode_info init work */
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
 	return &(fi->vfs_inode);
@@ -385,7 +381,8 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 
 static void hmfs_i_callback(struct rcu_head *head)
 {
-	struct inode *inode = container_of(head, struct inode, i_rcu);
+	struct inode
+	*inode = container_of(head, struct inode, i_rcu);
 	kmem_cache_free(hmfs_inode_cachep, HMFS_I(inode));
 }
 
@@ -446,16 +443,15 @@ static void hmfs_evict_inode(struct inode *inode)
 		hmfs_truncate(inode);
 
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
-	ret=get_node_info(sbi,inode->i_ino,&ni);
+	ret = get_node_info(sbi, inode->i_ino, &ni);
 	truncate_node(&dn);
 
-	if(!ret){
-		setup_summary_of_delete_node(sbi,ni.blk_addr);
+	if (!ret) {
+		setup_summary_of_delete_node(sbi, ni.blk_addr);
 	}
 
 	sb_end_intwrite(inode->i_sb);
-out:
-	clear_inode(inode);
+ out:	clear_inode(inode);
 }
 
 static void hmfs_put_super(struct super_block *sb)
@@ -493,10 +489,10 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 int hmfs_sync_fs(struct super_block *sb, int sync)
 {
-	//TODO:XXX fsync **important**
-	//1. sync to NVM
-	//2. checkpoint
-	//...
+//TODO:XXX fsync **important**
+//1. sync to NVM
+//2. checkpoint
+//...
 	return 0;
 }
 
@@ -538,13 +534,13 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	unsigned long end_addr;
 	unsigned long long ssa_addr, sit_addr;
 
-	/* sbi initialization */
+/* sbi initialization */
 	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
 	if (sbi == NULL) {
 		return -ENOMEM;
 	}
 
-	/* get phys_addr from @data&virt_addr from ioremap */
+/* get phys_addr from @data&virt_addr from ioremap */
 	sb->s_fs_info = sbi;	//link sb and sbi:
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
@@ -579,9 +575,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->nat_height = super->nat_height;
 
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
-	end_addr =
-	    sbi->main_addr_start +
-	    (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
+	end_addr = sbi->main_addr_start
+	    + (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
 
@@ -595,12 +590,12 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 
-	/* init checkpoint */
+/* init checkpoint */
 	retval = init_checkpoint_manager(sbi);
 	if (retval)
 		goto out;
 
-	/* init nat */
+/* init nat */
 	retval = build_node_manager(sbi);
 	if (retval)
 		goto free_cp_mgr;
@@ -609,7 +604,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	//TODO: further init sbi
+//TODO: further init sbi
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
 	if (IS_ERR(root)) {
@@ -625,20 +620,17 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (!sb->s_root) {
 		goto free_root_inode;
 	}
-	// create debugfs
+// create debugfs
 	hmfs_build_stats(sbi);
 
 	return 0;
-free_root_inode:
-	iput(root);
-free_segment_mgr:
-	destroy_segment_manager(sbi);
+ free_root_inode:iput(root);
+ free_segment_mgr:destroy_segment_manager(sbi);
 
 	destroy_node_manager(sbi);
-free_cp_mgr:
-	destroy_checkpoint_manager(sbi);
-out:
-	//TODO:
+ free_cp_mgr:destroy_checkpoint_manager(sbi);
+ out:
+//TODO:
 	if (sbi->virt_addr) {
 		hmfs_iounmap(sbi->virt_addr);
 	}
@@ -702,20 +694,16 @@ int init_hmfs(void)
 		goto fail_reg;
 	hmfs_create_root_stat();
 	return 0;
-fail_reg:
-	destroy_checkpoint_caches();
-fail_cp:
-	destroy_node_manager_caches();
-fail_node:
-	destroy_inodecache();
-fail:
-	return err;
+ fail_reg:destroy_checkpoint_caches();
+ fail_cp:destroy_node_manager_caches();
+ fail_node:destroy_inodecache();
+ fail:	return err;
 
 }
 
 void exit_hmfs(void)
 {
-	// TO BE FIXED
+// TO BE FIXED
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();
