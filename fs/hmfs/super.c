@@ -22,7 +22,13 @@ static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
  * For mount
  */
 enum {
-	Opt_addr = 0, Opt_size, Opt_num_inodes, Opt_mode, Opt_uid, Opt_gid
+	Opt_addr = 0,
+	Opt_size,
+	Opt_num_inodes,
+	Opt_mode,
+	Opt_uid,
+	Opt_gid,
+	Opt_bg_gc,
 };
 
 static const match_table_t tokens = {
@@ -32,6 +38,7 @@ static const match_table_t tokens = {
 	{Opt_mode, "mode=%o"},
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
+	{Opt_bg_gc, "bg_gc=%u"},
 };
 
 /*
@@ -109,6 +116,10 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 				goto bad_val;
 			sbi->gid = make_kgid(current_user_ns(), option);
 			break;
+		case Opt_bg_gc:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->support_bg_gc = option;
 		default:
 			goto bad_opt;
 		}
@@ -619,6 +630,13 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
+	if (sbi->support_bg_gc) {
+		/* start gc kthread */
+		retval = start_gc_thread(sbi);
+		if (retval)
+			goto free_segment_mgr;
+	}
+
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 
 	if (IS_ERR(root)) {
@@ -642,7 +660,6 @@ free_root_inode:
 	iput(root);
 free_segment_mgr:
 	destroy_segment_manager(sbi);
-
 	destroy_node_manager(sbi);
 free_cp_mgr:
 	destroy_checkpoint_manager(sbi);

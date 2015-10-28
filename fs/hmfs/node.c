@@ -917,8 +917,7 @@ void destroy_node_manager_caches(void)
 	kmem_cache_destroy(nat_entry_slab);
 }
 
-static struct hmfs_nat_block *__get_nat_entry_block(struct hmfs_sb_info *sbi,
-						    struct hmfs_nat_node
+static struct hmfs_nat_block *__get_nat_entry_block(struct hmfs_sb_info *sbi, struct hmfs_nat_node
 						    *nat_node, unsigned blk_id,
 						    char height)
 {

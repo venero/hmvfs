@@ -143,8 +143,8 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	seg_i[CURSEG_NODE].next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
 	seg_i[CURSEG_NODE].next_segno = 0;
 	seg_i[CURSEG_NODE].sum_blk = get_summary_block(sbi,
-						       seg_i[CURSEG_NODE].
-						       segno);
+						       seg_i
+						       [CURSEG_NODE].segno);
 	mutex_unlock(&seg_i[CURSEG_NODE].curseg_mutex);
 
 	mutex_lock(&seg_i[CURSEG_DATA].curseg_mutex);
@@ -152,8 +152,8 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	seg_i[CURSEG_DATA].next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
 	seg_i[CURSEG_DATA].next_segno = 0;
 	seg_i[CURSEG_DATA].sum_blk = get_summary_block(sbi,
-						       seg_i[CURSEG_DATA].
-						       segno);
+						       seg_i
+						       [CURSEG_DATA].segno);
 	mutex_unlock(&seg_i[CURSEG_DATA].curseg_mutex);
 	return 0;
 }

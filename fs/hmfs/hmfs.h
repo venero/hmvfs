@@ -132,6 +132,7 @@ struct hmfs_sb_info {
 	struct mutex gc_mutex;
 	struct hmfs_gc_kthread *gc_thread;
 	unsigned int last_victim[2];
+	char support_bg_gc;
 
 	struct hmfs_sit_entry *sit_entries;
 	struct hmfs_summary *ssa_entries;
@@ -642,6 +643,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi,int gc_type);
+int start_gc_thread(struct hmfs_sb_info *sbi);
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {

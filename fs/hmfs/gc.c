@@ -216,7 +216,7 @@ next:
 static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	struct free_segmap_info *free_i=FREE_I(sbi); 
+	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
 
@@ -313,9 +313,9 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 			((struct hmfs_checkpoint *)this)->nat_addr =
 			 cpu_to_le64(args.dest_addr);
 		} else {
-			((struct hmfs_nat_block *)this)->entries[args.
-								 ofs_in_node].
-			 block_addr = cpu_to_le64(args.dest_addr);
+			((struct hmfs_nat_block *)this)->
+			 entries[args.ofs_in_node].block_addr =
+			 cpu_to_le64(args.dest_addr);
 		}
 
 		last = this;
@@ -356,8 +356,6 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, int src_segno,
 	update_dest_summary(src_sum, args.dest_sum);
 	cp_i->cp = (struct hmfs_checkpoint *)args.dest_addr;
 }
-
-
 
 static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			     unsigned int segno)
