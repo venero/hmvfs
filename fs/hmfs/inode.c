@@ -17,7 +17,7 @@ static int do_read_inode(struct inode *inode)
 		return -EINVAL;
 	}
 
-	hn = (struct hmfs_node *) get_node(sbi, inode->i_ino);
+	hn = (struct hmfs_node *)get_node(sbi, inode->i_ino);
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
 
@@ -130,7 +130,7 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 	}
 	goto out;
-	make_now:
+make_now:
 	//FIXME: Delete all meta-inode
 	if (ino == HMFS_NAT_INO) {
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
@@ -142,8 +142,8 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		ret = -EIO;
 		goto bad_inode;
 	}
-	out: unlock_new_inode(inode);
+out:	unlock_new_inode(inode);
 	return inode;
-	bad_inode: iget_failed(inode);
+bad_inode:iget_failed(inode);
 	return ERR_PTR(ret);
 }

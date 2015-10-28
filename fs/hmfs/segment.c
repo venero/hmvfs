@@ -27,7 +27,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 }
 
 static void update_sit_entry(struct hmfs_sb_info *sbi, unsigned long segno,
-		int blkoff, int del)
+			     int blkoff, int del)
 {
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -50,14 +50,15 @@ static void reset_curseg(struct curseg_info *seg_i)
 }
 
 inline unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
-		unsigned long long segno, int blkoff)
+					  unsigned long long segno, int blkoff)
 {
-	return (segno << HMFS_SEGMENT_SIZE_BITS) + (blkoff << HMFS_PAGE_SIZE_BITS)
-			+ sbi->main_addr_start;
+	return (segno << HMFS_SEGMENT_SIZE_BITS) +
+	 (blkoff << HMFS_PAGE_SIZE_BITS)
+	 + sbi->main_addr_start;
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
-		struct curseg_info *seg_i)
+					  struct curseg_info *seg_i)
 {
 	return __cal_page_addr(sbi, seg_i->segno, seg_i->next_blkoff);
 }
@@ -75,7 +76,8 @@ static void get_new_segment(struct hmfs_sb_info *sbi, unsigned long *newseg)
 	write_lock(&free_i->segmap_lock);
 
 	//FIXME: always look forward?
-	segno = find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
+	segno =
+	 find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
 	//if(segno >= TOTAL_SEGS(sbi))
 
 	BUG_ON(test_bit(segno, free_i->free_segmap));
@@ -85,7 +87,7 @@ static void get_new_segment(struct hmfs_sb_info *sbi, unsigned long *newseg)
 }
 
 static void move_to_new_segment(struct hmfs_sb_info *sbi,
-		struct curseg_info *seg_i)
+				struct curseg_info *seg_i)
 {
 	unsigned long segno = seg_i->segno;
 
@@ -141,7 +143,8 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	seg_i[CURSEG_NODE].next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
 	seg_i[CURSEG_NODE].next_segno = 0;
 	seg_i[CURSEG_NODE].sum_blk = get_summary_block(sbi,
-			seg_i[CURSEG_NODE].segno);
+						       seg_i[CURSEG_NODE].
+						       segno);
 	mutex_unlock(&seg_i[CURSEG_NODE].curseg_mutex);
 
 	mutex_lock(&seg_i[CURSEG_DATA].curseg_mutex);
@@ -149,7 +152,8 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	seg_i[CURSEG_DATA].next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
 	seg_i[CURSEG_DATA].next_segno = 0;
 	seg_i[CURSEG_DATA].sum_blk = get_summary_block(sbi,
-			seg_i[CURSEG_DATA].segno);
+						       seg_i[CURSEG_DATA].
+						       segno);
 	mutex_unlock(&seg_i[CURSEG_DATA].curseg_mutex);
 	return 0;
 }
@@ -185,10 +189,12 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 	unsigned int nrdirty = 0;
 
 	mutex_lock(&sit_i->sentry_lock);
-	while(1) {
-		offset=find_next_bit(sit_i->dirty_sentries_bitmap,total_segs,offset);
-		if(offset<total_segs)
-		nrdirty++;
+	while (1) {
+		offset =
+		 find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
+			       offset);
+		if (offset < total_segs)
+			nrdirty++;
 		offset++;
 	}
 	BUG_ON(nrdirty != sit_i->dirty_sentries);
@@ -198,7 +204,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 
 	while (1) {
 		offset = find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
-				offset);
+				       offset);
 		if (offset < total_segs) {
 			sit_entry = get_sit_entry(sbi, offset);
 			seg_entry = get_seg_entry(sbi, offset);
@@ -224,7 +230,7 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
-		unsigned int segno)
+					unsigned int segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	write_lock(&free_i->segmap_lock);
@@ -301,7 +307,8 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *array;
 	int i;
 
-	array = kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE, GFP_KERNEL);
+	array =
+	 kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE, GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
@@ -414,9 +421,9 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	if (sm_info->ovp_segments == 0)
 		sm_info->ovp_segments = 1;
 	sm_info->limit_invalid_blocks = sm_info->segment_count
-			* LIMIT_INVALID_BLOCKS / 100;
+	 * LIMIT_INVALID_BLOCKS / 100;
 	sm_info->limit_free_blocks = sm_info->segment_count * LIMIT_FREE_BLOCKS
-			/ 100;
+	 / 100;
 
 	err = build_sit_info(sbi);
 	if (err)
@@ -507,15 +514,16 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 }
 
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
-		unsigned long segno)
+					     unsigned long segno)
 {
-	struct hmfs_summary_block *summary_blk = (struct hmfs_summary_block *) sbi->ssa_entries;
+	struct hmfs_summary_block *summary_blk =
+	 (struct hmfs_summary_block *)sbi->ssa_entries;
 
 	return &summary_blk[segno];
 }
 
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-		block_t blk_addr)
+					 block_t blk_addr)
 {
 	unsigned long segno;
 	unsigned int blkoff;
@@ -533,7 +541,8 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long segno = GET_SEGNO(sbi, blk_addr);
-	int blkoff = (blk_addr & (HMFS_SEGMENT_SIZE - 1)) >> HMFS_PAGE_SIZE_BITS;
+	int blkoff =
+	 (blk_addr & (HMFS_SEGMENT_SIZE - 1)) >> HMFS_PAGE_SIZE_BITS;
 
 	mutex_lock(&sit_i->sentry_lock);
 
@@ -544,7 +553,7 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr)
 
 //      mark a dead ssa entry with: dead_ver=this_version
 static inline void mark_dead_summary_entry(struct hmfs_sb_info *sbi,
-		struct hmfs_summary *summary)
+					   struct hmfs_summary *summary)
 {
 	unsigned int ver = find_this_version(sbi);
 	summary->dead_version = cpu_to_le32(ver);
@@ -653,7 +662,7 @@ void dc_nat_block(struct hmfs_sb_info *sbi, block_t nat_block_addr)
 }
 
 void dc_checkpoint_block(struct hmfs_sb_info *sbi,
-		block_t checkpoint_block_addr)
+			 block_t checkpoint_block_addr)
 {
 	dc_itself(sbi, checkpoint_block_addr);
 //      If count has decreased to 0

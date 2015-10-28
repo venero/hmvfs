@@ -56,7 +56,7 @@ static inline u64 free_user_blocks(struct hmfs_sb_info *sbi)
 		return 0;
 	else
 		return (free_segments(sbi) - overprovision_segments(sbi))
-				<< HMFS_PAGE_PER_SEG_BITS;
+		 << HMFS_PAGE_PER_SEG_BITS;
 }
 
 static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
@@ -64,12 +64,12 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_sm_info *sm_i = SM_I(sbi);
 	unsigned long invalid_user_blocks = cm_i->alloc_block_count
-			- cm_i->valid_block_count;
+	 - cm_i->valid_block_count;
 
 	BUG_ON(cm_i->alloc_block_count < cm_i->valid_block_count);
 
 	if (invalid_user_blocks > sm_i->limit_invalid_blocks
-			&& free_user_blocks(sbi) < sm_i->limit_free_blocks)
+	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)
 		return true;
 	return false;
 }

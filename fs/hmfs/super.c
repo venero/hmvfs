@@ -11,7 +11,8 @@
 #include <linux/sched.h>
 #include <linux/cred.h>
 
-#include "hmfs_fs.h"		//TODO:add to include/linux
+#include "hmfs_fs.h"
+#include "gc.h"
 #include "segment.h"
 #include "node.h"
 
@@ -161,8 +162,8 @@ static int hmfs_format(struct super_block *sb)
 	ssa_addr = area_addr;
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
 	user_segments_count = (end_addr - area_addr)
-	    / (HMFS_SEGMENT_SIZE + SIT_ENTRY_SIZE +
-	       HMFS_PAGE_PER_SEG * sizeof(struct hmfs_summary));
+	 / (HMFS_SEGMENT_SIZE + SIT_ENTRY_SIZE +
+	    HMFS_PAGE_PER_SEG * sizeof(struct hmfs_summary));
 	ssa_pages_count = (user_segments_count * HMFS_SUMMARY_BLOCK_SIZE
 			   + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
@@ -346,7 +347,7 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	}
 
 	super_2 =
-	    start_addr + align_page_right(sizeof(struct hmfs_super_block));
+	 start_addr + align_page_right(sizeof(struct hmfs_super_block));
 	checksum = crc16(~0, (void *)super_2, length);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
@@ -491,10 +492,22 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 int hmfs_sync_fs(struct super_block *sb, int sync)
 {
-//TODO:XXX fsync **important**
-//1. sync to NVM
-//2. checkpoint
-//...
+	struct hmfs_sb_info *sbi = HMFS_SB(sb);
+	struct sit_info *sit_i = SIT_I(sbi);
+
+	if (!sit_i->dirty_sentries)
+		return 0;
+
+	if (sync) {
+		mutex_lock(&sbi->gc_mutex);
+		write_checkpoint(sbi);
+		mutex_unlock(&sbi->gc_mutex);
+	} else {
+		if (has_not_enough_free_segs(sbi)) {
+			mutex_lock(&sbi->gc_mutex);
+			hmfs_gc(sbi, FG_GC);
+		}
+	}
 	return 0;
 }
 
@@ -578,7 +591,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
 	end_addr = sbi->main_addr_start
-	    + (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
+	 + (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
 

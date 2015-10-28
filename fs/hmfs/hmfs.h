@@ -640,6 +640,9 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 			       umode_t mode);
 
+/* gc.c */
+int hmfs_gc(struct hmfs_sb_info *sbi,int gc_type);
+
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {
 	return __hmfs_add_link(dentry->d_parent->d_inode, &dentry->d_name,

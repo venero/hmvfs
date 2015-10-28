@@ -6,49 +6,12 @@
 /*
  * For INODE and NODE manager
  */
-/* for directory operations */
-/*struct hmfs_dentry_ptr {
- const void *bitmap;
- struct hmfs_dir_entry *dentry;
- __u8 (*filename)[HMFS_SLOT_LEN];
- int max;
- };
 
- static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
- void *src, int type)
- {
- if (type == 1) {
- struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
- d->max = NR_DENTRY_IN_BLOCK;
- d->bitmap = &t->dentry_bitmap;
- d->dentry = t->dentry;
- d->filename = t->filename;
- } else {
- struct hmfs_inline_dentry *t = (struct hmfs_inline_dentry *)src;
- d->max = NR_INLINE_DENTRY;
- d->bitmap = &t->dentry_bitmap;
- d->dentry = t->dentry;
- d->filename = t->filename;
- }
- }
- static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d,
- void *src, int type)
- {
- if (type == 1) {
- struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
- d->max = NR_DENTRY_IN_BLOCK;
- d->bitmap = &t->dentry_bitmap;
- d->dentry = t->dentry;
- d->filename = t->filename;
- } else {
- }
- }
- */
 //calculate how many blocks does a file have.
 static unsigned long dir_blocks(struct inode *inode)
 {
-	return ((unsigned long long) (i_size_read(inode) + HMFS_PAGE_SIZE - 1))
-			>> HMFS_PAGE_SIZE_BITS;
+	return ((unsigned long long)(i_size_read(inode) + HMFS_PAGE_SIZE - 1))
+	 >> HMFS_PAGE_SIZE_BITS;
 }
 
 //calculate how many buckets in a level.
@@ -69,19 +32,27 @@ static unsigned int bucket_blocks(unsigned int level)
 		return 4;
 }
 
-unsigned char hmfs_filetype_table[HMFS_FT_MAX] = { [HMFS_FT_UNKNOWN
-		] = DT_UNKNOWN, [HMFS_FT_REG_FILE] = DT_REG, [HMFS_FT_DIR] = DT_DIR,
-		[HMFS_FT_CHRDEV] = DT_CHR, [HMFS_FT_BLKDEV] = DT_BLK, [HMFS_FT_FIFO
-				] = DT_FIFO, [HMFS_FT_SOCK] = DT_SOCK, [HMFS_FT_SYMLINK
-				] = DT_LNK, };
+unsigned char hmfs_filetype_table[HMFS_FT_MAX] = {
+	[HMFS_FT_UNKNOWN] = DT_UNKNOWN,
+	[HMFS_FT_REG_FILE] = DT_REG,
+	[HMFS_FT_DIR] = DT_DIR,
+	[HMFS_FT_CHRDEV] = DT_CHR,
+	[HMFS_FT_BLKDEV] = DT_BLK,
+	[HMFS_FT_FIFO] = DT_FIFO,
+	[HMFS_FT_SOCK] = DT_SOCK,
+	[HMFS_FT_SYMLINK] = DT_LNK,
+};
 
 #define S_SHIFT 12
-static unsigned char hmfs_type_by_mode[S_IFMT >> S_SHIFT] = { [S_IFREG
-		>> S_SHIFT] = HMFS_FT_REG_FILE, [S_IFDIR >> S_SHIFT] = HMFS_FT_DIR,
-		[S_IFCHR >> S_SHIFT] = HMFS_FT_CHRDEV, [S_IFBLK >> S_SHIFT
-				] = HMFS_FT_BLKDEV, [S_IFIFO >> S_SHIFT] = HMFS_FT_FIFO,
-		[S_IFSOCK >> S_SHIFT] = HMFS_FT_SOCK, [S_IFLNK >> S_SHIFT
-				] = HMFS_FT_SYMLINK, };
+static unsigned char hmfs_type_by_mode[S_IFMT >> S_SHIFT] = {
+	[S_IFREG >> S_SHIFT] = HMFS_FT_REG_FILE,
+	[S_IFDIR >> S_SHIFT] = HMFS_FT_DIR,
+	[S_IFCHR >> S_SHIFT] = HMFS_FT_CHRDEV,
+	[S_IFBLK >> S_SHIFT] = HMFS_FT_BLKDEV,
+	[S_IFIFO >> S_SHIFT] = HMFS_FT_FIFO,
+	[S_IFSOCK >> S_SHIFT] = HMFS_FT_SOCK,
+	[S_IFLNK >> S_SHIFT] = HMFS_FT_SYMLINK,
+};
 
 void set_de_type(struct hmfs_dir_entry *de, umode_t mode)
 {
@@ -100,7 +71,7 @@ static unsigned long dir_block_index(unsigned int level, unsigned int idx)
 }
 
 static bool early_match_name(size_t namelen, hmfs_hash_t namehash,
-		struct hmfs_dir_entry *de)
+			     struct hmfs_dir_entry *de)
 {
 	if (le16_to_cpu(de->name_len) != namelen)
 		return false;
@@ -112,11 +83,10 @@ static bool early_match_name(size_t namelen, hmfs_hash_t namehash,
 }
 
 struct hmfs_dir_entry *find_target_dentry(struct qstr *name, int *max_slots,
-		struct hmfs_dentry_ptr *d)
+					  struct hmfs_dentry_ptr *d)
 {
 	struct hmfs_dir_entry *de;
 	unsigned long bit_pos = 0;
-	//TODO after add hash.c here will be valid
 	hmfs_hash_t namehash = hmfs_dentry_hash(name);
 	int max_len = 0;
 
@@ -131,7 +101,7 @@ struct hmfs_dir_entry *find_target_dentry(struct qstr *name, int *max_slots,
 
 		de = &d->dentry[bit_pos];
 		if (early_match_name(name->len, namehash, de)
-				&& !memcmp(d->filename[bit_pos], name->name, name->len))
+		    && !memcmp(d->filename[bit_pos], name->name, name->len))
 			goto found;
 
 		if (max_slots && max_len > *max_slots) {
@@ -146,18 +116,20 @@ struct hmfs_dir_entry *find_target_dentry(struct qstr *name, int *max_slots,
 	}
 
 	de = NULL;
-	found: if (max_slots && max_len > *max_slots)
+found:
+	if (max_slots && max_len > *max_slots)
 		*max_slots = max_len;
 	return de;
 }
 
-static struct hmfs_dir_entry *find_in_block(
-		struct hmfs_dentry_block *dentry_blk, struct qstr *name, int *max_slots)
+static struct hmfs_dir_entry *find_in_block(struct hmfs_dentry_block
+					    *dentry_blk, struct qstr *name,
+					    int *max_slots)
 {
 	struct hmfs_dir_entry *de;
 	struct hmfs_dentry_ptr d;
 
-	make_dentry_ptr(&d, (void *) dentry_blk, 1);
+	make_dentry_ptr(&d, (void *)dentry_blk, 1);
 	de = find_target_dentry(name, max_slots, &d);
 
 	/*  
@@ -169,8 +141,10 @@ static struct hmfs_dir_entry *find_in_block(
 }
 
 static struct hmfs_dir_entry *find_in_level(struct inode *dir,
-		unsigned int level, struct qstr *name, hmfs_hash_t namehash,
-		int *res_bidx, int *ofs_in_blk)
+					    unsigned int level,
+					    struct qstr *name,
+					    hmfs_hash_t namehash, int *res_bidx,
+					    int *ofs_in_blk)
 {
 	int s = GET_DENTRY_SLOTS(name->len);
 	unsigned int nbucket, nblock;
@@ -228,7 +202,7 @@ static struct hmfs_dir_entry *find_in_level(struct inode *dir,
  * Entry is guaranteed to be valid.
  */
 struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
-		int *bidx, int *ofs_in_blk)
+				       int *bidx, int *ofs_in_blk)
 {
 	unsigned long npages = dir_blocks(dir);
 	struct hmfs_dir_entry *de = NULL;
@@ -237,16 +211,15 @@ struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
 	unsigned int level;
 
 	// add inline.c here will become valid
-
 	if (npages == 0)
 		return NULL;
-	//TODO after add hash.c here will be valid
 
 	name_hash = hmfs_dentry_hash(child);
 	max_depth = HMFS_I(dir)->i_current_depth;
 
 	for (level = 0; level < max_depth; level++) {
-		de = find_in_level(dir, level, child, name_hash, bidx, ofs_in_blk);
+		de =
+		 find_in_level(dir, level, child, name_hash, bidx, ofs_in_blk);
 		if (de)
 			break;
 	}
@@ -294,20 +267,12 @@ ino_t hmfs_inode_by_name(struct inode * dir, struct qstr * qstr)
  * de should be writable
  */
 void hmfs_set_link(struct inode *dir, struct hmfs_dir_entry *de,
-		struct inode *inode)
+		   struct inode *inode)
 {
-	//lock_page(page);
-
-	//TODO add segment.c here will be valid
-	//hmfs_wait_on_page_writeback(page, type);
 	de->ino = cpu_to_le32(inode->i_ino);
 	set_de_type(de, inode->i_mode);
-	//hmfs_dentry_kunmap(dir, page);
-	//set_page_dirty(page);
 	dir->i_mtime = dir->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(dir);
-
-	//hmfs_put_page(page, 1);
 }
 
 static void init_dent_inode(const struct qstr *name, struct hmfs_inode *hi)
@@ -334,11 +299,11 @@ int update_dent_inode(struct inode *inode, const struct qstr *name)
 }
 
 void do_make_empty_dir(struct inode *inode, struct inode *parent,
-		struct hmfs_dentry_ptr *d)
+		       struct hmfs_dentry_ptr *d)
 {
 	struct hmfs_dir_entry *de;
 
-	memset_nt((void *) d->bitmap, 0, SIZE_OF_DENTRY_BITMAP);
+	memset_nt((void *)d->bitmap, 0, SIZE_OF_DENTRY_BITMAP);
 	de = &d->dentry[0];
 	de->name_len = cpu_to_le16(1);
 	de->hash_code = 0;
@@ -353,12 +318,12 @@ void do_make_empty_dir(struct inode *inode, struct inode *parent,
 	memcpy(d->filename[1], "..", 2);
 	set_de_type(de, parent->i_mode);
 
-	test_and_set_bit_le(0, (void *) d->bitmap);
-	test_and_set_bit_le(1, (void *) d->bitmap);
+	test_and_set_bit_le(0, (void *)d->bitmap);
+	test_and_set_bit_le(1, (void *)d->bitmap);
 }
 
 static int make_empty_dir(struct inode *inode, struct inode *parent,
-		struct hmfs_node *hn)
+			  struct hmfs_node *hn)
 {
 	struct hmfs_dentry_block *dentry_blk = NULL;
 	struct hmfs_dentry_ptr d;
@@ -366,14 +331,15 @@ static int make_empty_dir(struct inode *inode, struct inode *parent,
 	if (IS_ERR(dentry_blk))
 		return PTR_ERR(dentry_blk);
 
-	make_dentry_ptr(&d, (void *) dentry_blk, 1);
+	make_dentry_ptr(&d, (void *)dentry_blk, 1);
 	do_make_empty_dir(inode, parent, &d);
 
 	return 0;
 }
 
 struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
-		const struct qstr *name, struct page *dpage)
+				      const struct qstr *name,
+				      struct page *dpage)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -416,7 +382,7 @@ struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
 	}
 	return hn;
 
-	error:
+error:
 	/* once the failed inode becomes a bad inode, i_mode is S_IFREG */
 	//TODO after add truncate.c here will be valid
 	//truncate_inode_pages(&inode->i_data, 0);
@@ -427,7 +393,7 @@ struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
 }
 
 void update_parent_metadata(struct inode *dir, struct inode *inode,
-		unsigned int current_depth)
+			    unsigned int current_depth)
 {
 	struct super_block *sb = dir->i_sb;
 	BUG_ON(sb == NULL);
@@ -436,7 +402,6 @@ void update_parent_metadata(struct inode *dir, struct inode *inode,
 
 	if (inode && is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE)) {
 		if (S_ISDIR(inode->i_mode)) {
-
 			//TODO after add inode.c here will be valid
 			inc_nlink(dir);
 			set_inode_flag(HMFS_I(dir), FI_UPDATE_DIR);
@@ -462,7 +427,9 @@ int room_for_filename(const void *bitmap, int slots, int max_slots)
 {
 	int bit_start = 0;
 	int zero_start, zero_end;
-	next: zero_start = find_next_zero_bit_le(bitmap, max_slots, bit_start);
+
+next:
+	zero_start = find_next_zero_bit_le(bitmap, max_slots, bit_start);
 	if (zero_start >= max_slots)
 		return max_slots;
 
@@ -478,7 +445,8 @@ int room_for_filename(const void *bitmap, int slots, int max_slots)
 }
 
 void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
-		const struct qstr *name, hmfs_hash_t name_hash, unsigned int bit_pos)
+			const struct qstr *name, hmfs_hash_t name_hash,
+			unsigned int bit_pos)
 {
 	struct hmfs_dir_entry *de;
 	int slots = GET_DENTRY_SLOTS(name->len);
@@ -491,7 +459,7 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
 	de->ino = cpu_to_le32(ino);
 	set_de_type(de, mode);
 	for (i = 0; i < slots; i++)
-		test_and_set_bit_le(bit_pos + i, (void *) d->bitmap);
+		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
 }
 
 /*
@@ -499,7 +467,7 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
  * hmfs_unlock_op().
  */
 int __hmfs_add_link(struct inode *dir, const struct qstr *name,
-		struct inode *inode)
+		    struct inode *inode)
 {
 	unsigned int bit_pos = 0;
 	unsigned int level;
@@ -525,7 +493,8 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 	}
 	end_blk = dir->i_size >> HMFS_PAGE_SIZE_BITS;
 
-	start: if (unlikely(current_depth == MAX_DIR_HASH_DEPTH))
+start:
+	if (unlikely(current_depth == MAX_DIR_HASH_DEPTH))
 		return -ENOSPC;
 
 	/* Increase the depth, if required */
@@ -545,13 +514,15 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 			bit_pos = 0;
 			goto add_dentry;
 		} else {
-			err = get_data_blocks(dir, block, block + 1, blocks, &size,
-					RA_DB_END);
+			err =
+			 get_data_blocks(dir, block, block + 1, blocks, &size,
+					 RA_DB_END);
 			dentry_blk = blocks[0];
 			if (err || size <= 0)
 				return -EINVAL;
-			bit_pos = room_for_filename(&dentry_blk->dentry_bitmap, slots,
-					NR_DENTRY_IN_BLOCK);
+			bit_pos =
+			 room_for_filename(&dentry_blk->dentry_bitmap, slots,
+					   NR_DENTRY_IN_BLOCK);
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(dir, block);
 				if (IS_ERR(dentry_blk)) {
@@ -568,7 +539,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 	/* Move to next level to find the empty slot for new dentry */
 	++level;
 	goto start;
-	add_dentry:
+add_dentry:
 	//TODO after add segment.c here will be valid
 	if (inode) {
 		down_write(&HMFS_I(inode)->i_sem);
@@ -578,9 +549,9 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 			goto fail;
 		}
 	}
-	make_dentry_ptr(&d, (void *) dentry_blk, 1);
+	make_dentry_ptr(&d, (void *)dentry_blk, 1);
 	hmfs_update_dentry(inode->i_ino, inode->i_mode, &d, name, dentry_hash,
-			bit_pos);
+			   bit_pos);
 
 	if (inode) {
 		/* we don't need to mark_inode_dirty now */
@@ -590,7 +561,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 	}
 
 	update_parent_metadata(dir, inode, current_depth);
-	fail: if (inode)
+fail:	if (inode)
 		up_write(&HMFS_I(inode)->i_sem);
 
 	if (is_inode_flag_set(HMFS_I(dir), FI_UPDATE_DIR)) {
@@ -642,8 +613,8 @@ void hmfs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
  * @bidx: block index of dentry_blk in dir
  */
 void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
-		struct hmfs_dentry_block *dentry_blk, struct inode *dir,
-		struct inode *inode, int bidx)
+		       struct hmfs_dentry_block *dentry_blk, struct inode *dir,
+		       struct inode *inode, int bidx)
 {
 	unsigned int bit_pos;
 	struct hmfs_sb_info *sbi = HMFS_SB(dir->i_sb);
@@ -661,7 +632,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 
 	/* Let's check and deallocate this dentry page */
 	bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
-	NR_DENTRY_IN_BLOCK, 0);
+				   NR_DENTRY_IN_BLOCK, 0);
 
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 
@@ -705,7 +676,9 @@ bool hmfs_empty_dir(struct inode *dir)
 		//TODO after add data.c here will be valid
 		//dentry_page = get_lock_data_page(dir, bidx);
 		if (pos < 0 || pos == size) {
-			err = get_data_blocks(dir, bidx, nblock, blocks, &size, RA_DB_END);
+			err =
+			 get_data_blocks(dir, bidx, nblock, blocks, &size,
+					 RA_DB_END);
 			if (err && (err != -ENODATA || size <= 0))
 				return false;
 			pos = 0;
@@ -722,7 +695,7 @@ bool hmfs_empty_dir(struct inode *dir)
 		else
 			bit_pos = 0;
 		bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
-		NR_DENTRY_IN_BLOCK, bit_pos);
+					   NR_DENTRY_IN_BLOCK, bit_pos);
 
 		if (bit_pos < NR_DENTRY_IN_BLOCK)
 			return false;
@@ -731,13 +704,13 @@ bool hmfs_empty_dir(struct inode *dir)
 }
 
 bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
-		unsigned int start_pos)
+			unsigned int start_pos)
 {
 	unsigned char d_type = DT_UNKNOWN;
 	unsigned int bit_pos;
 	struct hmfs_dir_entry *de = NULL;
 
-	bit_pos = ((unsigned long) ctx->pos % d->max);
+	bit_pos = ((unsigned long)ctx->pos % d->max);
 
 	while (bit_pos < d->max) {
 		bit_pos = find_next_bit_le(d->bitmap, d->max, bit_pos);
@@ -749,8 +722,9 @@ bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
 			d_type = hmfs_filetype_table[de->file_type];
 		else
 			d_type = DT_UNKNOWN;
-		if (!dir_emit(ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
-				le32_to_cpu(de->ino), d_type))
+		if (!dir_emit
+		    (ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
+		     le32_to_cpu(de->ino), d_type))
 			return true;
 
 		bit_pos += GET_DENTRY_SLOTS(le16_to_cpu(de->name_len));
@@ -764,7 +738,7 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	struct inode *inode = file_inode(file);
 	unsigned long npages = dir_blocks(inode);
 	struct hmfs_dentry_block *dentry_blk = NULL;
-	unsigned int n = ((unsigned long) ctx->pos / NR_DENTRY_IN_BLOCK);
+	unsigned int n = ((unsigned long)ctx->pos / NR_DENTRY_IN_BLOCK);
 	struct hmfs_dentry_ptr d;
 	int size = -1;
 	int i = 0;
@@ -783,26 +757,31 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 		//TODO after add data.c here will be valid
 		//dentry_page = get_lock_data_page(inode, n);
 		if (i >= size) {
-			err = get_data_blocks(inode, n, npages, buf, &size, RA_DB_END);
+			err =
+			 get_data_blocks(inode, n, npages, buf, &size,
+					 RA_DB_END);
 			if (err)
 				goto stop;
 			i = 0;
 		}
 
 		dentry_blk = buf[i++];
-		make_dentry_ptr(&d, (void *) dentry_blk, 1);
+		make_dentry_ptr(&d, (void *)dentry_blk, 1);
 
 		if (hmfs_fill_dentries(ctx, &d, n * NR_DENTRY_IN_BLOCK))
 			goto stop;
 
 		ctx->pos = (n + 1) * NR_DENTRY_IN_BLOCK;
 	}
-	stop: vfree(buf);
+stop:
+	vfree(buf);
 	return err;
 }
 
-const struct file_operations hmfs_dir_operations = { .llseek =
-		generic_file_llseek, .read = generic_read_dir, .iterate = hmfs_readdir,
+const struct file_operations hmfs_dir_operations = {
+	.llseek = generic_file_llseek,
+	.read = generic_read_dir,
+	.iterate = hmfs_readdir,
 //.fsync                = hmfs_sync_file,
 //.unlocked_ioctl       = hmfs_ioctl,
-		};
+};

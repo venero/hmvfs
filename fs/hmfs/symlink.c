@@ -26,7 +26,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	data_blk = alloc_new_data_block(inode, 0);
 	if (IS_ERR(data_blk))
 		return PTR_ERR(data_blk);
-	hmfs_memcpy(data_blk, (void *) symname, symlen);
+	hmfs_memcpy(data_blk, (void *)symname, symlen);
 
 	mutex_unlock_op(sbi, ilock);
 
@@ -37,7 +37,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 }
 
 static int hmfs_readlink(struct dentry *dentry, char __user * buffer,
-		int buflen)
+			 int buflen)
 {
 	struct inode *inode = dentry->d_inode;
 	void *data_blk[1];
@@ -46,7 +46,7 @@ static int hmfs_readlink(struct dentry *dentry, char __user * buffer,
 
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
 	if (err || size != 1 || data_blk[0] == NULL)
-	return -ENODATA;
+		return -ENODATA;
 	return vfs_readlink(dentry, buffer, buflen, data_blk[0]);
 
 }
@@ -66,7 +66,8 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 }
 
 const struct inode_operations hmfs_symlink_inode_operations = {
-		.readlink = hmfs_readlink,
-		.follow_link = hmfs_follow_link,
-		.getattr = hmfs_getattr,
-		.setattr = hmfs_setattr, };
+	.readlink = hmfs_readlink,
+	.follow_link = hmfs_follow_link,
+	.getattr = hmfs_getattr,
+	.setattr = hmfs_setattr,
+};

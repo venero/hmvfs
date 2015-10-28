@@ -69,27 +69,27 @@ typedef __le32 hmfs_hash_t;
  * For superblock
  */
 struct hmfs_super_block {
-	__le32 magic; /* Magic Number */
-	__le16 major_ver; /* Major Version */
-	__le16 minor_ver; /* Minor Version */
-	__le32 log_pagesize; /* log2 block size in bytes */
-	__le32 log_pages_per_seg; /* log2 # of blocks per segment */
-	__le64 page_count; /* total # of user blocks */
-	__le64 segment_count; /* total # of segments */
+	__le32 magic;		/* Magic Number */
+	__le16 major_ver;	/* Major Version */
+	__le16 minor_ver;	/* Minor Version */
+	__le32 log_pagesize;	/* log2 block size in bytes */
+	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
+	__le64 page_count;	/* total # of user blocks */
+	__le64 segment_count;	/* total # of segments */
 
-	__le32 segment_count_sit; /* # of segments for SIT */
-	__le64 segment_count_ssa; /* # of segments for SSA */
-	__le64 segment_count_main; /* # of segments for main area */
+	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le64 segment_count_ssa;	/* # of segments for SSA */
+	__le64 segment_count_main;	/* # of segments for main area */
 
-	__le64 cp_page_addr; /* start block address of checkpoint */
-	__le64 sit_blkaddr; /* start block address of SIT area */
-	__le64 ssa_blkaddr; /* start block address of SSA */
-	__le64 main_blkaddr; /* start block address of main area */
+	__le64 cp_page_addr;	/* start block address of checkpoint */
+	__le64 sit_blkaddr;	/* start block address of SIT area */
+	__le64 ssa_blkaddr;	/* start block address of SSA */
+	__le64 main_blkaddr;	/* start block address of main area */
 
 	__le16 checksum;
 	u8 nat_height;
 
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 /**
  * hmfs inode
@@ -97,31 +97,31 @@ struct hmfs_super_block {
 #define NORMAL_ADDRS_PER_INODE	64
 #define HMFS_NAME_LEN		255
 struct hmfs_inode {
-	__le16 i_mode; /* file mode */
-	__u8 i_advise; /* file hints */
-	__u8 i_inline; /* file inline flags */
-	__le32 i_uid; /* user ID */
-	__le32 i_gid; /* group ID */
-	__le32 i_links; /* links count */
-	__le64 i_size; /* file size in bytes */
-	__le64 i_blocks; /* file size in blocks */
-	__le64 i_atime; /* access time */
-	__le64 i_ctime; /* change time */
-	__le64 i_mtime; /* modification time */
-	__le32 i_generation; /* file version (for NFS) */
-	__le32 i_current_depth; /* only for directory depth */
-	__le32 i_xattr_nid; /* nid to save xattr */
-	__le32 i_flags; /* file attributes */
-	__le32 i_pino; /* parent inode number */
-	__le32 i_namelen; /* file name length */
-	__u8 i_name[HMFS_NAME_LEN]; /* file name for SPOR */
-	__u8 i_dir_level; /* dentry_level for large dir */
+	__le16 i_mode;		/* file mode */
+	__u8 i_advise;		/* file hints */
+	__u8 i_inline;		/* file inline flags */
+	__le32 i_uid;		/* user ID */
+	__le32 i_gid;		/* group ID */
+	__le32 i_links;		/* links count */
+	__le64 i_size;		/* file size in bytes */
+	__le64 i_blocks;	/* file size in blocks */
+	__le64 i_atime;		/* access time */
+	__le64 i_ctime;		/* change time */
+	__le64 i_mtime;		/* modification time */
+	__le32 i_generation;	/* file version (for NFS) */
+	__le32 i_current_depth;	/* only for directory depth */
+	__le32 i_xattr_nid;	/* nid to save xattr */
+	__le32 i_flags;		/* file attributes */
+	__le32 i_pino;		/* parent inode number */
+	__le32 i_namelen;	/* file name length */
+	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
+	__u8 i_dir_level;	/* dentry_level for large dir */
 
-	__le64 i_addr[NORMAL_ADDRS_PER_INODE]; /* Pointers to data blocks */
+	__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
-	__le64 i_nid[5]; /* direct(2), indirect(2),
-	 double_indirect(1) node id */
-}__attribute__ ((packed));
+	__le64 i_nid[5];	/* direct(2), indirect(2),
+				   double_indirect(1) node id */
+} __attribute__ ((packed));
 
 /**
  * hmfs node
@@ -138,18 +138,18 @@ struct hmfs_inode {
 #define NODE_DIND_BLOCK		(NORMAL_ADDRS_PER_INODE + 5)
 
 struct direct_node {
-	__le64 addr[ADDRS_PER_BLOCK]; /* array of data block address */
-}__attribute__ ((packed));
+	__le64 addr[ADDRS_PER_BLOCK];	/* array of data block address */
+} __attribute__ ((packed));
 
 struct indirect_node {
-	__le32 nid[NIDS_PER_BLOCK]; /* array of data block address */
-}__attribute__ ((packed));
+	__le32 nid[NIDS_PER_BLOCK];	/* array of data block address */
+} __attribute__ ((packed));
 
 struct node_footer {
-	__le64 nid; /* node id */
-	__le64 ino; /* inode nunmber */
-	__le32 cp_ver; /* checkpoint version */
-}__attribute__ ((packed));
+	__le64 nid;		/* node id */
+	__le64 ino;		/* inode nunmber */
+	__le32 cp_ver;		/* checkpoint version */
+} __attribute__ ((packed));
 
 struct hmfs_node {
 	/* can be one of three types: inode, direct, and indirect types */
@@ -159,7 +159,7 @@ struct hmfs_node {
 		struct indirect_node in;
 	};
 	struct node_footer footer;
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 #define align_page_right(addr) (((addr) + HMFS_PAGE_SIZE - 1) & HMFS_PAGE_MASK)
 #define align_page_left(addr) ((addr) & HMFS_PAGE_MASK)
@@ -179,18 +179,18 @@ enum JOURNAL_TYPE {
 #define BITS_PER_NID 32
 struct hmfs_nat_node {
 	__le64 addr[NAT_ADDR_PER_NODE];
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 struct hmfs_nat_entry {
 //      FIXME: Find out the use of ino, otherwise discard it.
-	__le32 ino; /* inode number */
-	__le64 block_addr; /* block address */
-}__attribute__ ((packed));
+	__le32 ino;		/* inode number */
+	__le64 block_addr;	/* block address */
+} __attribute__ ((packed));
 
 struct hmfs_nat_journal {
 	__le32 nid;
 	struct hmfs_nat_entry entry;
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 #define NAT_ENTRY_PER_BLOCK		(HMFS_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
 #define NAT_TREE_MAX_HEIGHT		4
@@ -198,14 +198,14 @@ struct hmfs_nat_journal {
 
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 #define SIT_ENTRY_SIZE		(8)
 struct hmfs_sit_entry {
-	__le32 mtime; /* segment age for cleaning */
-	__le16 vblocks; /* reference above */
+	__le32 mtime;		/* segment age for cleaning */
+	__le16 vblocks;		/* reference above */
 	__le16 waste;
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 /*
  * For directory operations
@@ -242,11 +242,11 @@ typedef __le32 hmfs_hash_t;
 
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
-	__le32 hash_code; /* hash code of file name */
-	__le64 ino; /* inode number */
-	__le16 name_len; /* lengh of file name */
-	__u8 file_type; /* file type */
-}__attribute__ ((packed));
+	__le32 hash_code;	/* hash code of file name */
+	__le64 ino;		/* inode number */
+	__le16 name_len;	/* lengh of file name */
+	__u8 file_type;		/* file type */
+} __attribute__ ((packed));
 
 /* 4KB-sized directory entry block */
 struct hmfs_dentry_block {
@@ -255,7 +255,7 @@ struct hmfs_dentry_block {
 	__u8 reserved[SIZE_OF_RESERVED];
 	struct hmfs_dir_entry dentry[NR_DENTRY_IN_BLOCK];
 	__u8 filename[NR_DENTRY_IN_BLOCK][HMFS_SLOT_LEN];
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 /* file types used in inode_info->flags */
 enum FILE_TYPE {
@@ -295,12 +295,12 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 /* a summary entry for a 4KB-sized block in a segment */
 //TODO: set nid and ont correct for data block and node block
 struct hmfs_summary {
-	__le32 nid; /* parent node id */
-	__le32 dead_version; /* version of checkpoint delete this block */
+	__le32 nid;		/* parent node id */
+	__le32 dead_version;	/* version of checkpoint delete this block */
 	__le32 start_version;
-	__le16 count; /*  */
-	__le16 ont; /* ofs_in_node and type */
-}__attribute__ ((packed));
+	__le16 count;		/*  */
+	__le16 ont;		/* ofs_in_node and type */
+} __attribute__ ((packed));
 
 /* summary block type, node or data, is stored to the summary_footer */
 #define SUM_TYPE_DATA		(0)	//      data block
@@ -316,7 +316,7 @@ struct hmfs_summary {
 /* 8KB-sized summary block structure */
 struct hmfs_summary_block {
 	struct hmfs_summary entries[SUM_ENTRY_PER_BLOCK];
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 {
@@ -324,39 +324,42 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 	uint64_t qword = ((uint64_t) dword << 32) | dword;
 
 	asm volatile ("movl %%edx,%%ecx\n"
-			"andl $63,%%edx\n"
-			"shrl $6,%%ecx\n"
-			"jz 9f\n"
-			"1:      movnti %%rax,(%%rdi)\n"
-			"2:      movnti %%rax,1*8(%%rdi)\n"
-			"3:      movnti %%rax,2*8(%%rdi)\n"
-			"4:      movnti %%rax,3*8(%%rdi)\n"
-			"5:      movnti %%rax,4*8(%%rdi)\n"
-			"8:      movnti %%rax,5*8(%%rdi)\n"
-			"7:      movnti %%rax,6*8(%%rdi)\n"
-			"8:      movnti %%rax,7*8(%%rdi)\n"
-			"leaq 64(%%rdi),%%rdi\n"
-			"decl %%ecx\n"
-			"jnz 1b\n"
-			"9:     movl %%edx,%%ecx\n"
-			"andl $7,%%edx\n"
-			"shrl $3,%%ecx\n"
-			"jz 11f\n"
-			"10:     movnti %%rax,(%%rdi)\n"
-			"leaq 8(%%rdi),%%rdi\n"
-			"decl %%ecx\n"
-			"jnz 10b\n"
-			"11:     movl %%edx,%%ecx\n"
-			"shrl $2,%%ecx\n"
-			"jz 12f\n"
-			"movnti %%eax,(%%rdi)\n"
-			"12:\n":"=D" (dummy1), "=d"(dummy2):"D"(dest), "a"(qword),
-			"d"(length):"memory", "rcx");
+		      "andl $63,%%edx\n"
+		      "shrl $6,%%ecx\n"
+		      "jz 9f\n"
+		      "1:      movnti %%rax,(%%rdi)\n"
+		      "2:      movnti %%rax,1*8(%%rdi)\n"
+		      "3:      movnti %%rax,2*8(%%rdi)\n"
+		      "4:      movnti %%rax,3*8(%%rdi)\n"
+		      "5:      movnti %%rax,4*8(%%rdi)\n"
+		      "8:      movnti %%rax,5*8(%%rdi)\n"
+		      "7:      movnti %%rax,6*8(%%rdi)\n"
+		      "8:      movnti %%rax,7*8(%%rdi)\n"
+		      "leaq 64(%%rdi),%%rdi\n"
+		      "decl %%ecx\n"
+		      "jnz 1b\n"
+		      "9:     movl %%edx,%%ecx\n"
+		      "andl $7,%%edx\n"
+		      "shrl $3,%%ecx\n"
+		      "jz 11f\n"
+		      "10:     movnti %%rax,(%%rdi)\n"
+		      "leaq 8(%%rdi),%%rdi\n"
+		      "decl %%ecx\n"
+		      "jnz 10b\n"
+		      "11:     movl %%edx,%%ecx\n"
+		      "shrl $2,%%ecx\n"
+		      "jz 12f\n"
+		      "movnti %%eax,(%%rdi)\n"
+		      "12:\n":"=D" (dummy1), "=d"(dummy2):"D"(dest), "a"(qword),
+		      "d"(length):"memory", "rcx");
 }
 
 static inline void make_summary_entry(struct hmfs_summary *summary,
-		unsigned int nid, unsigned int start_version, unsigned int count,
-		unsigned int ofs_in_node, unsigned char type)
+				      unsigned int nid,
+				      unsigned int start_version,
+				      unsigned int count,
+				      unsigned int ofs_in_node,
+				      unsigned char type)
 {
 	summary->nid = cpu_to_le32(nid);
 	summary->start_version = cpu_to_le32(start_version);
@@ -380,8 +383,8 @@ static inline unsigned int get_summary_offset(struct hmfs_summary *summary)
 	return le16_to_cpu(summary->ont) >> 7;
 }
 
-static inline unsigned int get_summary_start_version(
-		struct hmfs_summary *summary)
+static inline unsigned int get_summary_start_version(struct hmfs_summary
+						     *summary)
 {
 	return le32_to_cpu(summary->start_version);
 }
@@ -391,8 +394,8 @@ static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 	return le16_to_cpu(summary->ont) & 0x7f;
 }
 
-static inline unsigned int get_summary_dead_version(
-		struct hmfs_summary *summary)
+static inline unsigned int get_summary_dead_version(struct hmfs_summary
+						    *summary)
 {
 	return le32_to_cpu(summary->dead_version);
 }
@@ -417,18 +420,18 @@ static inline void dec_summary_count(struct hmfs_summary *summary)
 }
 
 static inline void set_summary_dead_version(struct hmfs_summary *summary,
-		unsigned int version)
+					    unsigned int version)
 {
 	summary->dead_version = cpu_to_le32(version);
 }
 
-static inline struct hmfs_super_block *next_super_block(
-		struct hmfs_super_block *raw_super)
+static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block
+							*raw_super)
 {
 	unsigned int size = sizeof(struct hmfs_super_block);
 
 	size = align_page_right(size);
-	raw_super = (struct hmfs_super_block *) (((char *) raw_super) + size);
+	raw_super = (struct hmfs_super_block *)(((char *)raw_super) + size);
 
 	return raw_super;
 }
@@ -439,10 +442,10 @@ static inline struct hmfs_super_block *next_super_block(
 #define NUM_SIT_JOURNALS_IN_CP	8
 #define NUM_NAT_JOURNALS_IN_CP	8
 struct hmfs_checkpoint {
-	__le32 checkpoint_ver; /* checkpoint block version number */
-	__le64 user_block_count; /* # of user blocks */
-	__le64 valid_block_count; /* # of valid blocks in main area */
-	__le64 free_segment_count; /* # of free segments in main area */
+	__le32 checkpoint_ver;	/* checkpoint block version number */
+	__le64 user_block_count;	/* # of user blocks */
+	__le64 valid_block_count;	/* # of valid blocks in main area */
+	__le64 free_segment_count;	/* # of free segments in main area */
 
 	/* information of current node segments */
 	__le32 cur_node_segno;
@@ -451,14 +454,14 @@ struct hmfs_checkpoint {
 	__le32 cur_data_segno;
 	__le16 cur_data_blkoff;
 
-	__le64 prev_cp_addr; /* previous checkpoint address */
-	__le64 next_cp_addr; /* next checkpoint address */
+	__le64 prev_cp_addr;	/* previous checkpoint address */
+	__le64 next_cp_addr;	/* next checkpoint address */
 	__le32 next_version;
 
-	__le32 valid_inode_count; /* Total number of valid inodes */
-	__le32 valid_node_count; /* total number of valid nodes */
+	__le32 valid_inode_count;	/* Total number of valid inodes */
+	__le32 valid_node_count;	/* total number of valid nodes */
 
-	__le64 nat_addr; /* nat file physical address bias */
+	__le64 nat_addr;	/* nat file physical address bias */
 
 	__le64 orphan_addr;
 
@@ -470,6 +473,6 @@ struct hmfs_checkpoint {
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
 	__le16 checksum;
-}__attribute__ ((packed));
+} __attribute__ ((packed));
 
 #endif /* _LINUX_HMFS_FS_H */

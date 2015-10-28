@@ -44,7 +44,7 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "orphan inode:\n");
 		list_for_each(this, head) {
 			orphan =
-			    list_entry(this, struct orphan_inode_entry, list);
+			 list_entry(this, struct orphan_inode_entry, list);
 			seq_printf(s, "%lu ", (unsigned long)orphan->ino);
 		}
 		seq_printf(s, "\n");

@@ -56,7 +56,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	}
 
 	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
- out:	mutex_unlock(&inode->i_mutex);
+out:	mutex_unlock(&inode->i_mutex);
 	return ret;
 }
 
@@ -110,8 +110,8 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		BUG_ON(nr > HMFS_PAGE_SIZE);
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
 		error =
-		    get_data_blocks(inode, index, index + 1, xip_mem, &size,
-				    RA_END);
+		 get_data_blocks(inode, index, index + 1, xip_mem, &size,
+				 RA_END);
 
 		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {
@@ -124,8 +124,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		/* copy to user space */
 		if (!zero)
 			left =
-			    __copy_to_user(buf + copied, xip_mem[0] + offset,
-					   nr);
+			 __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
 		else
 			left = __clear_user(buf + copied, nr);
 
@@ -139,7 +138,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		offset &= ~HMFS_PAGE_MASK;
 	} while (copied < len);
 
- out:
+out:
 	mutex_unlock(&inode->i_mutex);
 	*ppos = pos + copied;
 	if (filp)
@@ -173,8 +172,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 			break;
 
 		copied =
-		    bytes - __copy_from_user_nocache(xip_mem + offset, buf,
-						     bytes);
+		 bytes - __copy_from_user_nocache(xip_mem + offset, buf, bytes);
 
 		if (likely(copied > 0)) {
 			status = copied;
@@ -246,9 +244,9 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	mutex_unlock_op(sbi, ilock);
 
 	mark_inode_dirty(inode);
- out_backing:
+out_backing:
 	current->backing_dev_info = NULL;
- out_up:
+out_up:
 	mutex_unlock(&inode->i_mutex);
 	return ret;
 
@@ -362,7 +360,7 @@ static int truncate_blocks(struct inode *inode, u64 from)
 		free_from += count;
 	}
 
- free_next:err = truncate_inode_blocks(inode, free_from);
+free_next:err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
 	mutex_unlock_op(sbi, ilock);
@@ -371,9 +369,8 @@ static int truncate_blocks(struct inode *inode, u64 from)
 
 void hmfs_truncate(struct inode *inode)
 {
-	if (!
-	    (S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
-	     || S_ISLNK(inode->i_mode)))
+	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
+	      || S_ISLNK(inode->i_mode)))
 		return;
 
 	if (!truncate_blocks(inode, i_size_read(inode))) {
@@ -548,7 +545,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 //      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
 
 //      Prepare to write
- go_write:
+go_write:
 
 //      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
 

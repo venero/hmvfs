@@ -39,7 +39,7 @@ static void TEA_transform(unsigned int buf[4], unsigned int const in[])
 }
 
 static void str2hashbuf(const unsigned char *msg, size_t len, unsigned int *buf,
-		int num)
+			int num)
 {
 	unsigned pad, val;
 	int i;
@@ -75,7 +75,8 @@ hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info)
 	const unsigned char *name = name_info->name;
 	size_t len = name_info->len;
 
-	if ((len <= 2) && (name[0] == '.') && (name[1] == '.' || name[1] == '\0'))
+	if ((len <= 2) && (name[0] == '.')
+	    && (name[1] == '.' || name[1] == '\0'))
 		return 0;
 
 	/* Initialize the default seed for the hash checksum functions */
