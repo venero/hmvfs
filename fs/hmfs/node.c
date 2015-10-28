@@ -939,6 +939,25 @@ static struct hmfs_nat_block *__get_nat_entry_block(struct hmfs_sb_info *sbi, st
 
 }
 
+struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
+				   unsigned int version, unsigned int index)
+{
+	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version);
+	struct hmfs_nat_node *nat_root = cp_i->nat_root;
+	unsigned int height = 0, block_id;
+	unsigned long current_sum = 1, level_sum = 1;
+
+	while (current_sum < index) {
+		level_sum *= NAT_ADDR_PER_NODE;
+		block_id = index - current_sum;
+		current_sum += level_sum;
+		height++;
+	}
+
+	return (struct hmfs_nat_node *)__get_nat_entry_block(sbi, nat_root,
+							     block_id, height);
+}
+
 struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 					   unsigned int version, nid_t nid)
 {

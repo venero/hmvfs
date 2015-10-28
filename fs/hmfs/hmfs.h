@@ -555,6 +555,8 @@ struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 					   unsigned version, nid_t nid);
 struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, unsigned version,
 				     nid_t nid);
+struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
+				   unsigned int version, unsigned int index);
 void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* segment.c*/

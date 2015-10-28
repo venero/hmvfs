@@ -273,8 +273,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
 	while (args.start_version != args.dead_version) {
-		this = get_nat_entry_block(sbi, args.cp_i->version,
-					   NAT_BLOCK_INDEX(args.nid));
+		this = get_nat_entry_block(sbi, args.cp_i->version, args.nid);
 		if (IS_ERR(this) || this == last)
 			goto next;
 
@@ -298,8 +297,11 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 			   struct hmfs_summary *src_sum, int type)
 {
 	void *last = NULL, *this = NULL;
+	struct hmfs_checkpoint *hmfs_cp;
+	struct hmfs_nat_node *nat_node;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct gc_move_arg args;
+	unsigned int par_index;
 
 	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum, type);
 
@@ -308,20 +310,21 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 	while (args.start_version != args.dead_version) {
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
-		else
-			this =
-			 get_nat_entry_block(sbi, args.cp_i->version, args.nid);
+		else {
+			par_index = args.nid >> NAT_SEARCH_SHIFT;
+			this = get_nat_node(sbi, args.cp_i->version, par_index);
+		}
 
 		if (this == last)
 			goto next;
 
 		if (IS_NAT_ROOT(args.nid)) {
-			((struct hmfs_checkpoint *)this)->nat_addr =
-			 cpu_to_le64(args.dest_addr);
+			hmfs_cp = (struct hmfs_checkpoint *)this;
+			hmfs_cp->nat_addr = cpu_to_le64(args.dest_addr);
 		} else {
-			((struct hmfs_nat_block *)this)->entries[args.
-								 ofs_in_node].
-			 block_addr = cpu_to_le64(args.dest_addr);
+			nat_node = (struct hmfs_nat_node *)this;
+			nat_node->addr[args.ofs_in_node] =
+			 cpu_to_le64(args.dest_addr);
 		}
 
 		last = this;

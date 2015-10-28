@@ -286,6 +286,7 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
  *
  * - If data page, nid represents dnode's nid
  * - If node page, nid represents the node page's nid.
+ * - If nat node/data page, nid represent its node index in the whole B-Tree
  *
  * For ofs_in_node,
  * - If data page, it represent index in direct node

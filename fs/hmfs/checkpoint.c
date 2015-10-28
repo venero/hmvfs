@@ -230,7 +230,8 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
 	cm_i->valid_node_count = le32_to_cpu(hmfs_cp->valid_node_count);
 	cm_i->valid_block_count = le32_to_cpu(hmfs_cp->valid_block_count);
-	cm_i->user_block_count = le32_to_cpu(HMFS_RAW_SUPER(sbi)->user_block_count);
+	cm_i->user_block_count =
+	 le32_to_cpu(HMFS_RAW_SUPER(sbi)->user_block_count);
 	cm_i->alloc_block_count = le32_to_cpu(hmfs_cp->alloc_block_count);
 	sync_checkpoint_info(sbi, hmfs_cp, cp_i);
 	cm_i->last_cp_i = cp_i;

@@ -7,9 +7,7 @@
 #define FREE_NID_BLK_SIZE		(HMFS_PAGE_SIZE * 2)
 #define BUILD_FREE_NID_COUNT	(HMFS_PAGE_SIZE / sizeof(nid_t))
 
-//TODO:define this code
-#define IS_NAT_ROOT(nid)	nid
-#define NAT_BLOCK_INDEX(nid)	nid
+#define IS_NAT_ROOT(nid)	!nid
 
 struct node_info {
 	nid_t nid;
