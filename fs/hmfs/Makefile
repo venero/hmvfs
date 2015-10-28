@@ -1,6 +1,4 @@
-PRINTPATH := /home/billy/printtty
-KBUILD_EXTRA_SYMBOLS := $(PRINTPATH)/Module.symvers
--include ./billy.mk
+ccflags-y += -DCONFIG_DEBUG
 obj-m += hmfs.o
 hmfs-objs := super.o debug.o node.o inode.o checkpoint.o file.o data.o namei.o segment.o hash.o dir.o symlink.o gc.o
 

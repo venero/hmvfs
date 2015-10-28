@@ -178,12 +178,24 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long offset = 0;
-	unsigned int nrdirty = 0;
 	unsigned long total_segs = TOTAL_SEGS(sbi);
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
+#ifdef CONFIG_DEBUG
+	unsigned int nrdirty = 0;
 
 	mutex_lock(&sit_i->sentry_lock);
+	while(1) {
+		offset=find_next_bit(sit_i->dirty_sentries_bitmap,total_segs,offset);
+		if(offset<total_segs)
+		nrdirty++;
+		offset++;
+	}
+	BUG_ON(nrdirty != sit_i->dirty_sentries);
+	mutex_unlock(&sit_i->sentry_lock);
+#endif
+	mutex_lock(&sit_i->sentry_lock);
+
 	while (1) {
 		offset = find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
 				offset);
@@ -191,12 +203,10 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 			sit_entry = get_sit_entry(sbi, offset);
 			seg_entry = get_seg_entry(sbi, offset);
 			offset = offset + 1;
-			nrdirty++;
 			seg_info_to_raw_sit(seg_entry, sit_entry);
 		} else
 			break;
 	}
-	BUG_ON(nrdirty != sit_i->dirty_sentries);
 	sit_i->dirty_sentries = 0;
 	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
 	mutex_unlock(&sit_i->sentry_lock);
