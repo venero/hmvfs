@@ -325,18 +325,18 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
 {
-	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
+	struct sit_info *sit_i=SIT_I(sbi);
 	struct seg_entry *seg_entry;
 	struct hmfs_sit_entry *sit_entry;
 	unsigned int start;
 
-	mutex_lock(&dirty_i->seglist_lock);
+	mutex_lock(&sit_i->sentry_lock);
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		seg_entry = get_seg_entry(sbi, start);
 		sit_entry = get_sit_entry(sbi, start);
 		seg_info_from_raw_sit(seg_entry, sit_entry);
 	}
-	mutex_unlock(&dirty_i->seglist_lock);
+	mutex_unlock(&sit_i->sentry_lock);
 }
 
 static void init_free_segmap(struct hmfs_sb_info *sbi)
@@ -408,6 +408,7 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct hmfs_sm_info *sm_info;
 	int err;
+	unsigned long user_segments, main_segments;
 
 	sm_info = kzalloc(sizeof(struct hmfs_sm_info), GFP_KERNEL);
 	if (!sm_info)
@@ -416,15 +417,12 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	/* init sm info */
 	sbi->sm_info = sm_info;
 	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
-	sm_info->main_segments = le64_to_cpu(raw_super->segment_count_main);
-	sm_info->ovp_segments =
-	 sm_info->main_segments - sm_info->main_segments * (100 -
-							    DEF_OP_SEGMENTS) /
-	 100;
-	sm_info->limit_invalid_blocks =
-	 sm_info->segment_count * LIMIT_INVALID_BLOCKS / 100;
-	sm_info->limit_free_blocks =
-	 sm_info->segment_count * LIMIT_FREE_BLOCKS / 100;
+	main_segments = le64_to_cpu(raw_super->segment_count_main);
+	sm_info->main_segments = main_segments;
+	user_segments = sm_info->main_segments * (100 - DEF_OP_SEGMENTS) / 100;
+	sm_info->ovp_segments = sm_info->main_segments - user_segments;
+	sm_info->limit_invalid_blocks = main_segments * LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_free_blocks = main_segments * LIMIT_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);
 	if (err)
