@@ -122,6 +122,7 @@ struct hmfs_sb_info {
 
 	unsigned long long segment_count;
 	unsigned long long segment_count_main;
+	unsigned long long page_count_main;
 
 	struct hmfs_cm_info *cm_info;
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];
@@ -397,6 +398,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 		inode->i_blocks += count;
 
 	cm_i->valid_node_count += count;
+	cm_i->valid_block_count += count;
 	cm_i->alloc_block_count = alloc_valid_block_count;
 	spin_unlock(&cm_i->stat_lock);
 
@@ -423,6 +425,21 @@ static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
 	cm_i->valid_block_count -= count;
 	spin_unlock(&cm_i->stat_lock);
 	return 0;
+}
+
+static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi){
+	struct hmfs_cm_info *cm_i=CM_I(sbi);
+	unsigned long alloc_block_count;
+
+	spin_lock(&cm_i->stat_lock);
+	alloc_block_count=cm_i->alloc_block_count+1;
+	if(alloc_block_count>sbi->page_count_main){
+		spin_unlock(&cm_i->stat_lock);
+		return false;
+	}
+	cm_i->alloc_block_count=alloc_block_count;
+	spin_unlock(&cm_i->stat_lock);
+	return true;
 }
 
 static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,

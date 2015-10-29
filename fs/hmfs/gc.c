@@ -243,7 +243,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
 	spin_lock(&cm_i->stat_lock);
-
+	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
 	spin_unlock(&cm_i->stat_lock);
 }
 

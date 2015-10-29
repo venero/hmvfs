@@ -1,3 +1,5 @@
+#ifdef CONFIG_DEBUG
+
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -30,6 +32,10 @@ static int stat_show(struct seq_file *s, void *v)
 			   (unsigned long)cm_i->user_block_count);
 		seq_printf(s, "segment count:%lu\n",
 			   (unsigned long)si->sbi->segment_count);
+		seq_printf(s, "valid_block_count:%lu\n", (unsigned long)cm_i->valid_block_count);
+		seq_printf(s, "alloc_block_count:%lu\n",(unsigned long)cm_i->alloc_block_count);
+		seq_printf(s,"valid_node_count:%d\n",cm_i->valid_node_count);
+		seq_printf(s,"valid_inode_count:%d\n",cm_i->valid_inode_count);
 		seq_printf(s, "SSA start address:%lu\n",
 			   (unsigned long)((char *)si->sbi->ssa_entries -
 					   (char *)si->sbi->virt_addr));
@@ -106,3 +112,5 @@ void hmfs_destroy_root_stat(void)
 	debugfs_remove_recursive(debugfs_root);
 	debugfs_root = NULL;
 }
+
+#endif

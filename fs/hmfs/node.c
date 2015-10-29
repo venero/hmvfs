@@ -737,6 +737,8 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 	if (likely(inode))
 		return __alloc_new_node(sbi, nid, inode, sum_type);
 
+	if(!inc_gc_block_count(sbi))
+		return ERR_PTR(-ENOSPC);
 	sbi = HMFS_I_SB(inode);
 	addr = alloc_free_node_block(sbi);
 	return ADDR(sbi, addr);

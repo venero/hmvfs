@@ -311,7 +311,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, cur_data_blkoff, data_blkoff);
 	set_struct(cp, valid_inode_count, 1);
 /* sit, nat, root */
-	set_struct(cp, valid_node_count, 3);
+	set_struct(cp, valid_node_count, node_blkoff);
 	set_struct(cp, next_scan_nid, 4);
 	set_struct(cp, elapsed_time, 0);
 
@@ -603,6 +603,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->segment_count = le64_to_cpu(super->segment_count);
 	sbi->segment_count_main = le64_to_cpu(super->segment_count_main);
+	sbi->page_count_main = sbi->segment_count_main << HMFS_PAGE_PER_SEG_BITS;
 	ssa_addr = le64_to_cpu(super->ssa_blkaddr);
 	sit_addr = le64_to_cpu(super->sit_blkaddr);
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
