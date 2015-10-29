@@ -579,7 +579,7 @@ static void alloc_direct_node_success(struct hmfs_sb_info *sbi,
 	struct hmfs_summary *summary;
 
 	for (i = 0; i < ADDRS_PER_BLOCK; i++) {
-		if (!dn->addr[i]) {
+		if (dn->addr[i]) {
 			blk_addr = le64_to_cpu(dn->addr[i]);
 			summary = get_summary_by_addr(sbi, blk_addr);
 			inc_summary_count(summary);
@@ -596,7 +596,7 @@ static void alloc_indirect_node_success(struct hmfs_sb_info *sbi,
 	struct node_info ni;
 
 	for (i = 0; i < NIDS_PER_BLOCK; i++) {
-		if (!idn->nid[i]) {
+		if (idn->nid[i]) {
 			nid = le32_to_cpu(idn->nid[i]);
 			ret = get_node_info(sbi, nid, &ni);
 			if (!ret)
@@ -614,9 +614,8 @@ static void alloc_inode_success(struct hmfs_sb_info *sbi, struct hmfs_inode *hi)
 	struct hmfs_summary *summary;
 	nid_t nid;
 	struct node_info ni;
-
 	for (i = 0; i < NORMAL_ADDRS_PER_INODE; ++i) {
-		if (!hi->i_addr[i]) {
+		if (hi->i_addr[i]) {
 			ni.blk_addr = le64_to_cpu(hi->i_addr[i]);
 			summary = get_summary_by_addr(sbi, ni.blk_addr);
 			inc_summary_count(summary);
@@ -624,7 +623,7 @@ static void alloc_inode_success(struct hmfs_sb_info *sbi, struct hmfs_inode *hi)
 	}
 	for (i = NODE_DIR1_BLOCK; i < NODE_DIND_BLOCK; ++i) {
 		nid = le32_to_cpu(hi->i_nid[i - NODE_DIR1_BLOCK]);
-		if (!nid) {
+		if (nid) {
 			ret = get_node_info(sbi, nid, &ni);
 			if (!ret)
 				continue;
