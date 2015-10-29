@@ -474,6 +474,13 @@ out:
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
+	struct sit_info *sit_i=SIT_I(sbi);
+
+	if(sit_i->dirty_sentries) {
+		mutex_lock(&sbi->gc_mutex);
+		write_checkpoint(sbi);
+		mutex_unlock(&sbi->gc_mutex);
+	}
 
 	hmfs_destroy_stats(sbi);
 	destroy_segment_manager(sbi);
@@ -610,6 +617,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
 		mutex_init(&sbi->fs_lock[i]);
+	mutex_init(&sbi->gc_mutex);
 	sbi->next_lock_num = 0;
 
 	sb->s_magic = le32_to_cpu(super->magic);

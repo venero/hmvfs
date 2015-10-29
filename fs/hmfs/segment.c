@@ -185,26 +185,27 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 	unsigned long total_segs = TOTAL_SEGS(sbi);
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
+	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
 #ifdef CONFIG_DEBUG
 	unsigned int nrdirty = 0;
 
 	mutex_lock(&sit_i->sentry_lock);
 	while (1) {
 		offset =
-		 find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
-			       offset);
+		 find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs)
 			nrdirty++;
+		else break;
 		offset++;
 	}
+	offset=0;
 	BUG_ON(nrdirty != sit_i->dirty_sentries);
 	mutex_unlock(&sit_i->sentry_lock);
 #endif
 	mutex_lock(&sit_i->sentry_lock);
 
 	while (1) {
-		offset = find_next_bit(sit_i->dirty_sentries_bitmap, total_segs,
-				       offset);
+		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs) {
 			sit_entry = get_sit_entry(sbi, offset);
 			seg_entry = get_seg_entry(sbi, offset);

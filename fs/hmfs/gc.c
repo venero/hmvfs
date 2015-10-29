@@ -458,7 +458,7 @@ static int gc_thread_func(void *data)
 	struct hmfs_sb_info *sbi = data;
 	wait_queue_head_t *wq = &(sbi->gc_thread->gc_wait_queue_head);
 	long wait_ms = 0;
-
+printk(KERN_INFO"start kthread\n");
 	wait_ms = GC_THREAD_MIN_SLEEP_TIME;
 
 	do {

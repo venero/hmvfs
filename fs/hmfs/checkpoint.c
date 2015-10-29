@@ -439,7 +439,7 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *store_checkpoint;
 	struct curseg_info *curseg_i = SM_I(sbi)->curseg_array;
 
-	prev_checkpoint = cm_i->cur_cp_i->cp;
+	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
 
 	nat_root = flush_nat_entries(sbi);
@@ -450,9 +450,7 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 1, 0, SUM_TYPE_CP);
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
-
 	flush_sit_entries(sbi);
-
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
 	set_struct(store_checkpoint, valid_block_count,
 		   cm_i->valid_block_count);
@@ -510,7 +508,6 @@ void write_checkpoint(struct hmfs_sb_info *sbi)
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
-
 	do_checkpoint(sbi);
 
 	unblock_operations(sbi);
