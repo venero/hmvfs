@@ -124,37 +124,6 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 	mutex_unlock(&cm_i->cp_tree_lock);
 }
 
-struct checkpoint_info *get_next_cp_i(struct hmfs_sb_info *sbi,
-				      struct checkpoint_info *cp_i)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct hmfs_checkpoint *hmfs_cp;
-	unsigned long long next_addr;
-	struct checkpoint_info *next_cp_i;
-	unsigned int next_version;
-
-	next_version = cp_i->next_version;
-
-	mutex_lock(&cm_i->cp_tree_lock);
-	next_cp_i = radix_tree_lookup(&cm_i->cp_tree_root, next_version);
-
-	if (!next_cp_i) {
-		next_addr = le64_to_cpu(cp_i->cp->next_cp_addr);
-		hmfs_cp = ADDR(sbi, next_addr);
-
-		next_cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
-
-		sync_checkpoint_info(sbi, hmfs_cp, next_cp_i);
-
-		list_add(&next_cp_i->list, &cm_i->last_cp_i->list);
-		radix_tree_insert(&cm_i->cp_tree_root, next_cp_i->version,
-				  next_cp_i);
-	}
-	mutex_unlock(&cm_i->cp_tree_lock);
-	return next_cp_i;
-
-}
-
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    unsigned int version)
 {
