@@ -662,8 +662,6 @@ int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
 unsigned int find_this_version(struct hmfs_sb_info *sbi);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    unsigned int version);
-struct checkpoint_info *get_next_cp_i(struct hmfs_sb_info *sbi,
-				      struct checkpoint_info *cp_i);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,

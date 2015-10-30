@@ -348,7 +348,20 @@ out_err:
 struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 			     struct checkpoint_info *cp_i, nid_t nid)
 {
-	return NULL;
+	struct hmfs_nat_entry *nat_entry;
+	block_t node_addr;
+
+#ifdef CONFIG_DEBUG
+	if (cp_i->version == CM_I(sbi)->new_version)
+		BUG();
+#endif
+
+	nat_entry = get_nat_entry(sbi, cp_i->version, nid);
+	if (!nat_entry)
+		return NULL;
+	node_addr = le64_to_cpu(nat_entry->block_addr);
+
+	return (struct hmfs_node *)ADDR(sbi, node_addr);
 }
 
 static int truncate_partial_nodes(struct dnode_of_data *dn,

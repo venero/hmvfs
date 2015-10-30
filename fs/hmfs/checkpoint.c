@@ -133,6 +133,9 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	struct hmfs_checkpoint *hmfs_cp;
 	unsigned long long next_addr;
 
+	if (version == cm_i->new_version)
+		return cm_i->cur_cp_i;
+
 	mutex_lock(&cm_i->cp_tree_lock);
 	cp_i = radix_tree_lookup(&cm_i->cp_tree_root, version);
 	if (!cp_i) {
