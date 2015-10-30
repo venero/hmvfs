@@ -474,9 +474,9 @@ out:
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct sit_info *sit_i=SIT_I(sbi);
+	struct sit_info *sit_i = SIT_I(sbi);
 
-	if(sit_i->dirty_sentries) {
+	if (sit_i->dirty_sentries) {
 		mutex_lock(&sbi->gc_mutex);
 		write_checkpoint(sbi);
 		mutex_unlock(&sbi->gc_mutex);
@@ -603,7 +603,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->segment_count = le64_to_cpu(super->segment_count);
 	sbi->segment_count_main = le64_to_cpu(super->segment_count_main);
-	sbi->page_count_main = sbi->segment_count_main << HMFS_PAGE_PER_SEG_BITS;
+	sbi->page_count_main =
+	 sbi->segment_count_main << HMFS_PAGE_PER_SEG_BITS;
 	ssa_addr = le64_to_cpu(super->ssa_blkaddr);
 	sit_addr = le64_to_cpu(super->sit_blkaddr);
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);

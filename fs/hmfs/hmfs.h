@@ -11,8 +11,6 @@
 #include <linux/spinlock.h>
 #include <linux/radix-tree.h>
 #include "hmfs_fs.h"
-#include "checkpoint.h"
-//#include "segment.h"
 
 #ifdef CONFIG_HMFS_CHECK_FS
 #define hmfs_bug_on(sbi, condition)	BUG_ON(condition)
@@ -31,6 +29,12 @@
 #define HMFS_DEF_FILE_MODE	0664
 
 #define DEF_OP_SEGMENTS		6	/* default percentage of overprovision segments */
+
+#define CURSEG_DATA			1
+#define CURSEG_NODE			0
+#define	NR_CURSEG_DATA_TYPE	(1)
+#define NR_CURSEG_NODE_TYPE	(1)
+#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
 
 /*
  * For INODE and NODE manager
@@ -102,6 +106,40 @@ struct hmfs_nm_info {
 
 	unsigned int fcnt;	/* the number of free node id */
 	struct mutex build_lock;	/* lock for build free nids */
+};
+
+/* hmfs checkpoint manager */
+struct hmfs_cm_info {
+	struct checkpoint_info *cur_cp_i;
+	int new_version;
+	struct page *cp_page;
+
+	struct checkpoint_info *last_cp_i;
+
+	unsigned long valid_inode_count;
+	unsigned long valid_node_count;
+
+	/* block whose count in summary is > 0 */
+	unsigned long valid_block_count;
+	/* maximum # of blocks users could get */
+	unsigned long user_block_count;
+	/* # of blocks of all dirty ,full and current segments */
+	unsigned long alloc_block_count;
+	/* # fo blocks left in current segments */
+	int left_blocks_count[NR_CURSEG_TYPE];
+
+	rwlock_t journal_lock;
+
+	struct mutex orphan_inode_mutex;
+	struct list_head orphan_inode_list;
+	unsigned long long n_orphans;
+
+	struct radix_tree_root cp_tree_root;
+	struct mutex cp_tree_lock;
+
+	spinlock_t stat_lock;
+
+	struct mutex cp_mutex;
 };
 
 /*
@@ -384,12 +422,15 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	u64 alloc_valid_block_count;
+	unsigned long alloc_valid_block_count;
 
 	spin_lock(&cm_i->stat_lock);
+
 	alloc_valid_block_count = cm_i->alloc_block_count + count;
 
-	if (alloc_valid_block_count > cm_i->user_block_count) {
+	if (unlikely
+	    (cm_i->left_blocks_count[CURSEG_NODE] < count
+	     && alloc_valid_block_count > cm_i->user_block_count)) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
@@ -400,6 +441,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 	cm_i->valid_node_count += count;
 	cm_i->valid_block_count += count;
 	cm_i->alloc_block_count = alloc_valid_block_count;
+	cm_i->left_blocks_count[CURSEG_NODE] -= count;;
 	spin_unlock(&cm_i->stat_lock);
 
 	return true;
@@ -427,17 +469,19 @@ static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
 	return 0;
 }
 
-static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi){
-	struct hmfs_cm_info *cm_i=CM_I(sbi);
+static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	unsigned long alloc_block_count;
 
 	spin_lock(&cm_i->stat_lock);
-	alloc_block_count=cm_i->alloc_block_count+1;
-	if(alloc_block_count>sbi->page_count_main){
+	alloc_block_count = cm_i->alloc_block_count + 1;
+	if (alloc_block_count > sbi->page_count_main) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
-	cm_i->alloc_block_count=alloc_block_count;
+	cm_i->left_blocks_count[seg_type]--;
+	cm_i->alloc_block_count = alloc_block_count;
 	spin_unlock(&cm_i->stat_lock);
 	return true;
 }
@@ -451,13 +495,16 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	spin_lock(&cm_i->stat_lock);
 	alloc_block_count = cm_i->alloc_block_count + count;
 //FIXME: need this check ?
-	if (alloc_block_count > cm_i->user_block_count) {
+	if (unlikely
+	    (cm_i->left_blocks_count[CURSEG_DATA] < count
+	     && alloc_block_count > cm_i->user_block_count)) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
 	inode->i_blocks += count;
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
+	cm_i->left_blocks_count[CURSEG_DATA] -= count;
 	spin_unlock(&cm_i->stat_lock);
 	return true;
 }

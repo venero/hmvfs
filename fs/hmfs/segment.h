@@ -3,12 +3,6 @@
 
 #include "hmfs.h"
 
-#define CURSEG_DATA			1
-#define CURSEG_NODE			0
-#define	NR_CURSEG_DATA_TYPE	(1)
-#define NR_CURSEG_NODE_TYPE	(1)
-#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
-
 #define SIT_ENTRY_CLEAN			0
 #define SIT_ENTRY_DIRTY				1
 
@@ -64,14 +58,14 @@ struct free_segmap_info {
 	rwlock_t segmap_lock;	/* free segmap lock */
 	unsigned long *free_segmap;	/* free segment bitmap */
 };
+
 /* for active log information */
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
-	struct hmfs_summary_block *sum_blk;	/* cached summary block */
 	//unsigned char alloc_type;               /* current allocation type */
-	u64 segno;		/* current segment number */
+	unsigned long segno;	/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
-	u64 next_segno;		/* preallocated segment */
+	unsigned long next_segno;	/* preallocated segment */
 };
 
 struct hmfs_sm_info {

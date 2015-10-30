@@ -336,7 +336,7 @@ void *alloc_new_data_block(struct inode *inode, int block)
 	/* 
 	 * TODO:alloc blocks for GC, it need check space left for GC
 	 */
-	if(!inc_gc_block_count(sbi))
+	if (!inc_gc_block_count(sbi, CURSEG_DATA))
 		return ERR_PTR(-ENOSPC);
 	sbi = HMFS_I_SB(inode);
 	addr = alloc_free_data_block(sbi);

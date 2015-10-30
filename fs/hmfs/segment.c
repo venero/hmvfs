@@ -96,10 +96,12 @@ static void move_to_new_segment(struct hmfs_sb_info *sbi,
 	reset_curseg(seg_i);
 }
 
-static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
+static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
 {
 	u64 page_addr = 0;
 	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
 
 	mutex_lock(&seg_i->curseg_mutex);
 	page_addr = cal_page_addr(sbi, seg_i);
@@ -112,6 +114,10 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
 		//TODO : journal when writing CP
 		move_to_new_segment(sbi, seg_i);
+
+		spin_lock(&cm_i->stat_lock);
+		cm_i->left_blocks_count[seg_type] += HMFS_PAGE_PER_SEG;
+		spin_unlock(&cm_i->stat_lock);
 	}
 	mutex_unlock(&seg_i->curseg_mutex);
 
@@ -120,41 +126,43 @@ static u64 get_free_block(struct hmfs_sb_info *sbi, struct curseg_info *seg_i)
 
 block_t alloc_free_data_block(struct hmfs_sb_info * sbi)
 {
-	struct curseg_info *seg_i = &CURSEG_I(sbi)[CURSEG_DATA];
-
-	return get_free_block(sbi, seg_i);
+	return get_free_block(sbi, CURSEG_DATA);
 }
 
 block_t alloc_free_node_block(struct hmfs_sb_info * sbi)
 {
-	struct curseg_info *seg_i = &CURSEG_I(sbi)[CURSEG_NODE];
-
-	return get_free_block(sbi, seg_i);
+	return get_free_block(sbi, CURSEG_NODE);
 }
 
 static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct curseg_info *seg_i = CURSEG_I(sbi);
+	struct curseg_info *seg_i = CURSEG_I(sbi), *node_seg_i, *data_seg_i;
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	unsigned short node_next_blkoff, data_next_blkoff;
 
-	mutex_lock(&seg_i[CURSEG_NODE].curseg_mutex);
-	seg_i[CURSEG_NODE].segno = le32_to_cpu(hmfs_cp->cur_node_segno);
-	seg_i[CURSEG_NODE].next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
-	seg_i[CURSEG_NODE].next_segno = 0;
-	seg_i[CURSEG_NODE].sum_blk = get_summary_block(sbi,
-						       seg_i
-						       [CURSEG_NODE].segno);
-	mutex_unlock(&seg_i[CURSEG_NODE].curseg_mutex);
+	node_seg_i = &seg_i[CURSEG_NODE];
+	mutex_lock(&node_seg_i->curseg_mutex);
+	node_seg_i->segno = le32_to_cpu(hmfs_cp->cur_node_segno);
+	node_next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
+	node_seg_i->next_blkoff = node_next_blkoff;
+	node_seg_i->next_segno = 0;
+	mutex_unlock(&node_seg_i->curseg_mutex);
 
-	mutex_lock(&seg_i[CURSEG_DATA].curseg_mutex);
-	seg_i[CURSEG_DATA].segno = le32_to_cpu(hmfs_cp->cur_data_segno);
-	seg_i[CURSEG_DATA].next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
-	seg_i[CURSEG_DATA].next_segno = 0;
-	seg_i[CURSEG_DATA].sum_blk = get_summary_block(sbi,
-						       seg_i
-						       [CURSEG_DATA].segno);
-	mutex_unlock(&seg_i[CURSEG_DATA].curseg_mutex);
+	data_seg_i = &seg_i[CURSEG_DATA];
+	mutex_lock(&data_seg_i->curseg_mutex);
+	data_seg_i->segno = le32_to_cpu(hmfs_cp->cur_data_segno);
+	data_next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
+	data_seg_i->next_blkoff = data_next_blkoff;
+	data_seg_i->next_segno = 0;
+	mutex_unlock(&data_seg_i->curseg_mutex);
+
+	spin_lock(&cm_i->stat_lock);
+	node_next_blkoff = HMFS_PAGE_PER_SEG - node_next_blkoff;
+	data_next_blkoff = HMFS_PAGE_PER_SEG - data_next_blkoff;
+	cm_i->left_blocks_count[CURSEG_NODE] = node_next_blkoff;
+	cm_i->left_blocks_count[CURSEG_DATA] = data_next_blkoff;
+	spin_unlock(&cm_i->stat_lock);
 	return 0;
 }
 
@@ -191,14 +199,14 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 
 	mutex_lock(&sit_i->sentry_lock);
 	while (1) {
-		offset =
-		 find_next_bit(bitmap, total_segs, offset);
+		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs)
 			nrdirty++;
-		else break;
+		else
+			break;
 		offset++;
 	}
-	offset=0;
+	offset = 0;
 	BUG_ON(nrdirty != sit_i->dirty_sentries);
 	mutex_unlock(&sit_i->sentry_lock);
 #endif
@@ -317,7 +325,6 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 
 	for (i = 0; i < NR_CURSEG_TYPE; i++) {
 		mutex_init(&array[i].curseg_mutex);
-		array[i].sum_blk = NULL;
 		array[i].segno = NULL_SEGNO;
 		array[i].next_blkoff = 0;
 	}
@@ -326,7 +333,7 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
 {
-	struct sit_info *sit_i=SIT_I(sbi);
+	struct sit_info *sit_i = SIT_I(sbi);
 	struct seg_entry *seg_entry;
 	struct hmfs_sit_entry *sit_entry;
 	unsigned int start;
@@ -422,7 +429,8 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sm_info->main_segments = main_segments;
 	user_segments = sm_info->main_segments * (100 - DEF_OP_SEGMENTS) / 100;
 	sm_info->ovp_segments = sm_info->main_segments - user_segments;
-	sm_info->limit_invalid_blocks = main_segments * LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_invalid_blocks =
+	 main_segments * LIMIT_INVALID_BLOCKS / 100;
 	sm_info->limit_free_blocks = main_segments * LIMIT_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);
