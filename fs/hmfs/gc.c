@@ -137,6 +137,9 @@ static int prepare_move_arguments(struct gc_move_arg *arg,
 	arg->ofs_in_node = get_summary_offset(sum);
 	arg->count = get_summary_count(sum);
 
+	if (!arg->dead_version)
+		arg->dead_version = CM_I(sbi)->new_version;
+
 	arg->cp_i = get_checkpoint_info(sbi, arg->start_version);
 	if (type == TYPE_DATA)
 		arg->dest = alloc_new_data_block(NULL, 0);
@@ -146,7 +149,7 @@ static int prepare_move_arguments(struct gc_move_arg *arg,
 	if (IS_ERR(arg->dest))
 		return -ENOSPC;
 
-	arg->dest_addr = (char *)arg->dest - (char *)sbi->virt_addr;
+	arg->dest_addr = L_ADDR(sbi, arg->dest);
 	arg->dest_sum = get_summary_by_addr(sbi, arg->dest_addr);
 	arg->src_addr = __cal_page_addr(sbi, segno, offset);
 	arg->src = ADDR(sbi, arg->src_addr);
@@ -167,7 +170,6 @@ static void move_data_block(struct hmfs_sb_info *sbi, int src_segno,
 			    int src_off, struct hmfs_summary *src_sum)
 {
 	struct gc_move_arg args;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_node *last = NULL, *this = NULL;
 
 	/* 1. read summary of source blocks */
@@ -177,7 +179,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, int src_segno,
 	/* 2. move blocks */
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version != args.dead_version) {
+	while (args.start_version < args.dead_version) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
 		BUG_ON(IS_ERR(this));
@@ -201,12 +203,14 @@ static void move_data_block(struct hmfs_sb_info *sbi, int src_segno,
 			break;
 
 next:
-		/* 4. Move to next checkpoint version */
-		if (!args.dead_version && args.cp_i == cm_i->last_cp_i)
+		args.parent_addr = L_ADDR(sbi, this);
+		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
+
+		args.start_version = get_summary_dead_version(args.parent_sum);
+		if (!args.start_version)
 			break;
 
-		args.start_version = args.cp_i->next_version;
-		args.cp_i = get_next_cp_i(sbi, args.cp_i);
+		args.cp_i = get_checkpoint_info(sbi, args.start_version);
 	}
 
 	/* 5. Update summary infomation of dest block */
@@ -272,7 +276,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version != args.dead_version) {
+	while (args.start_version < args.dead_version) {
 		this = get_nat_entry_block(sbi, args.cp_i->version, args.nid);
 		if (IS_ERR(this) || this == last)
 			goto next;
@@ -286,8 +290,14 @@ static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
 
 		if (++args.nrchange >= args.count)
 			break;
-next:		args.start_version = args.cp_i->next_version;
-		args.cp_i = get_next_cp_i(sbi, args.cp_i);
+next:
+		args.parent_addr = L_ADDR(sbi, this);
+		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
+
+		args.start_version = get_summary_dead_version(args.parent_sum);
+		if (!args.start_version)
+			break;
+		args.cp_i = get_checkpoint_info(sbi, args.start_version);
 	}
 
 	update_dest_summary(src_sum, args.dest_sum);
@@ -299,7 +309,6 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 	void *last = NULL, *this = NULL;
 	struct hmfs_checkpoint *hmfs_cp;
 	struct hmfs_nat_node *nat_node;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct gc_move_arg args;
 	unsigned int par_index;
 
@@ -307,7 +316,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version != args.dead_version) {
+	while (args.start_version < args.dead_version) {
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
 		else {
@@ -332,11 +341,13 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 		if (++args.nrchange >= args.count)
 			break;
 next:
-		if (!args.dead_version && args.cp_i == cm_i->last_cp_i)
-			break;
+		args.parent_addr = L_ADDR(sbi, this);
+		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
 
-		args.start_version = args.cp_i->next_version;
-		args.cp_i = get_next_cp_i(sbi, args.cp_i);
+		args.start_version = get_summary_dead_version(args.parent_sum);
+		if (!args.start_version)
+			break;
+		args.cp_i = get_checkpoint_info(sbi, args.start_version);
 	}
 
 	update_dest_summary(src_sum, args.dest_sum);
@@ -465,10 +476,8 @@ static int gc_thread_func(void *data)
 		if (try_to_freeze())
 			continue;
 		else
-			wait_event_interruptible_timeout(*wq,
-							 kthread_should_stop(),
-							 msecs_to_jiffies
-							 (wait_ms));
+			wait_event_interruptible_timeout(*wq, kthread_should_stop(),
+							 msecs_to_jiffies(wait_ms));
 
 		if (kthread_should_stop())
 			break;
@@ -512,8 +521,7 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 	sbi->gc_thread = gc_thread;
 	init_waitqueue_head(&(sbi->gc_thread->gc_wait_queue_head));
 	sbi->gc_thread->hmfs_gc_task = kthread_run(gc_thread_func, sbi,
-						   "hmfs_gc-%lu:->%lu",
-						   start_addr, end_addr);
+						   "hmfs_gc-%lu:->%lu", start_addr, end_addr);
 	if (IS_ERR(gc_thread->hmfs_gc_task)) {
 		err = PTR_ERR(gc_thread->hmfs_gc_task);
 		kfree(gc_thread);

@@ -428,9 +428,9 @@ void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr)
 	BUG_ON(count < 0);
 #endif
 	set_summary_count(sum, count);
-	set_summary_dead_version(sum, cm_i->new_version);
 
 	if (!count) {
+		set_summary_dead_version(sum, cm_i->new_version);
 		invalidate_block_after_dc(sbi, blk_addr);
 	}
 }
@@ -698,7 +698,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	src = get_node(sbi, nid);
 
 	if (!IS_ERR(src)) {
-		src_addr = (char *)src - (char *)sbi->virt_addr;
+		src_addr = L_ADDR(sbi, src);
 		summary = get_summary_by_addr(sbi, src_addr);
 		if (get_summary_start_version(summary) == cp_i->version)
 			return src;

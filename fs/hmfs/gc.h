@@ -23,10 +23,9 @@ struct gc_move_arg {
 	unsigned int ofs_in_node;
 	int nrchange;
 	int count;
-	unsigned long long src_addr, dest_addr;
+	block_t src_addr, dest_addr, parent_addr;
 	char *dest, *src;
-	struct hmfs_summary *dest_sum;
-	struct checkpoint_info *next_cp_i;
+	struct hmfs_summary *dest_sum, *parent_sum;
 	struct checkpoint_info *cp_i;
 };
 

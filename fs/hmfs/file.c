@@ -262,12 +262,12 @@ static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
 	sum = get_summary_by_addr(sbi, blk_addr);
 	count = get_summary_count(sum) - 1;
 	set_summary_count(sum, count);
-	set_summary_dead_version(sum, cm_i->new_version);
 #ifdef CONFIG_DEBUG
 	BUG_ON(count < 0);
 #endif
 
 	if (!count) {
+		set_summary_dead_version(sum, cm_i->new_version);
 		invalidate_block_after_dc(sbi, blk_addr);
 	}
 }

@@ -314,16 +314,9 @@ static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
 	return (sbi->virt_addr + logic_addr);
 }
 
-static inline block_t DEADDR(struct hmfs_sb_info *sbi, void *ptr)
+static inline block_t L_ADDR(struct hmfs_sb_info *sbi, void *ptr)
 {
-	return (block_t) (ptr - sbi->virt_addr);
-}
-
-static inline nid_t START_NID(nid_t nid)
-{
-//TODO
-	return ((nid / NAT_ENTRY_PER_BLOCK) * NAT_ENTRY_PER_BLOCK);
-
+	return (block_t) ((char *)ptr - (char *)sbi->virt_addr);
 }
 
 static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)

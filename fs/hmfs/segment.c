@@ -76,8 +76,8 @@ static void get_new_segment(struct hmfs_sb_info *sbi, unsigned long *newseg)
 	write_lock(&free_i->segmap_lock);
 
 	//FIXME: always look forward?
-	segno =
-	 find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
+	segno = find_next_zero_bit(free_i->free_segmap, 
+					TOTAL_SEGS(sbi), *newseg);
 	//if(segno >= TOTAL_SEGS(sbi))
 
 	BUG_ON(test_bit(segno, free_i->free_segmap));

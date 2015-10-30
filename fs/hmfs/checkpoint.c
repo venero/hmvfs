@@ -7,7 +7,7 @@ static struct kmem_cache *orphan_entry_slab;
 
 static struct kmem_cache *cp_info_entry_slab;
 
-static u32 next_checkpoint_ver(u32 version)
+static unsigned int next_checkpoint_ver(unsigned int version)
 {
 	//TODO
 	return version + 1;
@@ -169,6 +169,7 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	if (!cp_i) {
 		cp_i = cm_i->last_cp_i;
 		head = &cp_i->list;
+		/* Search a checkpoint_info whose version is closest to given version */
 		list_for_each(this, head) {
 			entry = list_entry(this, struct checkpoint_info, list);
 			if (entry->version < version
@@ -589,6 +590,6 @@ int delete_checkpoint(struct hmfs_sb_info *sbi, u32 version)
 	}
 	next_checkpoint->prev_cp_addr = checkpoint->prev_cp_addr;
 	printk(KERN_INFO "Delete checkpoint stage 3.\n");
-	dc_checkpoint(sbi, (char *)checkpoint - (char *)sbi->virt_addr);
+	dc_checkpoint(sbi, L_ADDR(sbi, checkpoint));
 	return 0;
 }
