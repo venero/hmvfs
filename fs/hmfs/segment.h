@@ -41,7 +41,6 @@ struct sit_info {
 	struct seg_entry *sentries;	/* SIT segment-level cache */
 
 	/* for cost-benefit valuing */
-	//TODO: write elapsed_time to checkpoint
 	unsigned long long elapsed_time;
 	unsigned long long mounted_time;
 	unsigned long long min_mtime;

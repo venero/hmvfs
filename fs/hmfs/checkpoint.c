@@ -295,7 +295,8 @@ int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
 	}
 
 	return -1;
-found:	return i;
+found:
+	return i;
 }
 
 /*

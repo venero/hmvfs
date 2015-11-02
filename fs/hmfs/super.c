@@ -92,7 +92,8 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
 				goto bad_val;
 			}
-			//TODO: align
+			if(phys_addr & (HMFS_PAGE_SIZE - 1))
+				goto bad_val;
 			sbi->phys_addr = phys_addr;
 			break;
 		case Opt_size:
@@ -676,7 +677,6 @@ free_segment_mgr:
 free_cp_mgr:
 	destroy_checkpoint_manager(sbi);
 out:
-//TODO:
 	if (sbi->virt_addr) {
 		hmfs_iounmap(sbi->virt_addr);
 	}

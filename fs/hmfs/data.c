@@ -324,7 +324,6 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	return dest;
 }
 
-//TODO: allocate new block for gc
 void *alloc_new_data_block(struct inode *inode, int block)
 {
 	unsigned long long addr;
@@ -333,9 +332,6 @@ void *alloc_new_data_block(struct inode *inode, int block)
 	if (likely(inode))
 		return __alloc_new_data_block(inode, block);
 
-	/* 
-	 * TODO:alloc blocks for GC, it need check space left for GC
-	 */
 	if (!inc_gc_block_count(sbi, CURSEG_DATA))
 		return ERR_PTR(-ENOSPC);
 	sbi = HMFS_I_SB(inode);
