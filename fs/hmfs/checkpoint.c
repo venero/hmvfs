@@ -395,7 +395,7 @@ static block_t flush_orphan_inodes(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
-void do_checkpoint(struct hmfs_sb_info *sbi)
+static int do_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
@@ -405,10 +405,9 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	unsigned int cp_checksum, sb_checksum;
 	unsigned store_version;
 	int length;
-
 	block_t store_checkpoint_addr = 0;
-
-	block_t nat_root, orphan_blocks;
+	block_t nat_root_addr, orphan_blocks_addr;
+	struct hmfs_nat_node *nat_root;
 	struct hmfs_checkpoint *prev_checkpoint, *next_checkpoint;
 	struct hmfs_checkpoint *store_checkpoint;
 	struct curseg_info *curseg_i = SM_I(sbi)->curseg_array;
@@ -417,7 +416,10 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
 
 	nat_root = flush_nat_entries(sbi);
-	orphan_blocks = flush_orphan_inodes(sbi);
+	if (IS_ERR(nat_root))
+		return PTR_ERR(nat_root);
+	nat_root_addr = L_ADDR(sbi, nat_root);
+	orphan_blocks_addr = flush_orphan_inodes(sbi);
 
 	store_version = cm_i->new_version;
 	store_checkpoint_addr = alloc_free_node_block(sbi);
@@ -433,7 +435,7 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
 	set_struct(store_checkpoint, alloc_block_count,
 		   cm_i->alloc_block_count);
-	set_struct(store_checkpoint, nat_addr, nat_root);
+	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
 	set_struct(store_checkpoint, cur_node_segno,
 		   curseg_i[CURSEG_NODE].segno);
@@ -443,7 +445,7 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 		   curseg_i[CURSEG_DATA].segno);
 	set_struct(store_checkpoint, cur_data_blkoff,
 		   curseg_i[CURSEG_DATA].next_blkoff);
-	set_struct(store_checkpoint, orphan_addr, orphan_blocks);
+	set_struct(store_checkpoint, orphan_addr, orphan_blocks_addr);
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
 
@@ -471,22 +473,25 @@ void do_checkpoint(struct hmfs_sb_info *sbi)
 	hmfs_memcpy(raw_super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
 
 	move_to_next_checkpoint(sbi, store_checkpoint);
+
+	return 0;
 }
 
 //      Step1: calculate info and write sit and nat to NVM
 //      Step2: write CP itself to NVM
 //      Step3: remaining job
-void write_checkpoint(struct hmfs_sb_info *sbi)
+int write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	int ret;
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
-	do_checkpoint(sbi);
+	ret = do_checkpoint(sbi);
 
 	unblock_operations(sbi);
 	mutex_unlock(&cm_i->cp_mutex);
-
+	return ret;
 }
 
 //      Step1: read cp to cpi

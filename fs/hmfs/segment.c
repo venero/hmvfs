@@ -27,7 +27,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 }
 
 static void update_sit_entry(struct hmfs_sb_info *sbi, unsigned long segno,
-			     int blkoff, int del)
+			     int del)
 {
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -76,8 +76,8 @@ static void get_new_segment(struct hmfs_sb_info *sbi, unsigned long *newseg)
 	write_lock(&free_i->segmap_lock);
 
 	//FIXME: always look forward?
-	segno = find_next_zero_bit(free_i->free_segmap, 
-					TOTAL_SEGS(sbi), *newseg);
+	segno = find_next_zero_bit(free_i->free_segmap,
+				   TOTAL_SEGS(sbi), *newseg);
 	//if(segno >= TOTAL_SEGS(sbi))
 
 	BUG_ON(test_bit(segno, free_i->free_segmap));
@@ -107,7 +107,7 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
 	page_addr = cal_page_addr(sbi, seg_i);
 
 	mutex_lock(&sit_i->sentry_lock);
-	update_sit_entry(sbi, seg_i->segno, seg_i->next_blkoff, 1);
+	update_sit_entry(sbi, seg_i->segno, 1);
 	mutex_unlock(&sit_i->sentry_lock);
 
 	seg_i->next_blkoff++;
@@ -493,16 +493,10 @@ static void destroy_free_segmap(struct hmfs_sb_info *sbi)
 static void destroy_sit_info(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	unsigned int start;
 
 	if (!sit_i)
 		return;
 
-	if (sit_i->sentries) {
-		for (start = 0; start < TOTAL_SEGS(sbi); start++) {
-			//      kfree(sit_i->sentries[start].cur_valid_map);
-		}
-	}
 	vfree(sit_i->sentries);
 	kfree(sit_i->dirty_sentries_bitmap);
 
@@ -549,11 +543,9 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long segno = GET_SEGNO(sbi, blk_addr);
-	int blkoff =
-	 (blk_addr & (HMFS_SEGMENT_SIZE - 1)) >> HMFS_PAGE_SIZE_BITS;
 
 	mutex_lock(&sit_i->sentry_lock);
-	update_sit_entry(sbi, segno, blkoff, -1);
+	update_sit_entry(sbi, segno, -1);
 	mutex_unlock(&sit_i->sentry_lock);
 }
 

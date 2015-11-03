@@ -173,8 +173,8 @@ enum JOURNAL_TYPE {
  * nat inode
  */
 #define NAT_ADDR_PER_NODE		512
-#define NAT_SEARCH_SHIFT		9
 #define NAT_SEARCH_MASK			0xff
+#define LOG2_NAT_ADDRS_PER_NODE 9
 #define BITS_PER_NID 32
 struct hmfs_nat_node {
 	__le64 addr[NAT_ADDR_PER_NODE];
@@ -192,6 +192,8 @@ struct hmfs_nat_journal {
 } __attribute__ ((packed));
 
 #define NAT_ENTRY_PER_BLOCK		(HMFS_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
+#define LOG2_NAT_ENTRY_PER_BLOCK 9	//relatedd to ^
+#define NAT_WASTE_SIZE_BITS (LOG2_NAT_ADDRS_PER_NODE*hmfs_get_nat_height()+LOG2_NAT_ENTRY_PER_BLOCK-BITS_PER_NID)
 #define NAT_TREE_MAX_HEIGHT		4
 #define NID_TO_BLOCK_OFS(nid)		(nid % NAT_ENTRY_PER_BLOCK)
 
@@ -199,7 +201,12 @@ struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
 } __attribute__ ((packed));
 
-#define SIT_ENTRY_SIZE		(8)
+/*
+ * sit inode
+ */
+#define SIT_ENTRY_SIZE (sizeof(struct hmfs_sit_entry))
+#define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / SIT_ENTRY_SIZE)
+
 struct hmfs_sit_entry {
 	__le32 mtime;		/* segment age for cleaning */
 	__le16 vblocks;		/* reference above */

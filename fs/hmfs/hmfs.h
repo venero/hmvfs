@@ -604,7 +604,7 @@ void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      unsigned long blk_addr, unsigned int version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
-block_t flush_nat_entries(struct hmfs_sb_info *sbi);
+struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 void truncate_node(struct dnode_of_data *dn);
@@ -657,7 +657,7 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-void write_checkpoint(struct hmfs_sb_info *sbi);
+int write_checkpoint(struct hmfs_sb_info *sbi);
 int read_checkpoint(struct hmfs_sb_info *sbi, u32 version);
 unsigned int find_this_version(struct hmfs_sb_info *sbi);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,

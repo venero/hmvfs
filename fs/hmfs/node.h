@@ -31,6 +31,13 @@ struct free_nid {
 #define make_free_nid(nid,free)		(nid | ((u64)free << 63))
 #define get_free_nid(nid)			((nid << 1) >> 1)
 
+static inline void node_info_to_raw_nat(struct node_info *ni,
+					struct hmfs_nat_entry *ne)
+{
+	ne->ino = cpu_to_le32(ni->ino);
+	ne->block_addr = cpu_to_le64(ni->blk_addr);
+}
+
 static inline void node_info_from_raw_nat(struct node_info *ni,
 					  struct hmfs_nat_entry *ne)
 {

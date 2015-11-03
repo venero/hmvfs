@@ -310,7 +310,6 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 	struct hmfs_checkpoint *hmfs_cp;
 	struct hmfs_nat_node *nat_node;
 	struct gc_move_arg args;
-	unsigned int par_index;
 
 	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum, type);
 
@@ -320,8 +319,8 @@ static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
 		else {
-			par_index = args.nid >> NAT_SEARCH_SHIFT;
-			this = get_nat_node(sbi, args.cp_i->version, par_index);
+			//FIXME:
+			this = get_nat_node(sbi, args.cp_i->version, args.nid);
 		}
 
 		if (this == last)
@@ -439,7 +438,9 @@ gc_more:
 
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
-		write_checkpoint(sbi);
+		ret = write_checkpoint(sbi);
+		if (ret)
+			goto out;
 	}
 
 	if (!get_victim(sbi, &segno, gc_type))
@@ -456,7 +457,9 @@ gc_more:
 		goto gc_more;
 
 	if (gc_type == FG_GC) {
-		write_checkpoint(sbi);
+		ret = write_checkpoint(sbi);
+		if (ret)
+			goto out;
 	}
 out:
 	mutex_unlock(&sbi->gc_mutex);
@@ -476,8 +479,10 @@ static int gc_thread_func(void *data)
 		if (try_to_freeze())
 			continue;
 		else
-			wait_event_interruptible_timeout(*wq, kthread_should_stop(),
-							 msecs_to_jiffies(wait_ms));
+			wait_event_interruptible_timeout(*wq,
+							 kthread_should_stop(),
+							 msecs_to_jiffies
+							 (wait_ms));
 
 		if (kthread_should_stop())
 			break;
@@ -521,7 +526,8 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 	sbi->gc_thread = gc_thread;
 	init_waitqueue_head(&(sbi->gc_thread->gc_wait_queue_head));
 	sbi->gc_thread->hmfs_gc_task = kthread_run(gc_thread_func, sbi,
-						   "hmfs_gc-%lu:->%lu", start_addr, end_addr);
+						   "hmfs_gc-%lu:->%lu",
+						   start_addr, end_addr);
 	if (IS_ERR(gc_thread->hmfs_gc_task)) {
 		err = PTR_ERR(gc_thread->hmfs_gc_task);
 		kfree(gc_thread);

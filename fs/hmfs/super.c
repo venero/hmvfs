@@ -92,7 +92,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
 				goto bad_val;
 			}
-			if(phys_addr & (HMFS_PAGE_SIZE - 1))
+			if (phys_addr & (HMFS_PAGE_SIZE - 1))
 				goto bad_val;
 			sbi->phys_addr = phys_addr;
 			break;
@@ -516,21 +516,22 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct sit_info *sit_i = SIT_I(sbi);
+	int ret = 0;
 
 	if (!sit_i->dirty_sentries)
 		return 0;
 
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
-		write_checkpoint(sbi);
+		ret = write_checkpoint(sbi);
 		mutex_unlock(&sbi->gc_mutex);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
 			mutex_lock(&sbi->gc_mutex);
-			hmfs_gc(sbi, FG_GC);
+			ret = hmfs_gc(sbi, FG_GC);
 		}
 	}
-	return 0;
+	return ret;
 }
 
 static int hmfs_freeze(struct super_block *sb)
