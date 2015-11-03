@@ -1033,6 +1033,8 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 		       cur_nat_node);
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATD);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
+		BUG_ON(IS_ERR(cur_stored_node)||!cur_stored_node);
+		BUG_ON(!nat_entry_page);
 		hmfs_memcpy(cur_stored_node, nat_entry_page, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
 		if (old_nat_node != NULL) {
@@ -1061,6 +1063,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 		//this node is not wandered before, COW
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
+		BUG_ON(IS_ERR(cur_stored_node)||!cur_stored_node);
 		hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
 		tprint("<%s:%d> not wandered before || new allocated addr:%p",
@@ -1144,8 +1147,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 		BUG();
 		return NULL;
 	}
-
-	empty_page = alloc_page(GFP_KERNEL);
+	empty_page = alloc_page(GFP_KERNEL|__GFP_ZERO);
 	if (!empty_page) {
 		return ERR_PTR(-ENOMEM);
 	}
@@ -1160,9 +1162,10 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	//init first page
 	ne = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
 	old_blk_order = (ne->ni.nid) >> LOG2_NAT_ENTRY_PER_BLOCK;
-	old_entry_block =
-	 get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, ne->ni.nid);
-	hmfs_memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+	old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, 
+					ne->ni.nid);
+	if(old_entry_block)
+		hmfs_memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
 
 	/* FIXME :
 	 * 1) no space
@@ -1189,6 +1192,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 		_ofs = (ne->ni.nid) % LOG2_NAT_ENTRY_PER_BLOCK;
 		node_info_to_raw_nat(&ne->ni, &new_entry_block->entries[_ofs]);
 	}
+
 	// one page done, flush it
 	new_nat_root_addr = recursive_flush_nat_pages(sbi, old_root_node,
 				   new_root_node, new_blk_order, nat_height,
