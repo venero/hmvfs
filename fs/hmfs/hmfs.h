@@ -713,7 +713,6 @@ static inline int hmfs_has_inline_dentry(struct inode *inode)
 }
 #endif
 
-#define TEST 1
 #ifdef TEST
 void printtty(const char *format, ...);
 #define print printtty
