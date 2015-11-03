@@ -56,8 +56,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	}
 
 	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
-out:
-	mutex_unlock(&inode->i_mutex);
+out:	mutex_unlock(&inode->i_mutex);
 	return ret;
 }
 
@@ -111,8 +110,8 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		BUG_ON(nr > HMFS_PAGE_SIZE);
 		//TODO: get XIP by get inner-file blk_offset & look through NAT
 		error =
-		    get_data_blocks(inode, index, index + 1, xip_mem, &size,
-				    RA_END);
+		 get_data_blocks(inode, index, index + 1, xip_mem, &size,
+				 RA_END);
 
 		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {
@@ -125,8 +124,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		/* copy to user space */
 		if (!zero)
 			left =
-			    __copy_to_user(buf + copied, xip_mem[0] + offset,
-					   nr);
+			 __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
 		else
 			left = __clear_user(buf + copied, nr);
 
@@ -147,7 +145,6 @@ out:
 		file_accessed(filp);
 
 	return (copied ? copied : error);
-
 }
 
 static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
@@ -170,13 +167,12 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		if (bytes > count)
 			bytes = count;
 
-		xip_mem = get_new_data_block(inode, index);
+		xip_mem = alloc_new_data_block(inode, index);
 		if (unlikely(IS_ERR(xip_mem)))
 			break;
 
 		copied =
-		    bytes - __copy_from_user_nocache(xip_mem + offset, buf,
-						     bytes);
+		 bytes - __copy_from_user_nocache(xip_mem + offset, buf, bytes);
 
 		if (likely(copied > 0)) {
 			status = copied;
@@ -226,8 +222,10 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	current->backing_dev_info = mapping->backing_dev_info;
 
 	ret = generic_write_checks(filp, &pos, &count, S_ISBLK(inode->i_mode));
+
 	if (ret)
 		goto out_backing;
+
 	if (count == 0)
 		goto out_backing;
 
@@ -254,6 +252,26 @@ out_up:
 
 }
 
+static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
+					  block_t blk_addr)
+{
+	struct hmfs_summary *sum;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	int count;
+
+	sum = get_summary_by_addr(sbi, blk_addr);
+	count = get_summary_count(sum) - 1;
+	set_summary_count(sum, count);
+#ifdef CONFIG_DEBUG
+	BUG_ON(count < 0);
+#endif
+
+	if (!count) {
+		set_summary_dead_version(sum, cm_i->new_version);
+		invalidate_block_after_dc(sbi, blk_addr);
+	}
+}
+
 /* dn->node_block should be writable */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 {
@@ -262,10 +280,14 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	struct hmfs_node *raw_node = (struct hmfs_node *)dn->node_block;
 	struct hmfs_node *new_node = NULL;
 	void *data_blk;
-	u64 addr;
+	block_t addr;
+	nid_t nid;
+	char sum_type;
 
-	new_node =
-	    get_new_node(sbi, le64_to_cpu(raw_node->footer.nid), dn->inode);
+	nid = le32_to_cpu(raw_node->footer.nid);
+	sum_type = dn->level ? SUM_TYPE_DN : SUM_TYPE_INODE;
+	new_node = alloc_new_node(sbi, nid, dn->inode, sum_type);
+
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
 	for (; count > 0; count--, ofs++) {
@@ -282,7 +304,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		else
 			new_node->i.i_addr[ofs] = NULL_ADDR;
 
-		invalidate_blocks(sbi, addr);
+		setup_summary_of_delete_block(sbi, addr);
 		nr_free++;
 	}
 	if (nr_free) {
@@ -304,8 +326,8 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 
 	if (!offset)
 		return;
-	get_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
-				   HMFS_PAGE_SIZE, true);
+	alloc_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
+				     HMFS_PAGE_SIZE, true);
 	return;
 }
 
@@ -340,8 +362,7 @@ static int truncate_blocks(struct inode *inode, u64 from)
 		free_from += count;
 	}
 
-free_next:
-	err = truncate_inode_blocks(inode, free_from);
+free_next:err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
 	mutex_unlock_op(sbi, ilock);
@@ -389,7 +410,7 @@ static void fill_zero(struct inode *inode, pgoff_t index, loff_t start,
 		return;
 
 	ilock = mutex_lock_op(sbi);
-	get_new_data_partial_block(inode, index, start, start + len, true);
+	alloc_new_data_partial_block(inode, index, start, start + len, true);
 	mutex_unlock_op(sbi, ilock);
 }
 
@@ -586,12 +607,12 @@ long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 //      TODO: Inode flag operations
 //      [Inode Flag]
-		/*
-		   case HMFS_IOC_GETFLAGS:
-		   return hmfs_ioc_getflags(filp, arg);
-		   case HMFS_IOC_SETFLAGS:
-		   return hmfs_ioc_setflags(filp, arg);
-		 */
+/*
+ case HMFS_IOC_GETFLAGS:
+ return hmfs_ioc_getflags(filp, arg);
+ case HMFS_IOC_SETFLAGS:
+ return hmfs_ioc_setflags(filp, arg);
+ */
 	case HMFS_IOC_GETVERSION:
 		return hmfs_ioc_getversion(filp, arg);
 	default:

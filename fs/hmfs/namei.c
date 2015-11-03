@@ -63,12 +63,10 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		inc_valid_inode_count(sbi);
 		return inode;
 	}
-out:
-	clear_nlink(inode);
+out:	clear_nlink(inode);
 	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	unlock_new_inode(inode);
-fail:
-	make_bad_inode(inode);
+fail:	make_bad_inode(inode);
 	iput(inode);
 	if (nid_free)
 		alloc_nid_failed(sbi, ino);
@@ -92,8 +90,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 	return inode;
-out:
-	clear_nlink(inode);
+out:	clear_nlink(inode);
 	unlock_new_inode(inode);
 	make_bad_inode(inode);
 	iput(inode);
@@ -176,8 +173,7 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		goto out;
 	d_instantiate(dentry, inode);
 	return 0;
-out:
-	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
+out:	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	iput(inode);
 	return err;
 }
@@ -201,7 +197,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	ilock = mutex_lock_op(sbi);
-	res_blk = get_new_data_block(dir, bidx);
+	res_blk = alloc_new_data_block(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		mutex_unlock_op(sbi, ilock);
@@ -213,8 +209,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
-fail:
-	return err;
+fail:	return err;
 }
 
 static int hmfs_rmdir(struct inode *dir, struct dentry *dentry)
@@ -239,14 +234,14 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int err = -ENOENT, ilock;
 	int new_ofs, new_bidx, old_bidx, old_ofs;
 
-	old_entry =
-	    hmfs_find_entry(old_dir, &old_dentry->d_name, &old_bidx, &old_ofs);
+	old_entry = hmfs_find_entry(old_dir, &old_dentry->d_name, &old_bidx,
+				    &old_ofs);
 	if (!old_entry)
 		goto out;
 
 	ilock = mutex_lock_op(sbi);
 
-	old_dentry_blk = get_new_data_block(old_dir, old_bidx);
+	old_dentry_blk = alloc_new_data_block(old_dir, old_bidx);
 	if (IS_ERR(old_dentry_blk)) {
 		err = PTR_ERR(old_dentry_blk);
 		goto out_k;
@@ -268,12 +263,12 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 		err = -ENOENT;
 		new_entry =
-		    hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
-				    &new_ofs);
+		 hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
+				 &new_ofs);
 		if (!new_entry)
 			goto out_k;
 
-		new_dentry_blk = get_new_data_block(new_dir, new_bidx);
+		new_dentry_blk = alloc_new_data_block(new_dir, new_bidx);
 		if (IS_ERR(new_dentry_blk)) {
 			err = PTR_ERR(new_dentry_blk);
 			goto out_k;
@@ -308,8 +303,8 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
 
-	hmfs_delete_entry(old_entry, old_dentry_blk,
-			  old_dir, old_inode, old_bidx);
+	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, old_inode,
+			  old_bidx);
 
 	if (old_dir_entry) {
 		if (old_dir != new_dir) {
@@ -318,10 +313,8 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:
-	mutex_unlock_op(sbi, ilock);
-out:
-	return err;
+out_k:	mutex_unlock_op(sbi, ilock);
+out:	return err;
 }
 
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
@@ -342,14 +335,14 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 	if (ia_valid & ATTR_GID)
 		inode->i_gid = attr->ia_gid;
 	if (ia_valid & ATTR_ATIME)
-		inode->i_atime =
-		    timespec_trunc(attr->ia_atime, inode->i_sb->s_time_gran);
+		inode->i_atime = timespec_trunc(attr->ia_atime,
+						inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MTIME)
-		inode->i_mtime =
-		    timespec_trunc(attr->ia_mtime, inode->i_sb->s_time_gran);
+		inode->i_mtime = timespec_trunc(attr->ia_mtime,
+						inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_CTIME)
-		inode->i_ctime =
-		    timespec_trunc(attr->ia_ctime, inode->i_sb->s_time_gran);
+		inode->i_ctime = timespec_trunc(attr->ia_ctime,
+						inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
