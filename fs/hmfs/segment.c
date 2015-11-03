@@ -71,14 +71,22 @@ static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
 static void get_new_segment(struct hmfs_sb_info *sbi, unsigned long *newseg)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	u64 segno;
+	unsigned long segno;
+	bool retry = false;
 
 	write_lock(&free_i->segmap_lock);
 
-	//FIXME: always look forward?
+retry:
 	segno = find_next_zero_bit(free_i->free_segmap,
 				   TOTAL_SEGS(sbi), *newseg);
-	//if(segno >= TOTAL_SEGS(sbi))
+	if(segno >= TOTAL_SEGS(sbi)) {
+		*newseg = 0;
+		if(!retry) {
+			retry = true;
+			goto retry;
+		}
+		BUG();
+	}
 
 	BUG_ON(test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
@@ -112,7 +120,6 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
-		//TODO : journal when writing CP
 		move_to_new_segment(sbi, seg_i);
 
 		spin_lock(&cm_i->stat_lock);
@@ -176,14 +183,8 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *curseg = CURSEG_I(sbi);
 	unsigned long segno = curseg->segno;
 
-	//TODO:write-back 
-	//write_sum_page(sbi, curseg->sum_blk, 
-	//                        GET_SUM_BLOCK(sbi, segno)); 
-
 	get_new_segment(sbi, &segno);
 	curseg->next_segno = segno;
-	//TODO: set current seg to segno
-	//reset_curseg(sbi, type, 1); 
 }
 
 void flush_sit_entries(struct hmfs_sb_info *sbi)
@@ -235,7 +236,6 @@ void allocate_new_segments(struct hmfs_sb_info *sbi)
 	curseg = CURSEG_I(sbi);
 	old_curseg = curseg->segno;
 	new_curseg(sbi);
-	//TODO:locate_dirty_segment(sbi, old_curseg);
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
@@ -625,14 +625,6 @@ void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr)
 	}
 
 	summary->count = cpu_to_le32(count);
-}
-
-//      TODO: Billy (in node.c)
-//      Input: nid of a given block in nat B-tree on NVM
-//      Output: the addr of this block
-void *get_addr_by_nat_nid(nid_t nid)
-{
-	return NULL;
 }
 
 void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr)
