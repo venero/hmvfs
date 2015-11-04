@@ -316,8 +316,8 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *array;
 	int i;
 
-	array =
-	 kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE, GFP_KERNEL);
+	array = kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE,
+					GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
@@ -349,6 +349,7 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 
 static void init_free_segmap(struct hmfs_sb_info *sbi)
 {
+	struct free_segmap_info *free_i = FREE_I(sbi);
 	unsigned int start;
 	struct curseg_info *curseg_t = NULL;
 	struct seg_entry *sentry = NULL;
@@ -356,8 +357,12 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		sentry = get_seg_entry(sbi, start);
-		if (!sentry->valid_blocks)
-			__set_free(sbi, start);
+		if (!sentry->valid_blocks) {
+			write_lock(&free_i->segmap_lock);
+			clear_bit(start, free_i->free_segmap);
+			free_i->free_segments++;
+			write_unlock(&free_i->segmap_lock);
+		}
 	}
 
 	/* set use the current segments */

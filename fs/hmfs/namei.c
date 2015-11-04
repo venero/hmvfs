@@ -55,7 +55,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CURCP_I(sbi)->version, true);
+	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);
 	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
 	mutex_unlock_op(sbi, ilock);
@@ -63,10 +63,12 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		inc_valid_inode_count(sbi);
 		return inode;
 	}
-out:	clear_nlink(inode);
+out:
+	clear_nlink(inode);
 	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	unlock_new_inode(inode);
-fail:	make_bad_inode(inode);
+fail:	
+	make_bad_inode(inode);
 	iput(inode);
 	if (nid_free)
 		alloc_nid_failed(sbi, ino);

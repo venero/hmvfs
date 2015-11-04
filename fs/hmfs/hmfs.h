@@ -88,6 +88,12 @@ struct orphan_inode_entry {
 	nid_t ino;
 };
 
+/* for the list of dirty fmap inodes */
+struct map_inode_entry {
+	struct list_head list;
+	struct inode *inode;
+};
+
 struct hmfs_nm_info {
 	nid_t max_nid;		/* maximum possible node ids */
 	nid_t next_scan_nid;	/* the next nid to be scanned */
@@ -112,7 +118,6 @@ struct hmfs_nm_info {
 struct hmfs_cm_info {
 	struct checkpoint_info *cur_cp_i;
 	int new_version;
-	struct page *cp_page;
 
 	struct checkpoint_info *last_cp_i;
 
@@ -138,6 +143,8 @@ struct hmfs_cm_info {
 	struct mutex cp_tree_lock;
 
 	spinlock_t stat_lock;
+
+	unsigned nr_nat_journals;
 
 	struct mutex cp_mutex;
 };
@@ -187,6 +194,11 @@ struct hmfs_sb_info {
 	struct hmfs_nm_info *nm_info;
 	struct hmfs_sm_info *sm_info;	/* segment manager */
 
+	atomic_t nr_dirty_map_pages;
+	struct list_head dirty_map_inodes;
+	spinlock_t dirty_map_inodes_lock;
+	int s_dirty;
+
 	int por_doing;		/* recovery is doing or not */
 };
 
@@ -200,6 +212,7 @@ struct hmfs_inode_info {
 	unsigned long flags;	/* use to pass per-file flags */
 	struct rw_semaphore i_sem;	/* protect fi info */
 	u64 i_pino;		/* parent inode number */
+	atomic_t nr_dirty_map_pages;
 };
 
 struct hmfs_stat_info {
@@ -238,7 +251,8 @@ enum DATA_RA_TYPE {
 };
 
 enum ADDR_TYPE {
-	NULL_ADDR = 0, NEW_ADDR = -1, FREE_ADDR = -2,
+	NULL_ADDR = 0,
+	NEW_ADDR = 1,
 };
 
 enum READ_DNODE_TYPE {
@@ -567,8 +581,28 @@ static inline int hmfs_clear_bit(unsigned int nr, char *addr)
 	return ret;
 }
 
-/* define prototype function */
+static inline void inc_dirty_map_pages_count(struct hmfs_sb_info *sbi)
+{
+	atomic_inc(&sbi->nr_dirty_map_pages);
+	sbi->s_dirty = 1;
+}
 
+static inline void dec_dirty_map_pages_count(struct hmfs_sb_info *sbi)
+{
+	atomic_dec(&sbi->nr_dirty_map_pages);
+}
+
+static inline void inode_inc_dirty_map_pages_count(struct inode *inode)
+{
+	atomic_inc(&HMFS_I(inode)->nr_dirty_map_pages);
+}
+
+static inline void inode_dec_dirty_map_pages_count(struct inode *inode)
+{
+	atomic_dec(&HMFS_I(inode)->nr_dirty_map_pages);
+}
+
+/* define prototype function */
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode);
@@ -647,10 +681,8 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
-int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
-			 nid_t nid, int alloc);
-struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info,
-				     int index);
+void add_dirty_map_inode(struct inode *inode);
+void remove_dirty_map_inode(struct inode *inode);
 void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 void recover_orphan_inode(struct hmfs_sb_info *sbi);
@@ -670,6 +702,7 @@ void *alloc_new_data_block(struct inode *inode, int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
 				   int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
+int hmfs_write_data_page(struct page *page, struct writeback_control *wbc);
 
 /* dir.c */
 int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);

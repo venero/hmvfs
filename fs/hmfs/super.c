@@ -394,6 +394,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	init_once((void *)fi);
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
+	atomic_set(&fi->nr_dirty_map_pages, 0);
 	return &(fi->vfs_inode);
 }
 
@@ -630,8 +631,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->segment_count = le64_to_cpu(super->segment_count);
 	sbi->segment_count_main = le64_to_cpu(super->segment_count_main);
-	sbi->page_count_main =
-	 sbi->segment_count_main << HMFS_PAGE_PER_SEG_BITS;
+	sbi->page_count_main =  sbi->segment_count_main << HMFS_PAGE_PER_SEG_BITS;
 	ssa_addr = le64_to_cpu(super->ssa_blkaddr);
 	sit_addr = le64_to_cpu(super->sit_blkaddr);
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
@@ -649,18 +649,22 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	mutex_init(&sbi->gc_mutex);
 	sbi->next_lock_num = 0;
 
+	atomic_set(&sbi->nr_dirty_map_pages, 0);
+	sbi->s_dirty = 0;
+	spin_lock_init(&sbi->dirty_map_inodes_lock);
+	INIT_LIST_HEAD(&sbi->dirty_map_inodes);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
 	sb->s_maxbytes = hmfs_max_size();
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 
-/* init checkpoint */
+	/* init checkpoint */
 	retval = init_checkpoint_manager(sbi);
 	if (retval)
 		goto out;
 
-/* init nat */
+	/* init nat */
 	retval = build_node_manager(sbi);
 	if (retval)
 		goto free_cp_mgr;
@@ -687,11 +691,11 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		goto free_root_inode;
 	}
 
-	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
+	sb->s_root = d_make_root(root);	
 	if (!sb->s_root) {
 		goto free_root_inode;
 	}
-// create debugfs
+	/* create debugfs */
 	hmfs_build_stats(sbi);
 
 	return 0;
