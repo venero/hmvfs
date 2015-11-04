@@ -316,8 +316,8 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *array;
 	int i;
 
-	array =
-	 kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE, GFP_KERNEL);
+	array = kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE,
+					GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
