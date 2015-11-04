@@ -1012,7 +1012,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 					 unsigned short *alloc_cnt)
 {
 	//FIXME : cannot handle no space
-	//TODO : add SSA support
 	struct hmfs_nat_node *cur_stored_node, *old_child_node = NULL,
 	 *cur_child_node = NULL;
 	block_t old_nat_addr, cur_stored_addr, child_stored_addr, _addr,
@@ -1128,6 +1127,17 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	return cur_stored_addr;
 }
 
+static inline void clean_dirty_nat_entries(struct hmfs_sb_info *sbi) 
+{
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	struct nat_entry *ne;
+	
+	list_for_each_entry(ne, &nm_i->dirty_nat_entries, list) {
+		list_del(&ne->list);
+		list_add_tail(&ne->list, &nm_i->nat_entries);
+	}
+}
+
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nat_node *old_root_node, *new_root_node;
@@ -1140,7 +1150,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	unsigned char nat_height;
 	block_t old_blk_order, new_blk_order = 0, _ofs;
 
-	if (nm_i->dirty_nat_entries.next == &nm_i->dirty_nat_entries) {
+	if (list_empty(&nm_i->dirty_nat_entries)) {
 		BUG();
 		return NULL;
 	}
@@ -1149,7 +1159,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	if (!empty_page) {
 		return ERR_PTR(-ENOMEM);
 	}
-	new_entry_block = kmap(empty_page);	//FIXME: undo if failed
+	new_entry_block = kmap(empty_page);	
 
 	nat_height = sbi->nat_height;
 	alloc_cnt = 0;
@@ -1160,8 +1170,8 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	//init first page
 	ne = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
 	old_blk_order = (ne->ni.nid) >> LOG2_NAT_ENTRY_PER_BLOCK;
-	old_entry_block =
-	 get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, ne->ni.nid);
+	old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
+					ne->ni.nid);
 	hmfs_memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
 
 	/* FIXME :
@@ -1197,6 +1207,8 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 		// root node not COWed
 		new_root_node = ADDR(sbi, new_nat_root_addr);
 	}
+	
+	clean_dirty_nat_entries(sbi);
 
 	read_unlock(&nm_i->nat_tree_lock);
 

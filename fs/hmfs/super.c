@@ -257,7 +257,7 @@ static int hmfs_format(struct super_block *sb)
 	node_blkoff++;
 	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE);
 
-	cp_addr = nat_addr + HMFS_PAGE_SIZE * node_blkoff;
+	cp_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
 /* node[2]: init cp */
 	node_blkoff += 1;

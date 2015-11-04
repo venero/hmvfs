@@ -56,7 +56,8 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	}
 
 	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
-out:	mutex_unlock(&inode->i_mutex);
+out:
+	mutex_unlock(&inode->i_mutex);
 	return ret;
 }
 
@@ -71,8 +72,8 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	size_t copied = 0, error = 0;
 
 	pos = *ppos;
-	index = pos >> HMFS_PAGE_SIZE_BITS;	//TODO: shift is HMFS_BLK_SHIFT
-	offset = pos & ~HMFS_PAGE_MASK;	//^
+	index = pos >> HMFS_PAGE_SIZE_BITS;	
+	offset = pos & ~HMFS_PAGE_MASK;
 
 	mutex_lock(&inode->i_mutex);
 	isize = i_size_read(inode);
@@ -108,10 +109,8 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		if (nr > len - copied)
 			nr = len - copied;
 		BUG_ON(nr > HMFS_PAGE_SIZE);
-		//TODO: get XIP by get inner-file blk_offset & look through NAT
-		error =
-		 get_data_blocks(inode, index, index + 1, xip_mem, &size,
-				 RA_END);
+		error = get_data_blocks(inode, index, index + 1, xip_mem, 
+						&size, RA_END);
 
 		if (unlikely(error || size != 1)) {
 			if (error == -ENODATA) {

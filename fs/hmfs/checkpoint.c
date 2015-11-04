@@ -37,7 +37,8 @@ void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 			break;
 		orphan = NULL;
 	}
-retry:	new = kmem_cache_alloc(orphan_entry_slab, GFP_ATOMIC);
+retry:
+	new = kmem_cache_alloc(orphan_entry_slab, GFP_ATOMIC);
 	if (!new) {
 		cond_resched();
 		goto retry;
@@ -49,7 +50,8 @@ retry:	new = kmem_cache_alloc(orphan_entry_slab, GFP_ATOMIC);
 	else
 		list_add_tail(&new->list, head);
 	cm_i->n_orphans++;
-out:	mutex_unlock(&cm_i->orphan_inode_mutex);
+out:	
+	mutex_unlock(&cm_i->orphan_inode_mutex);
 }
 
 void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
