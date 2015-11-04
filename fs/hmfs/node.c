@@ -166,27 +166,6 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 	mutex_unlock(&nm_i->build_lock);
 }
 
-int build_node_manager(struct hmfs_sb_info *sbi)
-{
-	struct hmfs_nm_info *info;
-	int err;
-
-	info = kzalloc(sizeof(struct hmfs_nm_info), GFP_KERNEL);
-	if (!info)
-		return -ENOMEM;
-	sbi->nm_info = info;
-
-	err = init_node_manager(sbi);
-	if (err) {
-		goto free_nm;
-	}
-
-	return 0;
-free_nm:
-	kfree(info);
-	return err;
-}
-
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 {
 	struct nat_entry *new;
@@ -776,13 +755,9 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 {
-	struct checkpoint_info *cp_info = CURCP_I(sbi);
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct hmfs_nat_entry ne, *ne_local;
+	struct hmfs_nat_entry *ne_local;
 	struct nat_entry *e;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
-	int i;
-	bool dirty;
 
 	/* search in nat cache */
 	e = __lookup_nat_cache(nm_i, nid);
@@ -795,27 +770,12 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 		return 0;
 	}
 
-	/* search nat journals */
-	read_lock(&cm_i->journal_lock);
-	i = lookup_journal_in_cp(cp_info, NAT_JOURNAL, nid, 0);
-	read_unlock(&cm_i->journal_lock);
-	if (i >= 0) {
-		read_lock(&cm_i->journal_lock);
-		ne = nat_in_journal(cp_info, i);
-		read_unlock(&cm_i->journal_lock);
-		node_info_from_raw_nat(ni, &ne);
-		dirty = true;
-		goto cache;
-	}
-
 	/* search in main area */
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
 	if (ne_local == NULL)
 		return -ENODATA;
 	node_info_from_raw_nat(ni, ne_local);
-	dirty = false;
 
-cache:
 	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, ni->version, false);
 	return 0;
 }
@@ -832,10 +792,10 @@ static void recycle_nat_journals(struct hmfs_sb_info *sbi,
 				 struct hmfs_nm_info *nm_i, int *pos)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct hmfs_checkpoint *hmfs_cp = CURCP_I(sbi)->cp;
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
 	int i;
 	nid_t nid;
-	u64 blk_addr;
+	block_t blk_addr;
 
 	write_lock(&cm_i->journal_lock);
 	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP && *pos >= 0; ++i) {
@@ -1142,6 +1102,52 @@ static inline void clean_dirty_nat_entries(struct hmfs_sb_info *sbi)
 		list_del(&ne->list);
 		list_add_tail(&ne->list, &nm_i->nat_entries);
 	}
+}
+
+static void cache_nat_journals_entries(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	struct hmfs_nat_journal *ne;
+	nid_t nid, ino;
+	block_t blk_addr;
+	int i;
+	unsigned int version = CM_I(sbi)->new_version;
+
+	read_lock(&CM_I(sbi)->journal_lock);
+	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
+		ne = &hmfs_cp->nat_journals[i];
+		nid = le32_to_cpu(ne->nid);
+		ino = le32_to_cpu(ne->entry.ino);
+		blk_addr = le64_to_cpu(ne->entry.block_addr);
+		
+		if (ino > HMFS_ROOT_INO && blk_addr != NULL_ADDR)
+			update_nat_entry(nm_i, nid, ino, blk_addr, version, true);
+	}
+	read_unlock(&CM_I(sbi)->journal_lock);
+}
+
+int build_node_manager(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_nm_info *info;
+	int err;
+
+	info = kzalloc(sizeof(struct hmfs_nm_info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+	sbi->nm_info = info;
+
+	err = init_node_manager(sbi);
+	if (err) {
+		goto free_nm;
+	}
+
+	cache_nat_journals_entries(sbi);
+	
+	return 0;
+free_nm:
+	kfree(info);
+	return err;
 }
 
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)

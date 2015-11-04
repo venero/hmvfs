@@ -118,7 +118,6 @@ struct hmfs_nm_info {
 struct hmfs_cm_info {
 	struct checkpoint_info *cur_cp_i;
 	int new_version;
-	struct page *cp_page;
 
 	struct checkpoint_info *last_cp_i;
 
@@ -679,10 +678,6 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
 /* checkpoint.c */
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
-int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
-			 nid_t nid, int alloc);
-struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info,
-				     int index);
 void add_dirty_map_inode(struct inode *inode);
 void remove_dirty_map_inode(struct inode *inode);
 void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t);

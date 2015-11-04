@@ -237,9 +237,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	struct checkpoint_info *cp_i;
 	struct hmfs_super_block *super = ADDR(sbi, 0);
 	struct hmfs_checkpoint *hmfs_cp;
-	struct page *new_hmfs_cp_page;
 	unsigned long long cp_addr;
-	int i;
 
 	cm_i = kzalloc(sizeof(struct hmfs_cm_info), GFP_KERNEL);
 
@@ -252,10 +250,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	if (!cp_i) {
 		goto out_cp_i;
 	}
-	new_hmfs_cp_page = alloc_page(GFP_KERNEL);
-	if (new_hmfs_cp_page == NULL) {
-		goto out_cp_page;
-	}
 
 	/* Init checkpoint_info list */
 	cp_addr = le64_to_cpu(super->cp_page_addr);
@@ -264,8 +258,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
 	cm_i->valid_node_count = le32_to_cpu(hmfs_cp->valid_node_count);
 	cm_i->valid_block_count = le32_to_cpu(hmfs_cp->valid_block_count);
-	cm_i->user_block_count =
-	 le32_to_cpu(HMFS_RAW_SUPER(sbi)->user_block_count);
+	cm_i->user_block_count = le32_to_cpu(HMFS_RAW_SUPER(sbi)->user_block_count);
 	cm_i->alloc_block_count = le32_to_cpu(hmfs_cp->alloc_block_count);
 	sync_checkpoint_info(sbi, hmfs_cp, cp_i);
 	cm_i->last_cp_i = cp_i;
@@ -287,22 +280,15 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	 next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp_i->version = cm_i->new_version;
 	cp_i->nat_root = NULL;
-	cp_i->cp = kmap(new_hmfs_cp_page);
-	cm_i->cp_page = new_hmfs_cp_page;
+	cp_i->cp = NULL;
 
 	init_orphan_manager(cm_i);
-
-	//FIXME: copy all sit journals and nat journals to DRAM
-	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i)
-		cp_i->cp->nat_journals[i] = hmfs_cp->nat_journals[i];
 
 	cm_i->cur_cp_i = cp_i;
 
 	sbi->cm_info = cm_i;
 	return 0;
 
-out_cp_page:
-	kfree(cp_i);
 out_cp_i:
 	kfree(cm_i);
 out_cm_i:
@@ -334,46 +320,8 @@ int destroy_checkpoint_manager(struct hmfs_sb_info *sbi)
 	destroy_checkpoint_info(cm_i);
 	mutex_unlock(&cm_i->cp_tree_lock);
 
-//FIXME:Need lock here?
-	kunmap(cm_i->cp_page);
-	__free_page(cm_i->cp_page);
-	cm_i->cp_page = NULL;
 	kfree(cm_i);
 	return 0;
-}
-
-/*
- * Caller must hold hmfs_cm_info.journal_lock
- */
-int lookup_journal_in_cp(struct checkpoint_info *cp_info, unsigned int type,
-			 nid_t nid, int alloc)
-{
-	struct hmfs_checkpoint *cp = cp_info->cp;
-	int i;
-
-	if (type == NAT_JOURNAL) {
-		for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
-			if (nid == le64_to_cpu(cp->nat_journals[i].nid))
-				goto found;
-		}
-	}
-
-	return -1;
-found:
-	return i;
-}
-
-/*
- * Caller must hold hmfs_cm_info.journal_lock
- */
-struct hmfs_nat_entry nat_in_journal(struct checkpoint_info *cp_info, int index)
-{
-	struct hmfs_checkpoint *cp = cp_info->cp;
-	struct hmfs_nat_entry entry;
-
-	entry = cp->nat_journals[index].entry;
-
-	return entry;
 }
 
 int create_checkpoint_caches(void)
@@ -599,8 +547,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	prev_checkpoint->next_version = store_checkpoint->checkpoint_ver;
 	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
 
-	length =
-	 (char *)(&store_checkpoint->checksum) - (char *)store_checkpoint;
+	length = (char *)(&store_checkpoint->checksum) -
+			(char *)store_checkpoint;
 	cp_checksum = crc16(~0, (void *)store_checkpoint, length);
 	set_struct(store_checkpoint, checksum, cp_checksum);
 
