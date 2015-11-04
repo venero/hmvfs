@@ -563,16 +563,24 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	int err;
 
 	err = get_node_info(sbi, nid, &ni);
-	if (err)
+
+	tprint("<%s> nid [nid:%d | ino:%d | blk_addr:%d]", __FUNCTION__, ni.nid, ni.ino, ni.blk_addr);
+	if (err) {
+		tprint("<%s> err", __FUNCTION__);
 		return ERR_PTR(err);
-	if (ni.blk_addr == NULL_ADDR)
+	}
+	if (ni.blk_addr == NULL_ADDR) {
+		tprint("<%s> err null addr", __FUNCTION__);
 		return ERR_PTR(-ENODATA);
+	}
 	/* 
 	 * accelerate speed to grab nat entry, 
 	 * we don't need to search nat entry block
 	 */
-	else if (ni.blk_addr == NEW_ADDR)
+	else if (ni.blk_addr == NEW_ADDR) {
+		tprint("<%s> err null addr", __FUNCTION__);
 		return ERR_PTR(-EINVAL);
+	}
 	return ADDR(sbi, ni.blk_addr);
 }
 
