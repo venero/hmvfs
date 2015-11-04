@@ -153,7 +153,7 @@ struct hmfs_sb_info {
 	phys_addr_t phys_addr;	//get from user mount                   [hmfs_parse_options]
 	void *virt_addr;	//hmfs_superblock & also HMFS address   [ioremap]
 
-	u64 initsize;
+	unsigned long long initsize;
 	unsigned long s_mount_opt;
 	kuid_t uid;
 	kgid_t gid;
@@ -713,6 +713,7 @@ static inline int hmfs_has_inline_dentry(struct inode *inode)
 }
 #endif
 
+#define TEST 1
 #ifdef TEST
 void printtty(const char *format, ...);
 #define print printtty

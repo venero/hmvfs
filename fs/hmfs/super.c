@@ -329,8 +329,9 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, log_pagesize, HMFS_PAGE_SIZE_BITS);
 	set_struct(super, log_pages_per_seg, HMFS_PAGE_PER_SEG_BITS);
 
-	set_struct(super, segment_count, init_size >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(super, segment_count_main, main_segments_count);
+	set_struct(super, init_size, init_size);
+	set_struct(super, segment_count, init_size >> HMFS_SEGMENT_SIZE_BITS);
 	set_struct(super, user_block_count, user_pages_count);
 	set_struct(super, ssa_blkaddr, ssa_addr);
 	set_struct(super, sit_blkaddr, sit_addr);
@@ -571,6 +572,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	int i = 0;
 	unsigned long end_addr;
 	unsigned long long ssa_addr, sit_addr;
+	unsigned long long input_size;
 
 /* sbi initialization */
 	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
@@ -579,12 +581,18 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 /* get phys_addr from @data&virt_addr from ioremap */
-	sb->s_fs_info = sbi;	//link sb and sbi:
+	sb->s_fs_info = sbi;
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
 	if (hmfs_parse_options((char *)data, sbi, 0)) {
 		retval = -EINVAL;
 		goto out;
+	}
+
+	input_size = sbi->initsize;
+	if(!input_size){
+		//read from hypothetic super blocks
+		sbi->initsize = HMFS_PAGE_SIZE << 1; 
 	}
 
 	sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
@@ -594,10 +602,27 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	super = get_valid_super_block(sbi->virt_addr);
-	if (sbi->initsize || !super) {
+	if(!input_size && super != NULL){
+		//old super exists, remount
+		tprint("<%s>1 CRC:%d", __FUNCTION__, le16_to_cpu(super->checksum));
+		sbi->initsize = le64_to_cpu(super->init_size);
+		hmfs_iounmap(sbi->virt_addr);
+		sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
+		if (!sbi->virt_addr) {
+			retval = -EINVAL;
+			goto out;
+		}
+	} else if (input_size){
+		//format
 		hmfs_format(sb);
-		super = get_valid_super_block(sbi->virt_addr);
+	} else {
+		//no super && no initsize
+		retval = -EINVAL;
+		goto out;
 	}
+
+	super = get_valid_super_block(sbi->virt_addr);
+	tprint("<%s>2 CRC:%d",__FUNCTION__, le16_to_cpu(super->checksum));
 	if (!super) {
 		retval = -EINVAL;
 		goto out;

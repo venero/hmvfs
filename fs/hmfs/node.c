@@ -1219,6 +1219,8 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 
 	write_unlock(&nm_i->nat_tree_lock);
 
+	tprint("<%s> allocate_cnt:%d",__FUNCTION__, alloc_cnt);
+
 	kunmap(empty_page);
 	__free_page(empty_page);
 	return new_root_node;

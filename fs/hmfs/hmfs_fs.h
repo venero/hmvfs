@@ -76,6 +76,7 @@ struct hmfs_super_block {
 	__le32 log_pagesize;	/* log2 block size in bytes */
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
 	__le64 segment_count;	/* total # of segments */
+	__le64 init_size;	/* total # of Bytes */
 
 	__le32 segment_count_sit;	/* # of segments for SIT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
