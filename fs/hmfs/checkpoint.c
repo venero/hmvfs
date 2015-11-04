@@ -242,9 +242,12 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	sbi->cm_info = cm_i;
 	return 0;
 
-out_cp_page:kfree(cp_i);
-out_cp_i:kfree(cm_i);
-out_cm_i:return -ENOMEM;
+out_cp_page:
+	kfree(cp_i);
+out_cp_i:
+	kfree(cm_i);
+out_cm_i:
+	return -ENOMEM;
 }
 
 static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)

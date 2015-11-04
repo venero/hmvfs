@@ -1134,8 +1134,11 @@ static inline void clean_dirty_nat_entries(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *ne;
+	struct list_head *head, *this, *next;
 	
-	list_for_each_entry(ne, &nm_i->dirty_nat_entries, list) {
+	head = &nm_i->dirty_nat_entries;
+	list_for_each_safe(this, next, head) {
+		ne = list_entry(this, struct nat_entry, list);
 		list_del(&ne->list);
 		list_add_tail(&ne->list, &nm_i->nat_entries);
 	}
@@ -1167,7 +1170,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	alloc_cnt = 0;
 	new_root_node = old_root_node = CM_I(sbi)->last_cp_i->nat_root;
 
-	read_lock(&nm_i->nat_tree_lock);
+	write_lock(&nm_i->nat_tree_lock);
 
 	//init first page
 	ne = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
@@ -1214,7 +1217,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	
 	clean_dirty_nat_entries(sbi);
 
-	read_unlock(&nm_i->nat_tree_lock);
+	write_unlock(&nm_i->nat_tree_lock);
 
 	kunmap(empty_page);
 	__free_page(empty_page);
