@@ -2,10 +2,13 @@
 #include "hmfs_fs.h"
 #include "segment.h"
 #include <linux/crc16.h>
+#include <linux/pagevec.h>
 
 static struct kmem_cache *orphan_entry_slab;
 
 static struct kmem_cache *cp_info_entry_slab;
+
+static struct kmem_cache *map_inode_entry_slab;
 
 static unsigned int next_checkpoint_ver(unsigned int version)
 {
@@ -85,6 +88,62 @@ int check_orphan_space(struct hmfs_sb_info *sbi)
 	BUG_ON(cm_i->n_orphans > HMFS_MAX_ORPHAN_NUM);
 	mutex_unlock(&cm_i->orphan_inode_mutex);
 	return err;
+}
+
+static int __add_dirty_map_inode(struct inode *inode, struct map_inode_entry *new)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct list_head *head = &sbi->dirty_map_inodes;
+	struct list_head *this;
+	struct map_inode_entry *entry;
+
+	list_for_each(this, head) {
+		entry = list_entry(this, struct map_inode_entry, list);
+		if (entry->inode == inode)
+			return -EEXIST;
+	}
+	list_add_tail(&new->list, head);
+	return 0;
+}
+
+void add_dirty_map_inode(struct inode *inode)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct map_inode_entry *new;
+retry:
+	new = kmem_cache_alloc(map_inode_entry_slab, GFP_NOFS);
+	if (!new) {
+		cond_resched();
+		goto retry;
+	}
+	new->inode = inode;
+	INIT_LIST_HEAD(&new->list);
+
+	spin_lock(&sbi->dirty_map_inodes_lock);
+	if (__add_dirty_map_inode(inode, new))
+		kmem_cache_free(map_inode_entry_slab, new);
+	spin_unlock(&sbi->dirty_map_inodes_lock);
+}
+
+void remove_dirty_map_inode(struct inode *inode)
+{
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct list_head *head = &sbi->dirty_map_inodes;
+	struct list_head *this;
+	struct map_inode_entry *entry;
+
+	spin_lock(&sbi->dirty_map_inodes_lock);
+
+	list_for_each(this, head) {
+		entry = list_entry(this, struct map_inode_entry, list);
+		if (entry->inode == inode) {
+			list_del(&entry->list);
+			kmem_cache_free(map_inode_entry_slab, entry);
+			break;
+		}
+	}
+
+	spin_unlock(&sbi->dirty_map_inodes_lock);
 }
 
 static void sync_checkpoint_info(struct hmfs_sb_info *sbi,
@@ -324,20 +383,34 @@ int create_checkpoint_caches(void)
 					      0, SLAB_RECLAIM_ACCOUNT, NULL);
 	if (unlikely(!orphan_entry_slab))
 		return -ENOMEM;
+
 	cp_info_entry_slab = kmem_cache_create("hmfs_checkpoint_info_entry",
 					       sizeof(struct checkpoint_info),
 					       0, SLAB_RECLAIM_ACCOUNT, NULL);
 	if (cp_info_entry_slab == NULL) {
-		kmem_cache_destroy(cp_info_entry_slab);
-		return -ENOMEM;
+		goto free_orphan;
 	}
+	
+	map_inode_entry_slab = kmem_cache_create("hmfs_map_inode_entry",
+					sizeof(struct map_inode_entry), 0, SLAB_RECLAIM_ACCOUNT,
+					NULL);
+	if(map_inode_entry_slab == NULL)
+		goto free_cp_info;
 	return 0;
+
+free_cp_info:
+	kmem_cache_destroy(cp_info_entry_slab);
+free_orphan:
+	kmem_cache_destroy(orphan_entry_slab);
+	
+	return -ENOMEM;
 }
 
 void destroy_checkpoint_caches(void)
 {
 	kmem_cache_destroy(orphan_entry_slab);
 	kmem_cache_destroy(cp_info_entry_slab);
+	kmem_cache_destroy(map_inode_entry_slab);
 }
 
 //      Find checkpoint by given version number
@@ -360,11 +433,73 @@ u32 find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version,
 	return 0;
 }
 
+static void sync_map_data_pages(struct hmfs_sb_info *sbi)
+{
+	struct list_head *head = &sbi->dirty_map_inodes, *this;
+	struct map_inode_entry *entry;
+	struct inode *inode;
+	struct pagevec pvec;
+	pgoff_t index = 0, end = LONG_MAX;
+	int i, nr_pages;
+	struct page *page;
+	struct writeback_control wbc = {
+		.for_reclaim = 0,
+	};
+	struct address_space *mapping = NULL;
+
+	pagevec_init(&pvec, 0);
+
+	list_for_each(this, head) {
+		entry = list_entry(this, struct map_inode_entry, list);
+		inode = igrab(entry->inode);
+		if (!inode)
+			continue;
+#ifdef CONFIG_DEBUG	
+		BUG_ON(atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
+#endif
+		index = 0;
+		
+		mapping = inode->i_mapping;
+		while (index <= end) {
+			nr_pages = pagevec_lookup_tag(&pvec, mapping, &index,
+					PAGECACHE_TAG_DIRTY,
+					min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1);
+			if(nr_pages == 0)
+				break;
+
+			for (i = 0; i < nr_pages; i++) {
+				page = pvec.pages[i];
+				lock_page(page);
+#ifdef CONFIG_DEBUG
+				BUG_ON(page->mapping != mapping);
+				BUG_ON(!PageDirty(page));
+#endif
+				clear_page_dirty_for_io(page);
+				
+				if (hmfs_write_data_page(page, &wbc)) {	
+					unlock_page(page);
+					break;
+				}
+			}
+			pagevec_release(&pvec);
+		}
+#ifdef CONFIG_DEBUG
+		BUG_ON(!atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
+#endif
+	}
+}
+
 static void block_operations(struct hmfs_sb_info *sbi)
 {
+retry:
 	mutex_lock_all(sbi);
-
-	//TODO:write dirty pages and dirty inodes
+	
+	if (atomic_read(&sbi->nr_dirty_map_pages)) {
+		mutex_unlock_all(sbi);
+		sync_map_data_pages(sbi);
+		goto retry;
+	}
+	//FIXME: Need write dirty inodes of mark_inode_dirty
 }
 
 static void unblock_operations(struct hmfs_sb_info *sbi)
