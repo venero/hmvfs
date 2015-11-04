@@ -296,7 +296,6 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 			addr = raw_node->i.i_addr[ofs];
 		if (addr == NULL_ADDR)
 			continue;
-		BUG_ON(addr == FREE_ADDR || addr == NEW_ADDR);
 		data_blk = ADDR(sbi, addr);
 		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;

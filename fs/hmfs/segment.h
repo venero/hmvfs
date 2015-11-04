@@ -125,18 +125,6 @@ static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 	return (struct dirty_seglist_info *)(SM_I(sbi)->dirty_info);
 }
 
-static inline void __set_free(struct hmfs_sb_info *sbi, unsigned int segno)
-{
-	struct free_segmap_info *free_i = FREE_I(sbi);
-	//unsigned int start_segno = segno;
-	//unsigned int next;
-	/* lock -- free&cnt -- unlock */
-	write_lock(&free_i->segmap_lock);
-	clear_bit(segno, free_i->free_segmap);
-	free_i->free_segments++;
-	write_unlock(&free_i->segmap_lock);
-}
-
 static inline unsigned int find_next_inuse(struct free_segmap_info *free_i,
 					   unsigned int max, unsigned int segno)
 {

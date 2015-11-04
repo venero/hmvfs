@@ -144,6 +144,8 @@ struct hmfs_cm_info {
 
 	spinlock_t stat_lock;
 
+	unsigned nr_nat_journals;
+
 	struct mutex cp_mutex;
 };
 
@@ -249,7 +251,8 @@ enum DATA_RA_TYPE {
 };
 
 enum ADDR_TYPE {
-	NULL_ADDR = 0, NEW_ADDR = -1, FREE_ADDR = -2,
+	NULL_ADDR = 0,
+	NEW_ADDR = 1,
 };
 
 enum READ_DNODE_TYPE {

@@ -634,12 +634,12 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 
-/* init checkpoint */
+	/* init checkpoint */
 	retval = init_checkpoint_manager(sbi);
 	if (retval)
 		goto out;
 
-/* init nat */
+	/* init nat */
 	retval = build_node_manager(sbi);
 	if (retval)
 		goto free_cp_mgr;
@@ -666,11 +666,11 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		goto free_root_inode;
 	}
 
-	sb->s_root = d_make_root(root);	//kernel routin : makes a dentry for a root inode
+	sb->s_root = d_make_root(root);	
 	if (!sb->s_root) {
 		goto free_root_inode;
 	}
-// create debugfs
+	/* create debugfs */
 	hmfs_build_stats(sbi);
 
 	return 0;

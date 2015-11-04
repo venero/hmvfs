@@ -181,7 +181,6 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 	cm_i->cur_cp_i->nat_root = NULL;
 	cm_i->cur_cp_i->cp = tmp_addr;
 
-	//TODO:deal with journals
 	mutex_unlock(&cm_i->cp_tree_lock);
 }
 

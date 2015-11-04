@@ -567,9 +567,12 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 		return ERR_PTR(err);
 	if (ni.blk_addr == NULL_ADDR)
 		return ERR_PTR(-ENODATA);
-	else if (ni.blk_addr == NEW_ADDR || ni.blk_addr == FREE_ADDR) {
+	/* 
+	 * accelerate speed to grab nat entry, 
+	 * we don't need to search nat entry block
+	 */
+	else if (ni.blk_addr == NEW_ADDR)
 		return ERR_PTR(-EINVAL);
-	}
 	return ADDR(sbi, ni.blk_addr);
 }
 
@@ -788,35 +791,64 @@ static void add_free_nid(struct hmfs_nm_info *nm_i, nid_t nid, u64 free,
 	spin_unlock(&nm_i->free_nid_list_lock);
 }
 
-static void recycle_nat_journals(struct hmfs_sb_info *sbi,
-				 struct hmfs_nm_info *nm_i, int *pos)
+/* Get free nid from journals of loaded checkpoint */
+static void init_free_nids(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
-	int i;
-	nid_t nid;
+	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	int i, pos = 0;
 	block_t blk_addr;
+	nid_t nid;
 
-	write_lock(&cm_i->journal_lock);
-	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP && *pos >= 0; ++i) {
-		nid = le64_to_cpu(hmfs_cp->nat_journals[i].nid);
-		blk_addr =
-		 le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
-		if (blk_addr == FREE_ADDR && nid > HMFS_ROOT_INO) {
-			hmfs_cp->nat_journals[i].nid = 0;
-			add_free_nid(nm_i, nid, 1, pos);
-			*pos = *pos - 1;
+	mutex_lock(&nm_i->build_lock);
+	read_lock(&cm_i->journal_lock);
+	
+	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
+		nid = le32_to_cpu(hmfs_cp->nat_journals[i].nid);
+		blk_addr = le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
+		if (blk_addr == NULL_ADDR && nid > HMFS_ROOT_INO) {
+			add_free_nid(nm_i, nid, 1, &pos);
+			pos++;
 		}
+		if (nid > HMFS_ROOT_INO)
+			cm_i->nr_nat_journals = i + 1;
 	}
-	write_unlock(&cm_i->journal_lock);
+
+	read_unlock(&cm_i->journal_lock);
+	mutex_unlock(&nm_i->build_lock);
+	
+	spin_lock(&nm_i->free_nid_list_lock);
+	nm_i->fcnt = pos;
+	spin_unlock(&nm_i->free_nid_list_lock);
 }
 
-static nid_t scan_nat_block(struct hmfs_nm_info *nm_i,
+/* Check whether block_addr of nid in journal is NULL_ADDR */
+static int is_valid_free_nid(struct hmfs_sb_info *sbi, nid_t nid)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	int i;
+	nid_t local_nid;
+
+	read_lock(&cm_i->journal_lock);
+	for (i = 0; i < cm_i->nr_nat_journals; ++i) {
+		local_nid = le32_to_cpu(hmfs_cp->nat_journals[i].nid);
+		if (local_nid == nid)
+			return 0;
+	}
+	read_unlock(&cm_i->journal_lock);
+
+	return 1;
+}
+
+static nid_t scan_nat_block(struct hmfs_sb_info *sbi,
 			    struct hmfs_nat_block *nat_blk, nid_t start_nid,
 			    int *pos)
 {
 	int i = start_nid % NAT_ENTRY_PER_BLOCK;
-	u64 blk_addr;
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	block_t blk_addr;
 
 	for (; i < NAT_ENTRY_PER_BLOCK && *pos >= 0; i++, start_nid++) {
 		if (start_nid > nm_i->max_nid)
@@ -827,8 +859,10 @@ static nid_t scan_nat_block(struct hmfs_nm_info *nm_i,
 		else
 			goto found;
 
-		if (blk_addr == FREE_ADDR) {
+		if (blk_addr == NULL_ADDR) {
 found:
+			if (!is_valid_free_nid(sbi, start_nid))
+				continue;
 			add_free_nid(nm_i, start_nid, 0, pos);
 			*pos = *pos - 1;
 		}
@@ -848,12 +882,10 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 
 	BUG_ON(nm_i->fcnt != 0);
 
-	recycle_nat_journals(sbi, nm_i, &pos);
-
 	while (pos >= 0 && nid < nm_i->max_nid) {
-		nat_block =
-		 get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, nid);
-		nid = scan_nat_block(nm_i, nat_block, nid, &pos);
+		nat_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
+						nid);
+		nid = scan_nat_block(sbi, nat_block, nid, &pos);
 	}
 
 	nm_i->next_scan_nid = nid;
@@ -866,7 +898,8 @@ bool alloc_nid(struct hmfs_sb_info * sbi, nid_t * nid)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int num;
 
-retry:	if (cm_i->valid_node_count + 1 >= nm_i->max_nid)
+retry:
+	if (cm_i->valid_node_count + 1 >= nm_i->max_nid)
 		return false;
 
 	spin_lock(&nm_i->free_nid_list_lock);
@@ -1142,6 +1175,7 @@ int build_node_manager(struct hmfs_sb_info *sbi)
 		goto free_nm;
 	}
 
+	init_free_nids(sbi);
 	cache_nat_journals_entries(sbi);
 	
 	return 0;
