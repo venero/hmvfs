@@ -564,13 +564,10 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 
 	err = get_node_info(sbi, nid, &ni);
 
-	tprint("<%s> nid [nid:%d | ino:%d | blk_addr:%d]", __FUNCTION__, ni.nid, ni.ino, ni.blk_addr);
 	if (err) {
-		tprint("<%s> err", __FUNCTION__);
 		return ERR_PTR(err);
 	}
 	if (ni.blk_addr == NULL_ADDR) {
-		tprint("<%s> err null addr", __FUNCTION__);
 		return ERR_PTR(-ENODATA);
 	}
 	/* 
@@ -578,7 +575,6 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	 * we don't need to search nat entry block
 	 */
 	else if (ni.blk_addr == NEW_ADDR) {
-		tprint("<%s> err null addr", __FUNCTION__);
 		return ERR_PTR(-EINVAL);
 	}
 	return ADDR(sbi, ni.blk_addr);
@@ -782,6 +778,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	}
 
 	/* search in main area */
+
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
 	if (ne_local == NULL)
 		return -ENODATA;
@@ -1162,7 +1159,7 @@ static void cache_nat_journals_entries(struct hmfs_sb_info *sbi)
 		ino = le32_to_cpu(ne->entry.ino);
 		blk_addr = le64_to_cpu(ne->entry.block_addr);
 		
-		if (ino > HMFS_ROOT_INO && blk_addr != NULL_ADDR)
+		if (ino >= HMFS_ROOT_INO && blk_addr != NULL_ADDR)
 			update_nat_entry(nm_i, nid, ino, blk_addr, version, true);
 	}
 	read_unlock(&CM_I(sbi)->journal_lock);

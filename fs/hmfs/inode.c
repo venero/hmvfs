@@ -146,6 +146,6 @@ make_now:
 	}
 out:	unlock_new_inode(inode);
 	return inode;
-bad_inode:iget_failed(inode);
+bad_inode://XXX:iget_failed(inode);
 	return ERR_PTR(ret);
 }
