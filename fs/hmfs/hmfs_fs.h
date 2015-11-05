@@ -121,7 +121,7 @@ struct hmfs_inode {
 
 	__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
-	__le64 i_nid[5];	/* direct(2), indirect(2),
+	__le32 i_nid[5];	/* direct(2), indirect(2),
 				   double_indirect(1) node id */
 } __attribute__ ((packed));
 
@@ -146,8 +146,8 @@ struct indirect_node {
 } __attribute__ ((packed));
 
 struct node_footer {
-	__le64 nid;		/* node id */
-	__le64 ino;		/* inode nunmber */
+	__le32 nid;		/* node id */
+	__le32 ino;		/* inode nunmber */
 	__le32 cp_ver;		/* checkpoint version */
 } __attribute__ ((packed));
 
@@ -250,7 +250,7 @@ typedef __le32 hmfs_hash_t;
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
-	__le64 ino;		/* inode number */
+	__le32 ino;		/* inode number */
 	__le16 name_len;	/* lengh of file name */
 	__u8 file_type;		/* file type */
 } __attribute__ ((packed));

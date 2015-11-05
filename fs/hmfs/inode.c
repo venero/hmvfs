@@ -76,10 +76,10 @@ int sync_hmfs_inode(struct inode *inode)
 
 	hi->i_current_depth = cpu_to_le32(fi->i_current_depth);
 	hi->i_flags = cpu_to_le32(fi->i_flags);
-	hi->i_pino = cpu_to_le64(fi->i_pino);
+	hi->i_pino = cpu_to_le32(fi->i_pino);
 
-	rn->footer.nid = cpu_to_le64(inode->i_ino);
-	rn->footer.ino = cpu_to_le64(inode->i_ino);
+	rn->footer.nid = cpu_to_le32(inode->i_ino);
+	rn->footer.ino = cpu_to_le32(inode->i_ino);
 	rn->footer.cp_ver = cpu_to_le32(cp_i->version);
 
 	clear_inode_flag(HMFS_I(inode), FI_DIRTY_INODE);

@@ -135,7 +135,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	nm_i->max_nid = hmfs_max_nid();
 	nm_i->nat_cnt = 0;
 	nm_i->free_nids = kzalloc(HMFS_PAGE_SIZE * 2, GFP_KERNEL);
-	nm_i->next_scan_nid = le64_to_cpu(cp->next_scan_nid);
+	nm_i->next_scan_nid = le32_to_cpu(cp->next_scan_nid);
 	if (nm_i->free_nids == NULL)
 		return -ENOMEM;
 
@@ -355,7 +355,7 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 	int idx = depth - 2;
 	struct node_info ni;
 
-	nid[0] = le64_to_cpu(hi->i_nid[offset[0] - NODE_DIR1_BLOCK]);
+	nid[0] = le32_to_cpu(hi->i_nid[offset[0] - NODE_DIR1_BLOCK]);
 	if (!nid[0])
 		return 0;
 
@@ -726,8 +726,8 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	} else {
 		memset_nt(dest, 0, HMFS_PAGE_SIZE - sizeof(struct node_footer));
-		dest->footer.ino = cpu_to_le64(inode->i_ino);
-		dest->footer.nid = cpu_to_le64(nid);
+		dest->footer.ino = cpu_to_le32(inode->i_ino);
+		dest->footer.nid = cpu_to_le32(nid);
 		dest->footer.cp_ver = cpu_to_le32(cp_i->version);
 	}
 

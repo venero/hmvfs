@@ -208,9 +208,9 @@ static int hmfs_format(struct super_block *sb)
 	root_node = ADDR(sbi, node_segaddr);
 /* node[0]: root inode */
 	node_blkoff += 1;
-	root_node->footer.nid = cpu_to_le64(HMFS_ROOT_INO);
-	root_node->footer.ino = cpu_to_le64(HMFS_ROOT_INO);
-	root_node->footer.cp_ver = cpu_to_le64(HMFS_DEF_CP_VER);
+	root_node->footer.nid = cpu_to_le32(HMFS_ROOT_INO);
+	root_node->footer.ino = cpu_to_le32(HMFS_ROOT_INO);
+	root_node->footer.cp_ver = cpu_to_le32(HMFS_DEF_CP_VER);
 
 	root_node->i.i_mode = cpu_to_le16(0x41ed);
 	root_node->i.i_links = cpu_to_le32(2);
@@ -238,13 +238,13 @@ static int hmfs_format(struct super_block *sb)
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
-	dent_blk->dentry[0].ino = cpu_to_le64(HMFS_ROOT_INO);
+	dent_blk->dentry[0].ino = cpu_to_le32(HMFS_ROOT_INO);
 	dent_blk->dentry[0].name_len = cpu_to_le16(1);
 	dent_blk->dentry[0].file_type = HMFS_FT_DIR;
 	hmfs_memcpy(dent_blk->filename[0], ".", 1);
 
 	dent_blk->dentry[1].hash_code = HMFS_DDOT_HASH;
-	dent_blk->dentry[1].ino = cpu_to_le64(HMFS_ROOT_INO);
+	dent_blk->dentry[1].ino = cpu_to_le32(HMFS_ROOT_INO);
 	dent_blk->dentry[1].name_len = cpu_to_le16(2);
 	dent_blk->dentry[1].file_type = HMFS_FT_DIR;
 	hmfs_memcpy(dent_blk->filename[1], "..", 2);
