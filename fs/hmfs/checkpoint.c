@@ -252,6 +252,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	/* Init checkpoint_info list */
 	cp_addr = le64_to_cpu(super->cp_page_addr);
+	printk(KERN_INFO"%s:cp_addr:%llu\n",__FUNCTION__,cp_addr);
 	hmfs_cp = ADDR(sbi, cp_addr);
 
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
@@ -275,6 +276,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	/* Allocate and Init current checkpoint_info */
 	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+	INIT_LIST_HEAD(&cp_i->list);
 	cm_i->new_version =
 	 next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp_i->version = cm_i->new_version;
@@ -436,6 +438,18 @@ static void sync_map_data_pages(struct hmfs_sb_info *sbi)
 	}
 }
 
+static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
+{
+	struct list_head *head, *this, *next;
+	struct hmfs_inode_info *inode_i;
+
+	head = &sbi->dirty_inodes_list;
+	list_for_each_safe(this, next, head) {
+		inode_i = list_entry(this, struct hmfs_inode_info, list);
+		__hmfs_write_inode(&inode_i->vfs_inode);
+	}
+}
+
 static void block_operations(struct hmfs_sb_info *sbi)
 {
 retry:
@@ -446,7 +460,12 @@ retry:
 		sync_map_data_pages(sbi);
 		goto retry;
 	}
-	//FIXME: Need write dirty inodes of mark_inode_dirty
+	
+	if (!list_empty(&sbi->dirty_inodes_list)) {
+		mutex_unlock_all(sbi);
+		sync_dirty_inodes(sbi);
+		goto retry;
+	}
 }
 
 static void unblock_operations(struct hmfs_sb_info *sbi)
@@ -545,6 +564,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	prev_checkpoint->next_cp_addr = cpu_to_le64(store_checkpoint_addr);
 	prev_checkpoint->next_version = store_checkpoint->checkpoint_ver;
 	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
+	printk("%s:write cp:%llu\n",__FUNCTION__,store_checkpoint_addr);
 
 	length = (char *)(&store_checkpoint->checksum) -
 			(char *)store_checkpoint;

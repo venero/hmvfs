@@ -395,6 +395,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_current_depth = 1;
 	set_inode_flag(fi, FI_NEW_INODE);
 	atomic_set(&fi->nr_dirty_map_pages, 0);
+	INIT_LIST_HEAD(&fi->list);
 	return &(fi->vfs_inode);
 }
 
@@ -410,27 +411,41 @@ static void hmfs_destroy_inode(struct inode *inode)
 	call_rcu(&inode->i_rcu, hmfs_i_callback);
 }
 
-static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
+int __hmfs_write_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
 	int err, ilock;
-
-	if (inode->i_ino < HMFS_ROOT_INO)
-		return 0;
-
-	if (!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
-		return 0;
-
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+printk("%s:%d\n",__FUNCTION__,inode->i_ino);
 	ilock = mutex_lock_op(sbi);
-	err = sync_hmfs_inode(inode);
+	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
+		err = sync_hmfs_inode(inode);
+	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
+		err = sync_hmfs_inode_size(inode);
 	mutex_unlock_op(sbi, ilock);
 
 	return err;
 }
 
+static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
+{
+	if (inode->i_ino < HMFS_ROOT_INO)
+		return 0;
+
+	if (!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE) ||
+				!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
+		return 0;
+
+	return __hmfs_write_inode(inode);
+}
+
 static void hmfs_dirty_inode(struct inode *inode, int flags)
 {
-	set_inode_flag(HMFS_I(inode), FI_DIRTY_INODE);
+	struct hmfs_inode_info *hi = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+
+	set_inode_flag(hi, FI_DIRTY_INODE);
+	list_del(&hi->list);
+	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 	return;
 }
 
@@ -605,7 +620,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	super = get_valid_super_block(sbi->virt_addr);
 	if(!input_size && super != NULL){
 		//old super exists, remount
-		tprint("<%s>1 CRC:%d", __FUNCTION__, le16_to_cpu(super->checksum));
 		sbi->initsize = le64_to_cpu(super->init_size);
 		hmfs_iounmap(sbi->virt_addr);
 		sbi->virt_addr = hmfs_ioremap(sb, sbi->phys_addr, sbi->initsize);
@@ -623,7 +637,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	super = get_valid_super_block(sbi->virt_addr);
-	tprint("<%s>2 CRC:%d",__FUNCTION__, le16_to_cpu(super->checksum));
 	if (!super) {
 		retval = -EINVAL;
 		goto out;
@@ -653,6 +666,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->s_dirty = 0;
 	spin_lock_init(&sbi->dirty_map_inodes_lock);
 	INIT_LIST_HEAD(&sbi->dirty_map_inodes);
+	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
 	sb->s_maxbytes = hmfs_max_size();

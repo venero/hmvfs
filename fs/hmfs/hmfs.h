@@ -200,6 +200,7 @@ struct hmfs_sb_info {
 	int s_dirty;
 
 	int por_doing;		/* recovery is doing or not */
+	struct list_head dirty_inodes_list;
 };
 
 struct hmfs_inode_info {
@@ -211,8 +212,9 @@ struct hmfs_inode_info {
 	/* Use below internally in hmfs */
 	unsigned long flags;	/* use to pass per-file flags */
 	struct rw_semaphore i_sem;	/* protect fi info */
-	u64 i_pino;		/* parent inode number */
+	nid_t i_pino;		/* parent inode number */
 	atomic_t nr_dirty_map_pages;
+	struct list_head list;
 };
 
 struct hmfs_stat_info {
@@ -223,6 +225,7 @@ struct hmfs_stat_info {
 /* used for hmfs_inode_info->flags */
 enum {
 	FI_NEW_INODE,		/* indicate newly allocated inode */
+	FI_DIRTY_SIZE,
 	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
 	FI_DIRTY_DIR,		/* indicate directory has dirty pages */
 	FI_INC_LINK,		/* need to increment i_nlink */
@@ -603,9 +606,14 @@ static inline void inode_dec_dirty_map_pages_count(struct inode *inode)
 }
 
 /* define prototype function */
+/* super.c */
+int __hmfs_write_inode(struct inode *inode);
+
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode);
+int mark_size_dirty(struct inode *inode, loff_t size);
+int sync_hmfs_inode_size(struct inode *inode);
 
 /* file.c */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count);
@@ -746,7 +754,6 @@ static inline int hmfs_has_inline_dentry(struct inode *inode)
 }
 #endif
 
-#define TEST 1
 #ifdef TEST
 void printtty(const char *format, ...);
 #define print printtty

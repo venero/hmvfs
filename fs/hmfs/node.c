@@ -527,6 +527,7 @@ retry:
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
 	e->ni.version = version;
+	printk("%s,nid:%d %d addr:%llu\n",__FUNCTION__,nid,ino,blk_addr);
 	if (dirty) {
 		list_del(&e->list);
 		if (nm_i->dirty_nat_entries.next == &nm_i->dirty_nat_entries) {
@@ -778,8 +779,9 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	}
 
 	/* search in main area */
-
+printk(KERN_INFO"%s:%d",__FUNCTION__,nid);
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
+	printk("%p\n",ne_local);
 	if (ne_local == NULL)
 		return -ENODATA;
 	node_info_from_raw_nat(ni, ne_local);
@@ -1026,8 +1028,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 
 	//leaf, alloc & copy nat info block 
 	if (!height) {
-		tprint("<%s:%d> leaf cur_nat_node:%p", __FUNCTION__, height,
-		       cur_nat_node);
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATD);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
 		BUG_ON(IS_ERR(cur_stored_node)||!cur_stored_node);
@@ -1046,16 +1046,12 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	cur_stored_node = cur_nat_node;
 	cur_stored_addr = NULL_ADDR;
 
-	tprint("<%s:%d> old:%p, cur:%p", __FUNCTION__, height, old_nat_node,
-	       cur_nat_node);
 	if (cur_nat_node == NULL) {
 		//only allocate new node_blk
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
 		memset_nt(cur_stored_node, 0, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
-		tprint("<%s:%d> || new allocated addr:%p", __FUNCTION__, height,
-		       cur_stored_node);
 	} else if (old_nat_node == cur_nat_node) {
 		//this node is not wandered before, COW
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN);
@@ -1063,8 +1059,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 		BUG_ON(IS_ERR(cur_stored_node)||!cur_stored_node);
 		hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
-		tprint("<%s:%d> not wandered before || new allocated addr:%p",
-		       __FUNCTION__, height, cur_stored_node);
 		//set old node as dead
 		old_nat_addr = L_ADDR(sbi, old_nat_node);
 		raw_summary = get_summary_by_addr(sbi, old_nat_addr);
@@ -1090,8 +1084,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 		else
 			cur_child_node = NULL;
 	}
-	tprint("<%s> old_child:%p, cur_child:%p", __FUNCTION__, old_child_node,
-	       cur_child_node);
 	child_stored_addr = recursive_flush_nat_pages(sbi, old_child_node,
 						      cur_child_node,
 						      new_blk_order, height - 1,
@@ -1100,8 +1092,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 
 	if (child_stored_addr) {
 		cur_stored_node->addr[_ofs] = cpu_to_le64(child_stored_addr);	//change addr to new block
-		tprint("<%s:%d> [[%p]] --> [[%p]]", __FUNCTION__, height,
-		       cur_stored_node, ADDR(sbi, child_stored_addr));
 
 		for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
 			_addr = cur_stored_node->addr[i];
@@ -1263,8 +1253,6 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	clean_dirty_nat_entries(sbi);
 
 	write_unlock(&nm_i->nat_tree_lock);
-
-	tprint("<%s> allocate_cnt:%d",__FUNCTION__, alloc_cnt);
 
 	kunmap(empty_page);
 	__free_page(empty_page);

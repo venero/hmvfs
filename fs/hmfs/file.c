@@ -150,6 +150,8 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 				     size_t count, loff_t pos, loff_t * ppos)
 {
 	struct inode *inode = filp->f_inode;
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_inode *hi;
 	long status = 0;
 	size_t bytes;
 	ssize_t written = 0;
@@ -192,7 +194,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 	*ppos = pos;
 
 	if (pos > inode->i_size) {
-		i_size_write(inode, pos);
+		mark_size_dirty(inode, pos);
 	}
 	return written ? written : status;
 
@@ -448,8 +450,7 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE)
 	    && i_size_read(inode) <= (offset + len)) {
-		i_size_write(inode, offset);
-		mark_inode_dirty(inode);
+		mark_size_dirty(inode, offset + len);
 	}
 
 	return ret;
@@ -496,8 +497,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	}
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
-		i_size_write(inode, new_size);
-		mark_inode_dirty(inode);
+		mark_size_dirty(inode, new_size);
 	}
 
 	return ret;

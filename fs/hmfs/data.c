@@ -319,7 +319,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	setup_summary_of_new_data_block(sbi, new_addr, src_addr, inode->i_ino,
 					dn.ofs_in_node);
-
+printk("%s:%d %llu",__FUNCTION__,inode->i_ino,L_ADDR(sbi,dest));
 	return dest;
 }
 
@@ -502,8 +502,7 @@ static int hmfs_write_end(struct file *file, struct address_space *mapping,
 	set_page_dirty(page);
 
 	if (pos + copied > i_size_read(inode)) {
-		i_size_write(inode, pos + copied);
-		mark_inode_dirty(inode);
+		mark_size_dirty(inode, pos + copied);
 	}
 
 	unlock_page(page);
