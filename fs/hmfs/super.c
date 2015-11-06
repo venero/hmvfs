@@ -393,6 +393,8 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 		return NULL;
 	init_once((void *)fi);
 	fi->i_current_depth = 1;
+	fi->i_flags = 0;
+	fi->flags = 0;
 	set_inode_flag(fi, FI_NEW_INODE);
 	atomic_set(&fi->nr_dirty_map_pages, 0);
 	INIT_LIST_HEAD(&fi->list);
@@ -413,9 +415,8 @@ static void hmfs_destroy_inode(struct inode *inode)
 
 int __hmfs_write_inode(struct inode *inode)
 {
-	int err, ilock;
+	int err = 0, ilock;
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
-printk("%s:%d\n",__FUNCTION__,inode->i_ino);
 	ilock = mutex_lock_op(sbi);
 	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		err = sync_hmfs_inode(inode);

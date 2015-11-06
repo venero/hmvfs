@@ -52,7 +52,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		nid_free = true;
 		goto out;
 	}
-	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);

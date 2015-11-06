@@ -4,6 +4,9 @@
 #include <linux/time.h>
 #include <linux/stat.h>
 #include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/mount.h>
+#include <linux/compat.h>
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
@@ -150,8 +153,6 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 				     size_t count, loff_t pos, loff_t * ppos)
 {
 	struct inode *inode = filp->f_inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
-	struct hmfs_inode *hi;
 	long status = 0;
 	size_t bytes;
 	ssize_t written = 0;
@@ -592,31 +593,96 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 	return ret;
 }
 
-//      Put i_generation of inode to user.
-static int hmfs_ioc_getversion(struct file *filp, unsigned long arg)
-{
-	struct inode *inode = file_inode(filp);
+#define HMFS_REG_FLMASK		(~(FS_DIRSYNC_FL | FS_TOPDIR_FL))
+#define HMFS_OTHER_FLMASK	(FS_NODUMP_FL | FS_NOATIME_FL)
 
-	return put_user(inode->i_generation, (int __user *)arg);
+static inline __u32 hmfs_mask_flags(umode_t mode, __u32 flags)
+{
+	if (S_ISDIR(mode))
+		return flags;
+	else if (S_ISREG(mode))
+		return flags & HMFS_REG_FLMASK;
+	else 
+		return flags & HMFS_OTHER_FLMASK;
 }
 
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+	struct inode *inode = file_inode(filp);
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	unsigned int flags, oldflags;
+	int ret;
+
 	switch (cmd) {
-//      TODO: Inode flag operations
-//      [Inode Flag]
-/*
- case HMFS_IOC_GETFLAGS:
- return hmfs_ioc_getflags(filp, arg);
- case HMFS_IOC_SETFLAGS:
- return hmfs_ioc_setflags(filp, arg);
- */
+	case HMFS_IOC_GETFLAGS:
+		flags = fi->i_flags & FS_FL_USER_VISIBLE;
+		return put_user(flags, (int __user *) arg);
+	case HMFS_IOC_SETFLAGS:
+		ret = mnt_want_write_file(filp);
+		if (ret)
+			return ret;
+
+		if (!inode_owner_or_capable(inode)) {
+			ret = -EACCES;
+			goto out;
+		}
+
+		if (get_user(flags, (int __user *) arg)) {
+			ret = -EFAULT;
+			goto out;
+		}
+
+		flags = hmfs_mask_flags(inode->i_mode, flags);
+
+		mutex_lock(&inode->i_mutex);
+
+		oldflags = fi->i_flags;
+
+		if ((flags ^ oldflags) & (FS_APPEND_FL | FS_IMMUTABLE_FL)) {
+			if (!capable(CAP_LINUX_IMMUTABLE)) {
+				mutex_unlock(&inode->i_mutex);
+				ret = -EPERM;
+				goto out;
+			}
+		}
+
+		flags = flags & FS_FL_USER_MODIFIABLE;
+		flags|= oldflags & ~FS_FL_USER_MODIFIABLE;
+		fi->i_flags = flags;
+		mutex_unlock(&inode->i_mutex);
+		hmfs_set_inode_flags(inode);
+		inode->i_ctime = CURRENT_TIME;
+		mark_inode_dirty(inode);
+out:
+		mnt_drop_write_file(filp);
+		return ret;
 	case HMFS_IOC_GETVERSION:
-		return hmfs_ioc_getversion(filp, arg);
+		return put_user(inode->i_generation, (int __user *)arg);
 	default:
 		return -ENOTTY;
 	}
 }
+
+#ifdef CONFIG_COMPAT
+long hmfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case HMFS_IOC32_GETFLAGS:
+		cmd = HMFS_IOC_GETFLAGS;
+		break;
+	case HMFS_IOC32_SETFLAGS:
+		cmd = HMFS_IOC_SETFLAGS;
+		break;
+	case HMFS_IOC32_GETVERSION:
+		cmd = HMFS_IOC_GETVERSION;
+		break;
+	default:
+		return -ENOIOCTLCMD;
+	}
+
+	return hmfs_ioctl(file, cmd, (unsigned long) compat_ptr(arg));
+}
+#endif
 
 const struct file_operations hmfs_file_operations = {
 	.llseek = hmfs_file_llseek,
@@ -632,6 +698,9 @@ const struct file_operations hmfs_file_operations = {
 	.fsync = hmfs_sync_file,
 	.fallocate = hmfs_fallocate,
 	.unlocked_ioctl = hmfs_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = hmfs_compat_ioctl,
+#endif
 };
 
 const struct inode_operations hmfs_file_inode_operations = {

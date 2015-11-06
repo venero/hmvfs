@@ -153,6 +153,11 @@ struct hmfs_cm_info {
  * ioctl commands
  */
 #define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
+#define HMFS_IOC_GETFLAGS		FS_IOC_GETFLAGS
+#define HMFS_IOC_SETFLAGS		FS_IOC_SETFLAGS
+#define HMFS_IOC32_GETVERSION	FS_IOC32_GETVERSION
+#define HMFS_IOC32_GETFLAGS		FS_IOC32_GETFLAGS
+#define HMFS_IOC32_SETFLAGS		FS_IOC32_SETFLAGS
 #define NR_GLOBAL_LOCKS	16
 struct hmfs_sb_info {
 	struct super_block *sb;	/* pointer to VFS super block */
@@ -612,8 +617,9 @@ int __hmfs_write_inode(struct inode *inode);
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode);
-int mark_size_dirty(struct inode *inode, loff_t size);
+void mark_size_dirty(struct inode *inode, loff_t size);
 int sync_hmfs_inode_size(struct inode *inode);
+void hmfs_set_inode_flags(struct inode *inode);
 
 /* file.c */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count);

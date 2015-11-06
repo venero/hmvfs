@@ -6,6 +6,25 @@ struct backing_dev_info hmfs_backing_dev_info __read_mostly = {
 	.capabilities = BDI_CAP_NO_ACCT_AND_WRITEBACK,
 };
 
+void hmfs_set_inode_flags(struct inode *inode)
+{
+	unsigned int flags = HMFS_I(inode)->i_flags;
+
+	inode->i_flags &= ~(S_SYNC | S_APPEND | S_IMMUTABLE | S_NOATIME | 
+			S_DIRSYNC);
+
+	if (flags & FS_SYNC_FL)
+		inode->i_flags |= S_SYNC;
+	if (flags & FS_APPEND_FL)
+		inode->i_flags |= S_APPEND;
+	if (flags & FS_IMMUTABLE_FL)
+		inode->i_flags |= S_IMMUTABLE;
+	if (flags & FS_NOATIME_FL)
+		inode->i_flags |= S_NOATIME;
+	if (flags & FS_DIRSYNC_FL)
+		inode->i_flags |= S_DIRSYNC;
+}
+
 static int do_read_inode(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
@@ -28,8 +47,6 @@ static int do_read_inode(struct inode *inode)
 	i_gid_write(inode, le32_to_cpu(hi->i_gid));
 	set_nlink(inode, le32_to_cpu(hi->i_links));
 	inode->i_size = le64_to_cpu(hi->i_size);
-	printk(KERN_INFO"%s:%d %d\n",__FUNCTION__,inode->i_ino,inode->i_size);
-	printk(KERN_INFO"%llu\n",le64_to_cpu(hi->i_addr[0]));
 	inode->i_blocks = le64_to_cpu(hi->i_blocks);
 
 	inode->i_atime.tv_sec = le64_to_cpu(hi->i_atime);
@@ -49,7 +66,7 @@ static int do_read_inode(struct inode *inode)
 	return 0;
 }
 
-int mark_size_dirty(struct inode *inode, loff_t size)
+void mark_size_dirty(struct inode *inode, loff_t size)
 {
 	struct hmfs_inode_info *hi = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
