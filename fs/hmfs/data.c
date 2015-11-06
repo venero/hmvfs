@@ -51,8 +51,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			dn->nid = nid[i];
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
-					 NEW_ADDR, CM_I(sbi)->new_version,
-					 true);
+							NEW_ADDR, CM_I(sbi)->new_version, true);
 			sum_type = i == level ? SUM_TYPE_DN : SUM_TYPE_IDN;
 			blocks[i] =
 			 alloc_new_node(sbi, nid[i], dn->inode, sum_type);
@@ -320,7 +319,6 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	setup_summary_of_new_data_block(sbi, new_addr, src_addr, inode->i_ino,
 					dn.ofs_in_node);
-
 	return dest;
 }
 
@@ -349,8 +347,8 @@ static int hmfs_read_data_page(struct file *file, struct page *page)
 	int size = 0;
 
 	BUG_ON(HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
-	err =
-	 get_data_blocks(inode, bidx, bidx + 1, data_blk, &size, RA_DB_END);
+	err = get_data_blocks(inode, bidx, bidx + 1, data_blk, &size,
+					RA_DB_END);
 	if (size != 1 || (err && err != -ENODATA))
 		return err;
 
@@ -387,7 +385,7 @@ static int do_write_data_page(struct page *page)
 	return 0;
 }
 
-static int hmfs_write_data_page(struct page *page,
+int hmfs_write_data_page(struct page *page,
 				struct writeback_control *wbc)
 {
 	struct inode *inode = page->mapping->host;
@@ -423,8 +421,6 @@ write:
 
 	if (S_ISDIR(inode->i_mode)) {
 		BUG();
-		//dec_page_count(sbi,HMFS_DIRTY_DENTS);
-		//inode_dec_dirty_dents(inode);
 	}
 
 	ilock = mutex_lock_op(sbi);
@@ -435,10 +431,17 @@ write:
 		goto out;
 	else if (err)
 		goto redirty_out;
+	dec_dirty_map_pages_count(sbi);
+	inode_dec_dirty_map_pages_count(inode);
+	
+	if(!atomic_read(&HMFS_I(inode)->nr_dirty_map_pages))
+		remove_dirty_map_inode(inode);
 
-out:	unlock_page(page);
+out:
+	unlock_page(page);
 	return 0;
-redirty_out:wbc->pages_skipped++;
+redirty_out:
+	wbc->pages_skipped++;
 	set_page_dirty(page);
 	return err;
 }
@@ -483,7 +486,8 @@ repeat:page = grab_cache_page_write_begin(mapping, index, flags);
 	hmfs_memcpy(dest, src, PAGE_CACHE_SIZE);
 	kunmap_atomic(dest);
 	lock_page(page);
-out:	SetPageUptodate(page);
+out:
+	SetPageUptodate(page);
 	return 0;
 }
 
@@ -497,8 +501,7 @@ static int hmfs_write_end(struct file *file, struct address_space *mapping,
 	set_page_dirty(page);
 
 	if (pos + copied > i_size_read(inode)) {
-		i_size_write(inode, pos + copied);
-		mark_inode_dirty(inode);
+		mark_size_dirty(inode, pos + copied);
 	}
 
 	unlock_page(page);
@@ -510,13 +513,17 @@ static int hmfs_set_data_page_dirty(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
 	struct inode *inode = mapping->host;
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
 
 	SetPageUptodate(page);
 	if (!PageDirty(page)) {
 		__set_page_dirty_nobuffers(page);
 		if (S_ISDIR(inode->i_mode))
 			BUG();
-		//set_dirty_dir_page(inode,page);
+		add_dirty_map_inode(inode);
+		inc_dirty_map_pages_count(sbi);
+		inode_inc_dirty_map_pages_count(inode);
+		SetPagePrivate(page);
 		return 1;
 	}
 	return 0;

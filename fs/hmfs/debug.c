@@ -116,4 +116,9 @@ void hmfs_destroy_root_stat(void)
 	debugfs_root = NULL;
 }
 
+inline void hmfs_call_trace(void){
+	tprint("<%s> Caller0 is %pS", __FUNCTION__, __builtin_return_address(0));
+	tprint("<%s> Caller1 is %pS", __FUNCTION__, __builtin_return_address(1));
+	tprint("<%s> Caller2 is %pS", __FUNCTION__, __builtin_return_address(2));
+}
 #endif

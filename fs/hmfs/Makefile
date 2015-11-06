@@ -7,8 +7,3 @@ all:
 
 clean:
 	make -C /lib/modules/`uname -r`/build M=`pwd` clean
-
-wrong_hmfs:
-#	sudo mount -t phmfs -o physaddr=0x80000000,init=298M none ~/hmfs/
-	sudo insmod ./hmfs.ko && sudo mount -t hmfs -o physaddr=0x100000000,init=40M none ~/hmfs/
-

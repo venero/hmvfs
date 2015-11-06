@@ -262,7 +262,6 @@ static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 
 		move_data_block(sbi, segno, off, sum);
 	}
-	recycle_segment(sbi, segno);
 }
 
 static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
@@ -397,6 +396,7 @@ static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			break;
 		case SUM_TYPE_NATN:
 			move_nat_block(sbi, segno, off, sum, SUM_TYPE_NATN);
+			break;
 		case SUM_TYPE_NATD:
 			move_nat_block(sbi, segno, off, sum, SUM_TYPE_NATD);
 			break;
@@ -407,7 +407,6 @@ static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			BUG();
 			break;
 		}
-		recycle_segment(sbi, segno);
 	}
 }
 
@@ -423,7 +422,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, int segno, int gc_type)
 		//FIXME: Need I check type of summary entry
 		gc_node_segments(sbi, sum_blk->entries, segno);
 	}
-	__set_free(sbi, segno);
+	recycle_segment(sbi, segno);
 }
 
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)

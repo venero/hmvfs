@@ -47,12 +47,44 @@ static int do_read_inode(struct inode *inode)
 	return 0;
 }
 
+void mark_size_dirty(struct inode *inode, loff_t size)
+{
+	struct hmfs_inode_info *hi = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+
+	i_size_write(inode, size);
+	set_inode_flag(hi, FI_DIRTY_SIZE);
+	list_del(&hi->list);
+	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
+}
+
+int sync_hmfs_inode_size(struct inode *inode)
+{
+	struct hmfs_inode_info *inode_i = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_node *hn;
+	struct hmfs_inode *hi;
+
+	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	if(IS_ERR(hn))
+		return PTR_ERR(hn);
+	hi = &hn->i;
+	hi->i_size = cpu_to_le64(inode->i_size);
+
+	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
+	if (!is_inode_flag_set(inode_i, FI_DIRTY_SIZE)) {
+		list_del(&inode_i->list);
+		INIT_LIST_HEAD(&inode_i->list);
+	}
+	return 0;
+}
+
 int sync_hmfs_inode(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_inode_info *inode_i = HMFS_I(inode);
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
 
@@ -62,6 +94,11 @@ int sync_hmfs_inode(struct inode *inode)
 
 	hi = &(rn->i);
 
+	clear_inode_flag(inode_i, FI_DIRTY_INODE);
+	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
+	list_del(&inode_i->list);
+	INIT_LIST_HEAD(&inode_i->list);
+	
 	hi->i_mode = cpu_to_le16(inode->i_mode);
 	hi->i_uid = cpu_to_le32(i_uid_read(inode));
 	hi->i_gid = cpu_to_le32(i_gid_read(inode));
@@ -74,13 +111,14 @@ int sync_hmfs_inode(struct inode *inode)
 	hi->i_mtime = cpu_to_le64(inode->i_mtime.tv_sec);
 	hi->i_generation = cpu_to_le32(inode->i_generation);
 
-	hi->i_current_depth = cpu_to_le32(fi->i_current_depth);
-	hi->i_flags = cpu_to_le32(fi->i_flags);
-	hi->i_pino = cpu_to_le64(fi->i_pino);
+	hi->i_current_depth = cpu_to_le32(inode_i->i_current_depth);
+	hi->i_flags = cpu_to_le32(inode_i->i_flags);
+	hi->i_pino = cpu_to_le32(inode_i->i_pino);
 
-	rn->footer.nid = cpu_to_le64(inode->i_ino);
-	rn->footer.ino = cpu_to_le64(inode->i_ino);
+	rn->footer.nid = cpu_to_le32(inode->i_ino);
+	rn->footer.ino = cpu_to_le32(inode->i_ino);
 	rn->footer.cp_ver = cpu_to_le32(cp_i->version);
+
 	return 0;
 }
 
@@ -144,6 +182,6 @@ make_now:
 	}
 out:	unlock_new_inode(inode);
 	return inode;
-bad_inode:iget_failed(inode);
+bad_inode://XXX:iget_failed(inode);
 	return ERR_PTR(ret);
 }

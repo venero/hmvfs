@@ -76,6 +76,7 @@ struct hmfs_super_block {
 	__le32 log_pagesize;	/* log2 block size in bytes */
 	__le32 log_pages_per_seg;	/* log2 # of blocks per segment */
 	__le64 segment_count;	/* total # of segments */
+	__le64 init_size;	/* total # of Bytes */
 
 	__le32 segment_count_sit;	/* # of segments for SIT */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
@@ -120,7 +121,7 @@ struct hmfs_inode {
 
 	__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
-	__le64 i_nid[5];	/* direct(2), indirect(2),
+	__le32 i_nid[5];	/* direct(2), indirect(2),
 				   double_indirect(1) node id */
 } __attribute__ ((packed));
 
@@ -145,8 +146,8 @@ struct indirect_node {
 } __attribute__ ((packed));
 
 struct node_footer {
-	__le64 nid;		/* node id */
-	__le64 ino;		/* inode nunmber */
+	__le32 nid;		/* node id */
+	__le32 ino;		/* inode nunmber */
 	__le32 cp_ver;		/* checkpoint version */
 } __attribute__ ((packed));
 
@@ -249,7 +250,7 @@ typedef __le32 hmfs_hash_t;
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
-	__le64 ino;		/* inode number */
+	__le32 ino;		/* inode number */
 	__le16 name_len;	/* lengh of file name */
 	__u8 file_type;		/* file type */
 } __attribute__ ((packed));
