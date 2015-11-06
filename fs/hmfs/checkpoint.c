@@ -160,17 +160,15 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 				    struct hmfs_checkpoint *prev_checkpoint)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	void *tmp_addr = NULL;
 
 	mutex_lock(&cm_i->cp_tree_lock);
-	cm_i->last_cp_i = cm_i->cur_cp_i;
-	tmp_addr = cm_i->cur_cp_i->cp;
 
 	sync_checkpoint_info(sbi, prev_checkpoint, cm_i->cur_cp_i);
 	radix_tree_insert(&cm_i->cp_tree_root, cm_i->new_version,
 			  cm_i->cur_cp_i);
 	list_add(&cm_i->last_cp_i->list, &cm_i->cur_cp_i->list);
 	cm_i->new_version = next_checkpoint_ver(cm_i->new_version);
+	cm_i->last_cp_i = cm_i->cur_cp_i;
 	cm_i->cur_cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
 
 	//TODO
@@ -179,7 +177,7 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 
 	cm_i->cur_cp_i->version = cm_i->new_version;
 	cm_i->cur_cp_i->nat_root = NULL;
-	cm_i->cur_cp_i->cp = tmp_addr;
+	cm_i->cur_cp_i->cp = NULL;
 
 	mutex_unlock(&cm_i->cp_tree_lock);
 }

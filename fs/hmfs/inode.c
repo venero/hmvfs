@@ -28,8 +28,6 @@ static int do_read_inode(struct inode *inode)
 	i_gid_write(inode, le32_to_cpu(hi->i_gid));
 	set_nlink(inode, le32_to_cpu(hi->i_links));
 	inode->i_size = le64_to_cpu(hi->i_size);
-	printk(KERN_INFO"%s:%d %d\n",__FUNCTION__,inode->i_ino,inode->i_size);
-	printk(KERN_INFO"%llu\n",le64_to_cpu(hi->i_addr[0]));
 	inode->i_blocks = le64_to_cpu(hi->i_blocks);
 
 	inode->i_atime.tv_sec = le64_to_cpu(hi->i_atime);
@@ -49,7 +47,7 @@ static int do_read_inode(struct inode *inode)
 	return 0;
 }
 
-int mark_size_dirty(struct inode *inode, loff_t size)
+void mark_size_dirty(struct inode *inode, loff_t size)
 {
 	struct hmfs_inode_info *hi = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);

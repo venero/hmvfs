@@ -413,9 +413,8 @@ static void hmfs_destroy_inode(struct inode *inode)
 
 int __hmfs_write_inode(struct inode *inode)
 {
-	int err, ilock;
+	int err=0, ilock;
 	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
-printk("%s:%d\n",__FUNCTION__,inode->i_ino);
 	ilock = mutex_lock_op(sbi);
 	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		err = sync_hmfs_inode(inode);

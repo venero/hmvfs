@@ -612,7 +612,7 @@ int __hmfs_write_inode(struct inode *inode);
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode);
-int mark_size_dirty(struct inode *inode, loff_t size);
+void mark_size_dirty(struct inode *inode, loff_t size);
 int sync_hmfs_inode_size(struct inode *inode);
 
 /* file.c */

@@ -527,7 +527,6 @@ retry:
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
 	e->ni.version = version;
-	printk("%s,nid:%d %d addr:%llu\n",__FUNCTION__,nid,ino,blk_addr);
 	if (dirty) {
 		list_del(&e->list);
 		if (nm_i->dirty_nat_entries.next == &nm_i->dirty_nat_entries) {

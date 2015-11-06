@@ -150,12 +150,11 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 				     size_t count, loff_t pos, loff_t * ppos)
 {
 	struct inode *inode = filp->f_inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
-	struct hmfs_inode *hi;
 	long status = 0;
 	size_t bytes;
 	ssize_t written = 0;
 
+	//FIXME: file inode lock
 	do {
 		unsigned long index;
 		unsigned long offset;
