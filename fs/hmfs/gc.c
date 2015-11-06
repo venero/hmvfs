@@ -283,8 +283,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
 		BUG_ON(le64_to_cpu(this->entries[args.ofs_in_node].block_addr)
 		       != args.src_addr);
 
-		this->entries[args.ofs_in_node].block_addr =
-		 cpu_to_le64(args.src_addr);
+		this->entries[args.ofs_in_node].block_addr = cpu_to_le64(args.dest_addr);
 		last = this;
 
 		if (++args.nrchange >= args.count)

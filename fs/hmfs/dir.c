@@ -367,28 +367,12 @@ struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
 	 * We lost i_pino from now on.
 	 */
 	if (is_inode_flag_set(HMFS_I(inode), FI_INC_LINK)) {
-		//TODO after add node.h here will be valid
-		//file_lost_pino(inode);
-		/*
-		 * If link the tmpfile to alias through linkat path,
-		 * we should remove this inode from orphan list.
-		 */
-		//if (inode->i_nlink == 0)
-		//TODO after add checkpoint.c here will be valid
-		//remove_orphan_inode(HMFS_I_SB(dir), inode->i_ino);
-		//TODO after add inode.c here will be valid
 		inc_nlink(inode);
 		mark_inode_dirty(inode);
 	}
 	return hn;
 
 error:
-	/* once the failed inode becomes a bad inode, i_mode is S_IFREG */
-	//TODO after add truncate.c here will be valid
-	//truncate_inode_pages(&inode->i_data, 0);
-	//truncate_blocks(inode, 0, false);
-	//remove_dirty_dir_inode(inode);
-	//remove_inode_page(inode);
 	return ERR_PTR(err);
 }
 
@@ -402,7 +386,6 @@ void update_parent_metadata(struct inode *dir, struct inode *inode,
 
 	if (inode && is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE)) {
 		if (S_ISDIR(inode->i_mode)) {
-			//TODO after add inode.c here will be valid
 			inc_nlink(dir);
 			set_inode_flag(HMFS_I(dir), FI_UPDATE_DIR);
 		}
@@ -540,7 +523,6 @@ start:
 	++level;
 	goto start;
 add_dentry:
-	//TODO after add segment.c here will be valid
 	if (inode) {
 		down_write(&HMFS_I(inode)->i_sem);
 		hn = init_inode_metadata(inode, dir, name, NULL);
@@ -556,17 +538,14 @@ add_dentry:
 	if (inode) {
 		/* we don't need to mark_inode_dirty now */
 		HMFS_I(inode)->i_pino = dir->i_ino;
-		//TODO after add inode.c here will be valid
-		//update_inode(inode, page);
 	}
 
 	update_parent_metadata(dir, inode, current_depth);
-fail:	if (inode)
+fail:	
+	if (inode)
 		up_write(&HMFS_I(inode)->i_sem);
 
 	if (is_inode_flag_set(HMFS_I(dir), FI_UPDATE_DIR)) {
-		//TODO after add inode.c here will be valid
-		//update_inode_page(dir);
 		clear_inode_flag(HMFS_I(dir), FI_UPDATE_DIR);
 	}
 	return err;
@@ -578,12 +557,6 @@ void hmfs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
 
 	if (S_ISDIR(inode->i_mode)) {
 		drop_nlink(dir);
-		//if (page)
-		//TODO after add inode.c here will be valid
-		//update_inode(dir, page);
-		//else
-		//TODO after add inode.c here will be valid
-		//update_inode_page(dir);
 	}
 	inode->i_ctime = CURRENT_TIME;
 
@@ -593,14 +566,6 @@ void hmfs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
 		i_size_write(inode, 0);
 	}
 	up_write(&HMFS_I(inode)->i_sem);
-	//TODO after add inode.c here will be valid
-	//update_inode_page(inode);
-
-	//TODO after add checkpoint.c here will be valid
-	//if (inode->i_nlink == 0)
-	//      add_orphan_inode(sbi, inode->i_ino);
-	//else
-	//      release_orphan_inode(sbi);
 }
 
 /*
@@ -621,11 +586,6 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 	int slots = GET_DENTRY_SLOTS(le16_to_cpu(dentry->name_len));
 	int i;
 
-	//TODO after add checkpoint.c here will be valid
-	//if (hmfs_has_inline_dentry(dir))
-	//      return hmfs_delete_inline_entry(dentry, page, dir, inode);
-
-//      dentry_blk = page_address(page);
 	bit_pos = dentry - dentry_blk->dentry;
 	for (i = 0; i < slots; i++)
 		clear_bit_le(bit_pos + i, &dentry_blk->dentry_bitmap);
@@ -673,8 +633,6 @@ bool hmfs_empty_dir(struct inode *dir)
 	void *blocks[16];
 
 	for (bidx = 0; bidx < nblock; bidx++) {
-		//TODO after add data.c here will be valid
-		//dentry_page = get_lock_data_page(dir, bidx);
 		if (pos < 0 || pos == size) {
 			err =
 			 get_data_blocks(dir, bidx, nblock, blocks, &size,
@@ -750,12 +708,7 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	if (!buf)
 		return -ENOMEM;
 
-	//TODO after add inline.c here will be valid
-	//if (hmfs_has_inline_dentry(inode))
-	//      return hmfs_read_inline_dir(file, ctx);
 	for (; n < npages; n++) {
-		//TODO after add data.c here will be valid
-		//dentry_page = get_lock_data_page(inode, n);
 		if (i >= size) {
 			err =
 			 get_data_blocks(inode, n, npages, buf, &size,
@@ -783,5 +736,5 @@ const struct file_operations hmfs_dir_operations = {
 	.read = generic_read_dir,
 	.iterate = hmfs_readdir,
 //.fsync                = hmfs_sync_file,
-//.unlocked_ioctl       = hmfs_ioctl,
+	.unlocked_ioctl       = hmfs_ioctl,
 };

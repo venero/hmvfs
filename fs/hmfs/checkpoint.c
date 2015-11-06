@@ -171,11 +171,13 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 			  cm_i->cur_cp_i);
 	list_add(&cm_i->last_cp_i->list, &cm_i->cur_cp_i->list);
 	cm_i->new_version = next_checkpoint_ver(cm_i->new_version);
+retry:
 	cm_i->cur_cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
 
-	//TODO
-	if (!cm_i->cur_cp_i)
-		BUG();
+	if (!cm_i->cur_cp_i) {
+		cond_resched();
+		goto retry;
+	}
 
 	cm_i->cur_cp_i->version = cm_i->new_version;
 	cm_i->cur_cp_i->nat_root = NULL;
@@ -564,7 +566,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	prev_checkpoint->next_cp_addr = cpu_to_le64(store_checkpoint_addr);
 	prev_checkpoint->next_version = store_checkpoint->checkpoint_ver;
 	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
-	printk("%s:write cp:%llu\n",__FUNCTION__,store_checkpoint_addr);
 
 	length = (char *)(&store_checkpoint->checksum) -
 			(char *)store_checkpoint;

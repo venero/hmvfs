@@ -57,8 +57,6 @@ static int do_read_inode(struct inode *inode)
 	inode->i_ctime.tv_nsec = 0;
 	inode->i_generation = le32_to_cpu(hi->i_generation);
 
-	//TODO: deal with device file
-
 	fi->i_current_depth = le32_to_cpu(hi->i_current_depth);
 	fi->i_flags = le32_to_cpu(hi->i_flags);
 	fi->flags = 0;

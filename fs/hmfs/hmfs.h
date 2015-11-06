@@ -626,6 +626,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count);
 void truncate_data_blocks(struct dnode_of_data *dn);
 void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
+long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 /* debug.c */
 void hmfs_create_root_stat(void);
