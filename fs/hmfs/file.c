@@ -511,13 +511,17 @@ static const struct vm_operations_struct hmfs_file_vm_ops = {
 
 static int hmfs_release_file(struct inode *inode, struct file *filp)
 {
-//      TODO: Separate atomic and volatile or not
-//      If we do separate /* some remained atomic pages should discarded */
-//      Else:
-//      set_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
+	int ret = 0;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+
 	filemap_fdatawrite(inode->i_mapping);
-//      clear_inode_flag(HMFS_I(inode), FI_DROP_CACHE);
-	return 0;
+	
+	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
+		ret = sync_hmfs_inode(inode);
+	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode);
+
+	return ret;
 }
 
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
@@ -531,41 +535,24 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-//      struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-//      nid_t ino = inode->i_ino;
 	int ret = 0;
 
-//      TODO: In Place Update
-//      i.e., If dirty page number is below threshold, commit random write to page cache.
-//      [Inode Flag] HMFS Inode Info should contain # of dirty pages and sbi should contain min # of dirty pages for inode to write back.
+	if (hmfs_readonly(inode->i_sb))
+		return 0;
 
-//      If the inode itself is dirty, go to go_write straightly
-	if (!datasync && is_inode_flag_set(fi, FI_DIRTY_INODE)) {
-//     TODO: [inode] update inode page
-		goto go_write;
-	}
-//      TODO: [CP] Check whether both inode and data are unmodified, if so, go to out.
+	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	if (ret) 
+		return ret;
+	
+	mutex_lock(&inode->i_mutex);
 
-//      Prepare to write
-go_write:
+	/* We don't need to sync data pages */
+	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
+		ret = sync_hmfs_inode(inode);
+	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode);
 
-//      TODO: [Segment] (Balance) Check if there exists enough space (If not, GC.)
-
-//      TODO: [CP] Check if making check point is necessary
-//      There should be a boolean for each inode to indicate the need for CP.
-
-//              Synchronize all the nodes
-
-//      TODO: [Node] Make sure all the nodes in inode is up-to-date
-
-//      TODO: [Node] Write back all the dirty nodes in inode
-//      XXX: Write back is required to make this function work
-
-//      TODO: [CP] Remove this dirty inode from dirty inode list of sbi
-
-//      TODO: [Inode Flag] Clear inode flags if necessary
-
-//      TODO: [Segment] Flush sbi
+	mutex_unlock(&inode->i_mutex);
 
 	return ret;
 }
@@ -691,9 +678,7 @@ const struct file_operations hmfs_file_operations = {
 	.write = hmfs_xip_file_write,
 	//.aio_read       = xip_file_aio_read,
 	//.aio_write      = xip_file_aio_write,
-
 	.open = generic_file_open,
-//      There's no '.release' in f2fs of kernel 3.11
 	.release = hmfs_release_file,
 	.mmap = hmfs_file_mmap,
 	.fsync = hmfs_sync_file,

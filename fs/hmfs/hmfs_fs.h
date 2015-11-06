@@ -301,7 +301,6 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 #define SUM_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE/sizeof(struct hmfs_summary))
 #define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* a summary entry for a 4KB-sized block in a segment */
-//TODO: set nid and ont correct for data block and node block
 struct hmfs_summary {
 	__le32 nid;		/* parent node id */
 	__le32 dead_version;	/* version of checkpoint delete this block */

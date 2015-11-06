@@ -610,6 +610,11 @@ static inline void inode_dec_dirty_map_pages_count(struct inode *inode)
 	atomic_dec(&HMFS_I(inode)->nr_dirty_map_pages);
 }
 
+static inline int hmfs_readonly(struct super_block *sb)
+{
+	return sb->s_flags & MS_RDONLY;
+}
+
 /* define prototype function */
 /* super.c */
 int __hmfs_write_inode(struct inode *inode);
