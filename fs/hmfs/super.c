@@ -29,6 +29,7 @@ enum {
 	Opt_uid,
 	Opt_gid,
 	Opt_bg_gc,
+	Opt_mnt_cp.
 };
 
 static const match_table_t tokens = {
@@ -707,7 +708,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	if (sbi->support_bg_gc && !hmfs_readonly()) {
+	if (sbi->support_bg_gc && !hmfs_readonly(sb)){
 		/* start gc kthread */
 		retval = start_gc_thread(sbi);
 		if (retval)
