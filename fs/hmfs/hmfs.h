@@ -167,6 +167,7 @@ struct hmfs_sb_info {
 
 	unsigned long long initsize;
 	unsigned long s_mount_opt;
+	unsigned int mnt_cp_version;		/* mount checkpoint version */
 	kuid_t uid;
 	kgid_t gid;
 

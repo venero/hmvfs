@@ -39,6 +39,7 @@ static const match_table_t tokens = {
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
 	{Opt_bg_gc, "bg_gc=%u"},
+	{Opt_mnt_cp, "mnt_cp=%u"},
 };
 
 /*
@@ -75,6 +76,10 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 
 	if (!options)
 		return 0;
+
+	sbi->initsize = 0;
+	sbi->mnt_cp_version = 0;
+
 	while ((p = strsep(&options, ",")) != NULL) {	//parse one option each time
 		if (!*p)
 			continue;
@@ -121,10 +126,20 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			sbi->support_bg_gc = option;
+			break;
+		case Opt_mnt_cp:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->mnt_cp_version = option;
+			break;
 		default:
 			goto bad_opt;
 		}
 	}
+	
+	/* format fs and mount cp in the same time is invalid */
+	if (sbi->initsize && sbi->mnt_cp_version)
+		goto bad_opt;
 
 	return 0;
 
@@ -591,13 +606,13 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	unsigned long long ssa_addr, sit_addr;
 	unsigned long long input_size;
 
-/* sbi initialization */
+	/* sbi initialization */
 	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
 	if (sbi == NULL) {
 		return -ENOMEM;
 	}
 
-/* get phys_addr from @data&virt_addr from ioremap */
+	/* get phys_addr from @data&virt_addr from ioremap */
 	sb->s_fs_info = sbi;
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
@@ -619,7 +634,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	super = get_valid_super_block(sbi->virt_addr);
-	if(!input_size && super != NULL){
+	if (!input_size && super != NULL) {
 		//old super exists, remount
 		sbi->initsize = le64_to_cpu(super->init_size);
 		hmfs_iounmap(sbi->virt_addr);
@@ -628,11 +643,15 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 			retval = -EINVAL;
 			goto out;
 		}
-	} else if (input_size){
-		//format
+	} else if (input_size) {
 		hmfs_format(sb);
-	} else {
-		//no super && no initsize
+	} else if (sbi->mnt_cp_version) {
+		if (!hmfs_readonly(sb)) {
+			retval = -EACCES;
+			goto out;
+		}
+	}
+	else {
 		retval = -EINVAL;
 		goto out;
 	}
@@ -688,7 +707,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	if (sbi->support_bg_gc) {
+	if (sbi->support_bg_gc && !hmfs_readonly()) {
 		/* start gc kthread */
 		retval = start_gc_thread(sbi);
 		if (retval)

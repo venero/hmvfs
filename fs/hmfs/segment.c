@@ -434,8 +434,7 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sm_info->main_segments = main_segments;
 	user_segments = sm_info->main_segments * (100 - DEF_OP_SEGMENTS) / 100;
 	sm_info->ovp_segments = sm_info->main_segments - user_segments;
-	sm_info->limit_invalid_blocks =
-	 main_segments * LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_invalid_blocks = main_segments * LIMIT_INVALID_BLOCKS / 100;
 	sm_info->limit_free_blocks = main_segments * LIMIT_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);

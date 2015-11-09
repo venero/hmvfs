@@ -230,6 +230,24 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	return cp_i;
 }
 
+static struct hmfs_checkpoint *get_mnt_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
+				int version)
+{
+	struct hmfs_checkpoint *current = cp;
+	int current_version;
+	block_t addr;
+
+	do {
+		addr = le64_to_cpu(current->next_cp_addr);
+		current = ADDR(sbi, addr);
+		current_version = le32_to_cpu(current->checkpoint_ver);
+	} while(current_version != version && current != cp);
+
+	if (current_version == version)
+		return current;
+	return NULL;
+}
+
 int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i;
@@ -237,6 +255,17 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	struct hmfs_super_block *super = ADDR(sbi, 0);
 	struct hmfs_checkpoint *hmfs_cp;
 	unsigned long long cp_addr;
+
+	/* Init checkpoint_info list */
+	cp_addr = le64_to_cpu(super->cp_page_addr);
+	hmfs_cp = ADDR(sbi, cp_addr);
+
+	if (sbi->mnt_cp_version && sbi->mnt_cp_version != 
+			le32_tp_cpu(hmfs_cp->checkpoint_ver)) {
+		hmfs_cp = get_mnt_checkpoint(hmfs_cp);
+		if (!hmfs_cp)
+			return -EINVAL;
+	}
 
 	cm_i = kzalloc(sizeof(struct hmfs_cm_info), GFP_KERNEL);
 
@@ -250,11 +279,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 		goto out_cp_i;
 	}
 
-	/* Init checkpoint_info list */
-	cp_addr = le64_to_cpu(super->cp_page_addr);
-	printk(KERN_INFO"%s:cp_addr:%llu\n",__FUNCTION__,cp_addr);
-	hmfs_cp = ADDR(sbi, cp_addr);
-
+	
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
 	cm_i->valid_node_count = le32_to_cpu(hmfs_cp->valid_node_count);
 	cm_i->valid_block_count = le32_to_cpu(hmfs_cp->valid_block_count);
@@ -277,8 +302,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	/* Allocate and Init current checkpoint_info */
 	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
 	INIT_LIST_HEAD(&cp_i->list);
-	cm_i->new_version =
-	 next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
+	cm_i->new_version = next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp_i->version = cm_i->new_version;
 	cp_i->nat_root = NULL;
 	cp_i->cp = NULL;

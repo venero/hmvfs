@@ -197,7 +197,8 @@ make_now:
 		ret = -EIO;
 		goto bad_inode;
 	}
-out:	unlock_new_inode(inode);
+out:	
+	unlock_new_inode(inode);
 	return inode;
 bad_inode://XXX:iget_failed(inode);
 	return ERR_PTR(ret);
