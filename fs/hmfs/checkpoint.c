@@ -323,10 +323,10 @@ out_cm_i:
 static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)
 {
 	struct checkpoint_info *cp_i = cm_i->last_cp_i, *entry;
-	struct list_head *head, *this;
+	struct list_head *head, *this, *tmp;
 
 	head = &cp_i->list;
-	list_for_each(this, head) {
+	list_for_each_safe(this, tmp, head) {
 		entry = list_entry(this, struct checkpoint_info, list);
 		list_del(this);
 		radix_tree_delete(&cm_i->cp_tree_root, entry->version);
