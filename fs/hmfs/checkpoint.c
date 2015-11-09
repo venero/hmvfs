@@ -233,18 +233,18 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 static struct hmfs_checkpoint *get_mnt_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 				int version)
 {
-	struct hmfs_checkpoint *current = cp;
+	struct hmfs_checkpoint *entry = cp;
 	int current_version;
 	block_t addr;
 
 	do {
-		addr = le64_to_cpu(current->next_cp_addr);
-		current = ADDR(sbi, addr);
-		current_version = le32_to_cpu(current->checkpoint_ver);
-	} while(current_version != version && current != cp);
+		addr = le64_to_cpu(entry->next_cp_addr);
+		entry = ADDR(sbi, addr);
+		current_version = le32_to_cpu(entry->checkpoint_ver);
+	} while(current_version != version && entry != cp);
 
 	if (current_version == version)
-		return current;
+		return entry;
 	return NULL;
 }
 
@@ -261,8 +261,8 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	hmfs_cp = ADDR(sbi, cp_addr);
 
 	if (sbi->mnt_cp_version && sbi->mnt_cp_version != 
-			le32_tp_cpu(hmfs_cp->checkpoint_ver)) {
-		hmfs_cp = get_mnt_checkpoint(hmfs_cp);
+			le32_to_cpu(hmfs_cp->checkpoint_ver)) {
+		hmfs_cp = get_mnt_checkpoint(sbi, hmfs_cp, sbi->mnt_cp_version);
 		if (!hmfs_cp)
 			return -EINVAL;
 	}

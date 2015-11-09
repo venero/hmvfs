@@ -29,7 +29,7 @@ enum {
 	Opt_uid,
 	Opt_gid,
 	Opt_bg_gc,
-	Opt_mnt_cp.
+	Opt_mnt_cp,
 };
 
 static const match_table_t tokens = {
