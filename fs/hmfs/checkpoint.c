@@ -69,6 +69,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 		orphan = list_entry(this, struct orphan_inode_entry, list);
 		if (orphan->ino == ino) {
 			list_del(&orphan->list);
+			INIT_LIST_HEAD(&orphan->list);
 			kmem_cache_free(orphan_entry_slab, orphan);
 			cm_i->n_orphans--;
 			break;
@@ -138,6 +139,7 @@ void remove_dirty_map_inode(struct inode *inode)
 		entry = list_entry(this, struct map_inode_entry, list);
 		if (entry->inode == inode) {
 			list_del(&entry->list);
+			INIT_LIST_HEAD(&entry->list);
 			kmem_cache_free(map_inode_entry_slab, entry);
 			break;
 		}
@@ -329,6 +331,7 @@ static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)
 	list_for_each_safe(this, tmp, head) {
 		entry = list_entry(this, struct checkpoint_info, list);
 		list_del(this);
+		INIT_LIST_HEAD(&entry->list);
 		radix_tree_delete(&cm_i->cp_tree_root, entry->version);
 		kmem_cache_free(cp_info_entry_slab, entry);
 	}
@@ -466,11 +469,16 @@ static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
 {
 	struct list_head *head, *this, *next;
 	struct hmfs_inode_info *inode_i;
+	int ret;
 
 	head = &sbi->dirty_inodes_list;
 	list_for_each_safe(this, next, head) {
 		inode_i = list_entry(this, struct hmfs_inode_info, list);
-		__hmfs_write_inode(&inode_i->vfs_inode);
+		ret = __hmfs_write_inode(&inode_i->vfs_inode);
+#ifdef CONFIG_DEBUG
+		BUG_ON(ret);
+		BUG_ON(this->prev != this->next);
+#endif
 	}
 }
 
@@ -614,7 +622,6 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
-
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
 	ret = do_checkpoint(sbi);

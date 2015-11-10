@@ -438,6 +438,7 @@ int __hmfs_write_inode(struct inode *inode)
 		err = sync_hmfs_inode(inode);
 	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
 		err = sync_hmfs_inode_size(inode);
+	else BUG();
 	mutex_unlock_op(sbi, ilock);
 
 	return err;
@@ -462,6 +463,7 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 
 	set_inode_flag(hi, FI_DIRTY_INODE);
 	list_del(&hi->list);
+	INIT_LIST_HEAD(&hi->list);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 	return;
 }
@@ -492,6 +494,11 @@ static void hmfs_evict_inode(struct inode *inode)
 
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
+
+	ret = __hmfs_write_inode(inode);	
+#ifdef CONFIG_DEBUG
+	BUG_ON(ret);
+#endif
 
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
@@ -555,7 +562,6 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 
 	if (!sit_i->dirty_sentries)
 		return 0;
-
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
 		ret = write_checkpoint(sbi);

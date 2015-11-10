@@ -523,7 +523,7 @@ struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 					     unsigned long segno)
 {
 	struct hmfs_summary_block *summary_blk =
-	 (struct hmfs_summary_block *)sbi->ssa_entries;
+			(struct hmfs_summary_block *)sbi->ssa_entries;
 
 	return &summary_blk[segno];
 }

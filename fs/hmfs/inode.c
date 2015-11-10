@@ -72,6 +72,7 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 	i_size_write(inode, size);
 	set_inode_flag(hi, FI_DIRTY_SIZE);
 	list_del(&hi->list);
+	INIT_LIST_HEAD(&hi->list);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 }
 
@@ -89,7 +90,7 @@ int sync_hmfs_inode_size(struct inode *inode)
 	hi->i_size = cpu_to_le64(inode->i_size);
 
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
-	if (!is_inode_flag_set(inode_i, FI_DIRTY_SIZE)) {
+	if (!is_inode_flag_set(inode_i, FI_DIRTY_INODE)) {
 		list_del(&inode_i->list);
 		INIT_LIST_HEAD(&inode_i->list);
 	}
@@ -108,7 +109,6 @@ int sync_hmfs_inode(struct inode *inode)
 	rn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
 	if (IS_ERR(rn))
 		return PTR_ERR(rn);
-
 	hi = &(rn->i);
 
 	clear_inode_flag(inode_i, FI_DIRTY_INODE);
@@ -139,26 +139,17 @@ int sync_hmfs_inode(struct inode *inode)
 	return 0;
 }
 
-static int is_meta_inode(unsigned long ino)
-{
-	return ino < HMFS_ROOT_INO;
-}
-
 /* allocate an inode */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
 	int ret;
-
 	inode = iget_locked(sb, ino);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
 	if (!(inode->i_state & I_NEW))
 		return inode;
-
-	if (is_meta_inode(ino))
-		goto make_now;
 
 	ret = do_read_inode(inode);
 	if (ret)
@@ -184,22 +175,9 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_op = &hmfs_special_inode_operations;
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 	}
-	goto out;
-make_now:
-	//FIXME: Delete all meta-inode
-	if (ino == HMFS_NAT_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else if (ino == HMFS_SIT_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else if (ino == HMFS_SSA_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else {
-		ret = -EIO;
-		goto bad_inode;
-	}
-out:	
 	unlock_new_inode(inode);
 	return inode;
-bad_inode://XXX:iget_failed(inode);
+bad_inode:
+	iget_failed(inode);
 	return ERR_PTR(ret);
 }

@@ -71,6 +71,7 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 	unsigned int max_cost;
 	unsigned long cost;
 	unsigned int segno;
+	struct hmfs_summary_block *sum_blk = NULL;
 	int nsearched = 0;
 
 	select_policy(sbi, gc_type, &p);
@@ -81,6 +82,10 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 	while (1) {
 		segno = find_next_bit(p.dirty_segmap, TOTAL_SEGS(sbi), p.offset);
 
+#ifdef CONFIG_DEBUG
+		BUG_ON(segno == CURSEG_I(sbi)[0].segno || 
+						segno ==CURSEG_I(sbi)[1].segno);
+#endif
 		if (segno >= TOTAL_SEGS(sbi)) {
 			if (sbi->last_victim[p.gc_mode]) {
 				sbi->last_victim[p.gc_mode] = 0;
@@ -91,6 +96,14 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 		}
 		else {
 			p.offset = segno + 1;
+		}
+
+		sum_blk = get_summary_block(sbi, segno);
+		/* Don't collect segment which is current segment */
+		if (get_summary_start_version(&sum_blk->entries[0]) == 
+						CM_I(sbi)->new_version) {
+			WARN_ON(1);
+			continue;
 		}
 
 		cost = get_gc_cost(sbi, segno, &p);
@@ -434,7 +447,6 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	struct sit_info *sit_i = SIT_I(sbi);
 
 gc_more:
-	printk(KERN_INFO"%s\n",__FUNCTION__);
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
 
@@ -460,7 +472,7 @@ gc_more:
 	if (has_not_enough_free_segs(sbi))
 		goto gc_more;
 
-	if (gc_type == FG_GC) {
+	if (sit_i->sentries) {
 		ret = write_checkpoint(sbi);
 		if (ret)
 			goto out;
@@ -476,7 +488,7 @@ static int gc_thread_func(void *data)
 	struct hmfs_sb_info *sbi = data;
 	wait_queue_head_t *wq = &(sbi->gc_thread->gc_wait_queue_head);
 	long wait_ms = 0;
-	printk(KERN_INFO "start kthread\n");
+	printk(KERN_INFO "start gc thread\n");
 	wait_ms = GC_THREAD_MIN_SLEEP_TIME;
 
 	do {

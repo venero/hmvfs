@@ -468,9 +468,9 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 	default:
 		BUG();
 	}
-skip_partial:while (cont) {
+skip_partial:
+	while (cont) {
 		dn.nid = le32_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
-
 		err = get_node_info(sbi, dn.nid, &ni);
 
 		switch (offset[0]) {
@@ -492,9 +492,7 @@ skip_partial:while (cont) {
 		if (err < 0 && err != -ENODATA)
 			goto fail;
 		if (offset[1] == 0 && hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]) {
-			hn =
-			 alloc_new_node(sbi, inode->i_ino, inode,
-					SUM_TYPE_INODE);
+			hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
 			if (IS_ERR(hn)) {
 				err = PTR_ERR(hn);
 				goto fail;
@@ -529,6 +527,7 @@ retry:
 	e->ni.version = version;
 	if (dirty) {
 		list_del(&e->list);
+		INIT_LIST_HEAD(&e->list);
 		if (nm_i->dirty_nat_entries.next == &nm_i->dirty_nat_entries) {
 			list_add_tail(&e->list, &nm_i->dirty_nat_entries);
 			goto unlock;
@@ -778,9 +777,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	}
 
 	/* search in main area */
-printk(KERN_INFO"%s:%d",__FUNCTION__,nid);
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
-	printk("%p\n",ne_local);
 	if (ne_local == NULL)
 		return -ENODATA;
 	node_info_from_raw_nat(ni, ne_local);
@@ -1127,6 +1124,7 @@ static inline void clean_dirty_nat_entries(struct hmfs_sb_info *sbi)
 	list_for_each_safe(this, next, head) {
 		ne = list_entry(this, struct nat_entry, list);
 		list_del(&ne->list);
+		INIT_LIST_HEAD(&ne->list);
 		list_add_tail(&ne->list, &nm_i->nat_entries);
 	}
 }
