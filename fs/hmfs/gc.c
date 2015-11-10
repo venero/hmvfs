@@ -79,8 +79,7 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 	mutex_lock(&dirty_i->seglist_lock);
 
 	while (1) {
-		segno =
-		 find_next_bit(p.dirty_segmap, TOTAL_SEGS(sbi), p.offset);
+		segno = find_next_bit(p.dirty_segmap, TOTAL_SEGS(sbi), p.offset);
 
 		if (segno >= TOTAL_SEGS(sbi)) {
 			if (sbi->last_victim[p.gc_mode]) {
@@ -89,6 +88,9 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 				continue;
 			}
 			break;
+		}
+		else {
+			p.offset = segno + 1;
 		}
 
 		cost = get_gc_cost(sbi, segno, &p);
@@ -429,16 +431,20 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	int nfree = 0;
 	int ret = -1;
 	unsigned int segno;
+	struct sit_info *sit_i = SIT_I(sbi);
 
 gc_more:
+	printk(KERN_INFO"%s\n",__FUNCTION__);
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
 
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
-		ret = write_checkpoint(sbi);
-		if (ret)
-			goto out;
+		if (sit_i->dirty_sentries) {
+			ret = write_checkpoint(sbi);
+			if (ret)
+				goto out;
+		}
 	}
 
 	if (!get_victim(sbi, &segno, gc_type))

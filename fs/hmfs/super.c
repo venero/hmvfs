@@ -518,6 +518,7 @@ static void hmfs_put_super(struct super_block *sb)
 	}
 
 	hmfs_destroy_stats(sbi);
+	stop_gc_thread(sbi);
 	destroy_segment_manager(sbi);
 	destroy_node_manager(sbi);
 	destroy_checkpoint_manager(sbi);
@@ -813,6 +814,7 @@ fail:
 
 void exit_hmfs(void)
 {
+	destroy_inodecache();
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();

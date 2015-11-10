@@ -754,6 +754,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
 int start_gc_thread(struct hmfs_sb_info *sbi);
+void stop_gc_thread(struct hmfs_sb_info *sbi);
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {

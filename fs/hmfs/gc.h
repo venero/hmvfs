@@ -5,9 +5,9 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
-#define GC_THREAD_MIN_SLEEP_TIME	30000	/* milliseconds */
-#define GC_THREAD_MAX_SLEEP_TIME	60000
-#define GC_THREAD_NOGC_SLEEP_TIME	300000	/* 5 min */
+#define GC_THREAD_MIN_SLEEP_TIME	3000	/* milliseconds */
+#define GC_THREAD_MAX_SLEEP_TIME	6000
+#define GC_THREAD_NOGC_SLEEP_TIME	3000	/* 5 min */
 
 #define MAX_SEG_SEARCH				16
 
