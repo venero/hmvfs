@@ -6,7 +6,7 @@
 int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 {
 	struct inode *inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(dir->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(dir);
 	void *data_blk;
 	size_t symlen = strlen(symname) + 1;
 	int ilock;

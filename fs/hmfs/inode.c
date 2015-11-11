@@ -27,7 +27,7 @@ void hmfs_set_inode_flags(struct inode *inode)
 
 static int do_read_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
@@ -67,7 +67,7 @@ static int do_read_inode(struct inode *inode)
 void mark_size_dirty(struct inode *inode, loff_t size)
 {
 	struct hmfs_inode_info *hi = HMFS_I(inode);
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	i_size_write(inode, size);
 	set_inode_flag(hi, FI_DIRTY_SIZE);
@@ -79,7 +79,7 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 int sync_hmfs_inode_size(struct inode *inode)
 {
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
 
@@ -144,6 +144,7 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
 	int ret;
+
 	inode = iget_locked(sb, ino);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);

@@ -18,7 +18,7 @@ static int get_end_blk_index(int block, int level)
 
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
 	void *blocks[4];
 	void *parent;
 	nid_t nid[4];
@@ -86,7 +86,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 				goto out;
 			}
 		} else {
-			BUG();
+			hmfs_bug_on(sbi, 1);
 		}
 		if (i < level) {
 			parent = blocks[i];
@@ -114,8 +114,8 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
-	u64 addr;
-	u64 max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
+	block_t addr;
+	block_t max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
 	int i;
 	int ofs_in_node = 0;
 	int end_blk_id = -1;
@@ -141,11 +141,11 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		if (i > max_blk)
 			return -EINVAL;
 		if (!dn.level) {
-			BUG_ON(dn.inode_block == NULL
+			hmfs_bug_on(sbi, dn.inode_block == NULL
 			       || dn.inode_block->i_addr == NULL);
 			addr = dn.inode_block->i_addr[ofs_in_node++];
 		} else {
-			BUG_ON(dn.node_block == NULL
+			hmfs_bug_on(sbi, dn.node_block == NULL
 			       || dn.node_block->addr == NULL);
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
@@ -189,7 +189,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	struct dnode_of_data dn;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_node *hn = NULL;
-	u64 new_addr, src_addr = 0;
+	block_t new_addr, src_addr = 0;
 	char *src = NULL, *dest;
 	int err;
 	struct hmfs_summary *summary = NULL;
@@ -264,7 +264,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	struct dnode_of_data dn;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_node *hn = NULL;
-	u64 new_addr, src_addr = 0;
+	block_t new_addr, src_addr = 0;
 	void *src = NULL, *dest;
 	int err;
 	struct hmfs_summary *summary = NULL;
@@ -324,7 +324,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 void *alloc_new_data_block(struct inode *inode, int block)
 {
-	unsigned long long addr;
+	block_t addr;
 	struct hmfs_sb_info *sbi = NULL;
 
 	if (likely(inode))
@@ -346,7 +346,7 @@ static int hmfs_read_data_page(struct file *file, struct page *page)
 	int err;
 	int size = 0;
 
-	BUG_ON(HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
+	hmfs_bug_on(HMFS_I_SB(inode), HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
 	err = get_data_blocks(inode, bidx, bidx + 1, data_blk, &size,
 					RA_DB_END);
 	if (size != 1 || (err && err != -ENODATA))
@@ -389,7 +389,7 @@ int hmfs_write_data_page(struct page *page,
 				struct writeback_control *wbc)
 {
 	struct inode *inode = page->mapping->host;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	loff_t i_size = i_size_read(inode);
 	const pgoff_t end_index =
 	 ((unsigned long long)i_size) >> PAGE_CACHE_SHIFT;
@@ -397,14 +397,13 @@ int hmfs_write_data_page(struct page *page,
 	int err = 0;
 	int ilock;
 
-	BUG_ON(HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
 	if (page->index < end_index)
 		goto write;
 
 	offset = i_size & (PAGE_CACHE_SIZE - 1);
 	if ((page->index >= end_index + 1) || !offset) {
 		if (S_ISDIR(inode->i_mode)) {
-			BUG();
+			hmfs_bug_on(sbi, 1);
 			//dec_page_count(sbi,HMFS_DIRTY_DENTS);
 			//inode_dec_dirty_dents(inode);
 		}
@@ -420,7 +419,7 @@ write:
 	}
 
 	if (S_ISDIR(inode->i_mode)) {
-		BUG();
+		hmfs_bug_on(sbi, 1);
 	}
 
 	ilock = mutex_lock_op(sbi);
@@ -513,13 +512,13 @@ static int hmfs_set_data_page_dirty(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
 	struct inode *inode = mapping->host;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	SetPageUptodate(page);
 	if (!PageDirty(page)) {
 		__set_page_dirty_nobuffers(page);
 		if (S_ISDIR(inode->i_mode))
-			BUG();
+			hmfs_bug_on(sbi, 1);
 		add_dirty_map_inode(inode);
 		inc_dirty_map_pages_count(sbi);
 		inode_inc_dirty_map_pages_count(inode);

@@ -8,23 +8,12 @@
 
 #define MAX_SIT_ITEMS_FOR_GANG_LOOKUP		10240
 
-#define	NR_CURSEG_DATA_TYPE	(1)
-#define NR_CURSEG_NODE_TYPE	(1)
-#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
-
-
 #define hmfs_bitmap_size(nr)			\
 	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
 #define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
 
 /* constant macro */
 #define NULL_SEGNO			((unsigned int)(~0))
-#define SIT_ENTRY_OFFSET(sit_i, segno)					\
-	(segno % sit_i->sents_per_block)
-#define SIT_BLOCK_OFFSET(sit_i, segno)					\
-	(segno / SIT_ENTRY_PER_BLOCK)
-#define START_SEGNO(sit_i, segno)					\
-	(SIT_BLOCK_OFFSET(sit_i, segno) * SIT_ENTRY_PER_BLOCK)
 
 #define LIMIT_INVALID_BLOCKS	50	/* percentage over total user space */
 #define LIMIT_FREE_BLOCKS		50	/* percentage of free blocks over total user space */
@@ -67,9 +56,9 @@ struct free_segmap_info {
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
 	//unsigned char alloc_type;               /* current allocation type */
-	unsigned long segno;	/* current segment number */
+	seg_t segno;	/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
-	unsigned long next_segno;	/* preallocated segment */
+	seg_t next_segno;	/* preallocated segment */
 };
 
 struct hmfs_sm_info {
@@ -98,19 +87,19 @@ static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
 }
 
 static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
-					      unsigned long segno)
+					      seg_t segno)
 {
 	return &(SIT_I(sbi)->sentries[segno]);
 }
 
 static inline unsigned int get_valid_blocks(struct hmfs_sb_info *sbi,
-					    unsigned long segno)
+					    seg_t segno)
 {
 	return get_seg_entry(sbi, segno)->valid_blocks;
 }
 
 static inline struct hmfs_sit_entry *get_sit_entry(struct hmfs_sb_info *sbi,
-						   unsigned int segno)
+						   seg_t segno)
 {
 	return &sbi->sit_entries[segno];
 }
@@ -131,7 +120,7 @@ static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 }
 
 static inline unsigned int find_next_inuse(struct free_segmap_info *free_i,
-					   unsigned int max, unsigned int segno)
+					   unsigned int max, seg_t segno)
 {
 	unsigned int ret;
 	read_lock(&free_i->segmap_lock);
@@ -178,7 +167,7 @@ static inline void seg_info_to_raw_sit(struct seg_entry *se,
 	raw_entry->mtime = cpu_to_le32(se->mtime);
 }
 
-static inline void __set_inuse(struct hmfs_sb_info *sbi, unsigned int segno)
+static inline void __set_inuse(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	//FIXME: do we need lock here?

@@ -65,7 +65,7 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 	unsigned long invalid_user_blocks = cm_i->alloc_block_count
 	 - cm_i->valid_block_count;
 
-	BUG_ON(cm_i->alloc_block_count < cm_i->valid_block_count);
+	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
 
 	if (invalid_user_blocks > sm_i->limit_invalid_blocks
 	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)

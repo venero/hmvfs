@@ -63,14 +63,14 @@ static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
 		return get_cb_cost(sbi, segno);
 }
 
-static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
+static int __get_victim(struct hmfs_sb_info *sbi, seg_t *result,
 			int gc_type)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	struct victim_sel_policy p;
 	unsigned int max_cost;
 	unsigned long cost;
-	unsigned int segno;
+	seg_t segno;
 	struct hmfs_summary_block *sum_blk = NULL;
 	int nsearched = 0;
 
@@ -82,10 +82,8 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 	while (1) {
 		segno = find_next_bit(p.dirty_segmap, TOTAL_SEGS(sbi), p.offset);
 
-#ifdef CONFIG_DEBUG
-		BUG_ON(segno == CURSEG_I(sbi)[0].segno || 
+		hmfs_bug_on(sbi, segno == CURSEG_I(sbi)[0].segno || 
 						segno ==CURSEG_I(sbi)[1].segno);
-#endif
 		if (segno >= TOTAL_SEGS(sbi)) {
 			if (sbi->last_victim[p.gc_mode]) {
 				sbi->last_victim[p.gc_mode] = 0;
@@ -130,7 +128,7 @@ static int __get_victim(struct hmfs_sb_info *sbi, unsigned int *result,
 	return (p.min_segno == NULL_SEGNO) ? 0 : 1;
 }
 
-static int get_victim(struct hmfs_sb_info *sbi, int *result, int gc_type)
+static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 {
 	int ret;
 
@@ -142,7 +140,7 @@ static int get_victim(struct hmfs_sb_info *sbi, int *result, int gc_type)
 }
 
 static int prepare_move_arguments(struct gc_move_arg *arg,
-				  struct hmfs_sb_info *sbi, unsigned segno,
+				  struct hmfs_sb_info *sbi, seg_t segno,
 				  unsigned offset, struct hmfs_summary *sum,
 				  int type)
 {
@@ -181,7 +179,7 @@ static void update_dest_summary(struct hmfs_summary *src_sum,
 	dest_sum->ont = src_sum->ont;
 }
 
-static void move_data_block(struct hmfs_sb_info *sbi, int src_segno,
+static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			    int src_off, struct hmfs_summary *src_sum)
 {
 	struct gc_move_arg args;
@@ -197,13 +195,13 @@ static void move_data_block(struct hmfs_sb_info *sbi, int src_segno,
 	while (args.start_version < args.dead_version) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
-		BUG_ON(IS_ERR(this));
+		hmfs_bug_on(sbi, IS_ERR(this));
 
 		/* Now the pointer contains in direct node have been changed last time */
 		if (this == last)
 			goto next;
 
-		BUG_ON(le64_to_cpu(this->dn.addr[args.ofs_in_node]) !=
+		hmfs_bug_on(sbi, le64_to_cpu(this->dn.addr[args.ofs_in_node]) !=
 		       args.src_addr);
 
 		if (this->footer.nid == this->footer.ino)
@@ -232,7 +230,7 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
-static void recycle_segment(struct hmfs_sb_info *sbi, unsigned int segno)
+static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
@@ -279,7 +277,7 @@ static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 	}
 }
 
-static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
+static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			    unsigned int src_off, struct hmfs_summary *src_sum,
 			    int type)
 {
@@ -295,7 +293,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, unsigned long src_segno,
 		if (IS_ERR(this) || this == last)
 			goto next;
 
-		BUG_ON(le64_to_cpu(this->entries[args.ofs_in_node].block_addr)
+		hmfs_bug_on(sbi, le64_to_cpu(this->entries[args.ofs_in_node].block_addr)
 		       != args.src_addr);
 
 		this->entries[args.ofs_in_node].block_addr = cpu_to_le64(args.dest_addr);
@@ -316,7 +314,7 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
-static void move_nat_block(struct hmfs_sb_info *sbi, int src_segno, int src_off,
+static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_off,
 			   struct hmfs_summary *src_sum, int type)
 {
 	void *last = NULL, *this = NULL;
@@ -365,7 +363,7 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
-static void move_checkpoint_block(struct hmfs_sb_info *sbi, int src_segno,
+static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 				  int src_off, struct hmfs_summary *src_sum)
 {
 	struct gc_move_arg args;
@@ -390,7 +388,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, int src_segno,
 }
 
 static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
-			     unsigned int segno)
+			     seg_t segno)
 {
 	int off = 0;
 
@@ -418,13 +416,13 @@ static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			move_checkpoint_block(sbi, segno, off, sum);
 			break;
 		default:
-			BUG();
+			hmfs_bug_on(sbi, 1);
 			break;
 		}
 	}
 }
 
-static void garbage_collect(struct hmfs_sb_info *sbi, int segno, int gc_type)
+static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno, int gc_type)
 {
 	struct hmfs_summary_block *sum_blk;
 
@@ -443,7 +441,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 {
 	int nfree = 0;
 	int ret = -1;
-	unsigned int segno;
+	seg_t segno;
 	struct sit_info *sit_i = SIT_I(sbi);
 
 gc_more:

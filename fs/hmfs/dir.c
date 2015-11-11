@@ -157,8 +157,6 @@ static struct hmfs_dir_entry *find_in_level(struct inode *dir,
 	int size, start_blk;
 	struct hmfs_dentry_block *dentry_blk = NULL;
 
-	//shmfs_bug_on(HMFS_I_SB(dir), level > MAX_DIR_HASH_DEPTH);
-
 	nbucket = dir_buckets(level);
 	nblock = bucket_blocks(level);
 
@@ -379,11 +377,6 @@ error:
 void update_parent_metadata(struct inode *dir, struct inode *inode,
 			    unsigned int current_depth)
 {
-	struct super_block *sb = dir->i_sb;
-	BUG_ON(sb == NULL);
-	BUG_ON(sb->s_op == NULL);
-	BUG_ON(sb->s_op->dirty_inode == NULL);
-
 	if (inode && is_inode_flag_set(HMFS_I(inode), FI_NEW_INODE)) {
 		if (S_ISDIR(inode->i_mode)) {
 			inc_nlink(dir);
@@ -392,9 +385,6 @@ void update_parent_metadata(struct inode *dir, struct inode *inode,
 		clear_inode_flag(HMFS_I(inode), FI_NEW_INODE);
 	}
 	dir->i_mtime = dir->i_ctime = CURRENT_TIME;
-	BUG_ON(sb == NULL);
-	BUG_ON(sb->s_op == NULL);
-	BUG_ON(sb->s_op->dirty_inode == NULL);
 	mark_inode_dirty(dir);
 
 	if (HMFS_I(dir)->i_current_depth != current_depth) {
@@ -446,8 +436,8 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
 }
 
 /*
- * Caller should grab and release a rwsem by calling hmfs_lock_op() and
- * hmfs_unlock_op().
+ * Caller should grab and release a rwsem by calling mutex_lock_op() and
+ * mutex_unlock_op().
  */
 int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 		    struct inode *inode)
@@ -582,7 +572,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		       struct inode *inode, int bidx)
 {
 	unsigned int bit_pos;
-	struct hmfs_sb_info *sbi = HMFS_SB(dir->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(dir);
 	int slots = GET_DENTRY_SLOTS(le16_to_cpu(dentry->name_len));
 	int i;
 
@@ -644,7 +634,7 @@ bool hmfs_empty_dir(struct inode *dir)
 		dentry_blk = blocks[pos++];
 
 		if (dentry_blk == NULL) {
-			BUG_ON(bidx == 0);
+			hmfs_bug_on(HMFS_I_SB(dir), bidx == 0);
 			continue;
 		}
 
@@ -735,6 +725,6 @@ const struct file_operations hmfs_dir_operations = {
 	.llseek = generic_file_llseek,
 	.read = generic_read_dir,
 	.iterate = hmfs_readdir,
-//.fsync                = hmfs_sync_file,
+	.fsync                = hmfs_sync_file,
 	.unlocked_ioctl       = hmfs_ioctl,
 };

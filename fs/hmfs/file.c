@@ -111,7 +111,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
-		BUG_ON(nr > HMFS_PAGE_SIZE);
+		hmfs_bug_on(HMFS_I_SB(inode), nr > HMFS_PAGE_SIZE);
 		error = get_data_blocks(inode, index, index + 1, xip_mem, 
 						&size, RA_END);
 
@@ -207,7 +207,7 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 {
 	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = filp->f_inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	size_t count = 0, ret;
 	loff_t pos;
 	int ilock;
@@ -265,9 +265,7 @@ static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
 	sum = get_summary_by_addr(sbi, blk_addr);
 	count = get_summary_count(sum) - 1;
 	set_summary_count(sum, count);
-#ifdef CONFIG_DEBUG
-	BUG_ON(count < 0);
-#endif
+	hmfs_bug_on(sbi, count < 0);
 
 	if (!count) {
 		set_summary_dead_version(sum, cm_i->new_version);
@@ -279,7 +277,7 @@ static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 {
 	int nr_free = 0, ofs = dn->ofs_in_node;
-	struct hmfs_sb_info *sbi = HMFS_SB(dn->inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
 	struct hmfs_node *raw_node = (struct hmfs_node *)dn->node_block;
 	struct hmfs_node *new_node = NULL;
 	void *data_blk;
@@ -336,9 +334,9 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 static int truncate_blocks(struct inode *inode, u64 from)
 {
 	struct dnode_of_data dn;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int count, err;
-	u64 free_from;
+	block_t free_from;
 	int ilock;
 
 	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
@@ -357,7 +355,7 @@ static int truncate_blocks(struct inode *inode, u64 from)
 		count = ADDRS_PER_BLOCK;
 
 	count -= dn.ofs_in_node;
-	BUG_ON(count < 0);
+	hmfs_bug_on(sbi, count < 0);
 
 	if (dn.ofs_in_node || !dn.level) {
 		truncate_data_blocks_range(&dn, count);
@@ -405,7 +403,7 @@ int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)
 static void fill_zero(struct inode *inode, pgoff_t index, loff_t start,
 		      loff_t len)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int ilock;
 
 	if (!len)
@@ -422,7 +420,7 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	loff_t off_start, off_end;
 	loff_t blk_start, blk_end;
 	int ret = 0, ilock;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	pg_start = ((u64) offset) >> HMFS_PAGE_SIZE_BITS;
 	pg_end = ((u64) offset + len) >> HMFS_PAGE_SIZE_BITS;
@@ -466,7 +464,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	loff_t off_start, off_end;
 	struct dnode_of_data dn;
 	int ret, ilock;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	ret = inode_newsize_ok(inode, (len + offset));
 	if (ret)

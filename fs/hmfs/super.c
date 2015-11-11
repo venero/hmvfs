@@ -342,9 +342,6 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, minor_ver, HMFS_MINOR_VERSION);
 	set_struct(super, nat_height, hmfs_get_nat_height(init_size));
 
-	set_struct(super, log_pagesize, HMFS_PAGE_SIZE_BITS);
-	set_struct(super, log_pages_per_seg, HMFS_PAGE_PER_SEG_BITS);
-
 	set_struct(super, segment_count_main, main_segments_count);
 	set_struct(super, init_size, init_size);
 	set_struct(super, segment_count, init_size >> HMFS_SEGMENT_SIZE_BITS);
@@ -432,13 +429,15 @@ static void hmfs_destroy_inode(struct inode *inode)
 int __hmfs_write_inode(struct inode *inode)
 {
 	int err = 0, ilock;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+
 	ilock = mutex_lock_op(sbi);
 	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		err = sync_hmfs_inode(inode);
 	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
 		err = sync_hmfs_inode_size(inode);
-	else BUG();
+	else 
+		hmfs_bug_on(sbi, 1);
 	mutex_unlock_op(sbi, ilock);
 
 	return err;
@@ -459,7 +458,7 @@ static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 static void hmfs_dirty_inode(struct inode *inode, int flags)
 {
 	struct hmfs_inode_info *hi = HMFS_I(inode);
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	set_inode_flag(hi, FI_DIRTY_INODE);
 	list_del(&hi->list);
@@ -470,7 +469,7 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 
 static void hmfs_evict_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
 	struct hmfs_node *hi;
 	struct node_info ni;
@@ -496,9 +495,7 @@ static void hmfs_evict_inode(struct inode *inode)
 		hmfs_truncate(inode);
 
 	ret = __hmfs_write_inode(inode);	
-#ifdef CONFIG_DEBUG
-	BUG_ON(ret);
-#endif
+	hmfs_bug_on(sbi, ret);
 
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
@@ -776,9 +773,8 @@ struct file_system_type hmfs_fs_type = {
 
 static int __init init_inodecache(void)
 {
-	hmfs_inode_cachep = kmem_cache_create("hmfs_inode_cache",
-					      sizeof(struct hmfs_inode_info), 0,
-					      SLAB_RECLAIM_ACCOUNT, NULL);
+	hmfs_inode_cachep = hmfs_kmem_cache_create("hmfs_inode_cache",
+					      sizeof(struct hmfs_inode_info), NULL);
 	if (hmfs_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
