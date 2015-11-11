@@ -167,7 +167,7 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 	sync_checkpoint_info(sbi, prev_checkpoint, cm_i->cur_cp_i);
 	radix_tree_insert(&cm_i->cp_tree_root, cm_i->new_version,
 			  cm_i->cur_cp_i);
-	list_add(&cm_i->last_cp_i->list, &cm_i->cur_cp_i->list);
+	list_add(&cm_i->cur_cp_i->list, &cm_i->last_cp_i->list);
 	cm_i->new_version = next_checkpoint_ver(cm_i->new_version);
 	cm_i->last_cp_i = cm_i->cur_cp_i;
 retry:

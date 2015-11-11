@@ -196,7 +196,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
 	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_HMFS_DEBUG
 	unsigned int nrdirty = 0;
 
 	mutex_lock(&sit_i->sentry_lock);

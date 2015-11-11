@@ -1,4 +1,4 @@
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_HMFS_DEBUG
 
 #include <linux/fs.h>
 #include <linux/debugfs.h>

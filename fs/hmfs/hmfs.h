@@ -33,7 +33,7 @@
 /* # of FS Lock in hmfs_sb_info */
 #define NR_GLOBAL_LOCKS	16
 
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_HMFS_DEBUG
 #define hmfs_bug_on(sbi, condition)	\
 			do {					\
 				if (condition) {	\
@@ -149,7 +149,7 @@ struct hmfs_cm_info {
 	unsigned long alloc_block_count;
 	/* # fo blocks left in current segments */
 	int left_blocks_count[NR_CURSEG_TYPE];
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_HMFS_DEBUG
 	int nr_bugs;		/* # of bugs found */
 #endif
 
