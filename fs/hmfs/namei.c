@@ -258,6 +258,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 
 	if (new_inode) {
+			printk(KERN_INFO"%s-%d\n",__FUNCTION__,__LINE__);
 		err = -ENOTEMPTY;
 		if (old_dir_entry && !hmfs_empty_dir(new_inode))
 			goto out_k;
@@ -292,6 +293,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 		mark_inode_dirty(new_inode);
 	} else {
+			printk(KERN_INFO"%s-%d\n",__FUNCTION__,__LINE__);
 		err = hmfs_add_link(new_dentry, old_inode);
 		if (err)
 			goto out_k;
@@ -304,7 +306,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
 
-	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, old_inode,
+	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
 			  old_bidx);
 
 	if (old_dir_entry) {
@@ -314,8 +316,10 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:	mutex_unlock_op(sbi, ilock);
-out:	return err;
+out_k:	
+	mutex_unlock_op(sbi, ilock);
+out:
+	return err;
 }
 
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
