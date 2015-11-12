@@ -317,9 +317,15 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 	return HMFS_SB(inode->i_sb);
 }
 
-static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, u64 addr)
+static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
 {
 	return (addr - sbi->main_addr_start) >> HMFS_SEGMENT_SIZE_BITS;
+}
+
+static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)
+{
+	return ((addr - sbi->main_addr_start) & (~HMFS_SEGMENT_MASK)) >>
+			HMFS_PAGE_SIZE_BITS;
 }
 
 static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,

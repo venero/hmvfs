@@ -537,9 +537,8 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 	unsigned int blkoff;
 	struct hmfs_summary_block *summary_blk = NULL;
 
-	blk_addr = blk_addr - sbi->main_addr_start;
-	segno = blk_addr >> HMFS_SEGMENT_SIZE_BITS;
-	blkoff = (blk_addr & ~HMFS_SEGMENT_MASK) >> HMFS_PAGE_SIZE_BITS;
+	segno = GET_SEGNO(sbi, blk_addr);
+	blkoff = GET_SEG_OFS(sbi, blk_addr);
 	summary_blk = get_summary_block(sbi, segno);
 
 	return &summary_blk->entries[blkoff];
