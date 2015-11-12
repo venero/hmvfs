@@ -91,7 +91,8 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 	return inode;
-out:	clear_nlink(inode);
+out:
+	clear_nlink(inode);
 	unlock_new_inode(inode);
 	make_bad_inode(inode);
 	iput(inode);
@@ -174,7 +175,8 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		goto out;
 	d_instantiate(dentry, inode);
 	return 0;
-out:	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
+out:	
+	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	iput(inode);
 	return err;
 }
@@ -210,7 +212,8 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
-fail:	return err;
+fail:
+	return err;
 }
 
 static int hmfs_rmdir(struct inode *dir, struct dentry *dentry)
@@ -314,8 +317,10 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:	mutex_unlock_op(sbi, ilock);
-out:	return err;
+out_k:	
+	mutex_unlock_op(sbi, ilock);
+out:
+	return err;
 }
 
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,

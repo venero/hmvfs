@@ -192,12 +192,12 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long offset = 0;
-	unsigned long total_segs = TOTAL_SEGS(sbi);
+	pgc_t total_segs = TOTAL_SEGS(sbi);
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
 	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
 #ifdef CONFIG_HMFS_DEBUG
-	unsigned int nrdirty = 0;
+	pgc_t nrdirty = 0;
 
 	mutex_lock(&sit_i->sentry_lock);
 	while (1) {
@@ -243,6 +243,7 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 					seg_t segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
+
 	write_lock(&free_i->segmap_lock);
 	if (!test_and_set_bit(segno, free_i->free_segmap)) {
 		free_i->free_segments--;
@@ -422,7 +423,7 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct hmfs_sm_info *sm_info;
 	int err;
-	unsigned long user_segments, main_segments;
+	pgc_t user_segments, main_segments;
 
 	sm_info = kzalloc(sizeof(struct hmfs_sm_info), GFP_KERNEL);
 	if (!sm_info)

@@ -24,55 +24,53 @@ struct seg_entry {
 };
 
 struct sit_info {
-	block_t sit_blocks;	/* # of blocks used by SIT file */
-	block_t written_valid_blocks;	/* # of valid blocks in main area */
 	unsigned long long bitmap_size;
 
 	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
-	unsigned int dirty_sentries;	/* # of dirty sentries */
-	unsigned int sents_per_block;	/* # of SIT entries per block */
-	struct mutex sentry_lock;	/* to protect SIT cache */
-	struct seg_entry *sentries;	/* SIT segment-level cache */
+	unsigned int dirty_sentries;			/* # of dirty sentries */
+	struct mutex sentry_lock;				/* to protect SIT cache */
+	struct seg_entry *sentries;				/* SIT segment-level cache */
 
 	/* for cost-benefit valuing */
-	unsigned long long elapsed_time;
-	unsigned long long mounted_time;
-	unsigned long long min_mtime;
-	unsigned long long max_mtime;
+	unsigned long long elapsed_time;	/* The elapsed time from FS format */
+	unsigned long long mounted_time;	/* Timestamp for FS mounted */
+	unsigned long long min_mtime;		/* Minimum mtime in SIT */
+	unsigned long long max_mtime;		/* Maximum mtime in SIT */
 };
 
+/* Dirty segment is the segment which has both valid blocks and invalid blocks */
 struct dirty_seglist_info {
-	unsigned long *dirty_segmap;
+	unsigned long *dirty_segmap;		/* bitmap for dirty segment */
 	struct mutex seglist_lock;
 };
 
+/* Free segment is the segment which does not have valid blocks */
 struct free_segmap_info {
-	unsigned int free_segments;	/* # of free segments */
-	rwlock_t segmap_lock;	/* free segmap lock */
-	unsigned long *free_segmap;	/* free segment bitmap */
+	pgc_t free_segments;			/* # of free segments */
+	rwlock_t segmap_lock;				/* free segmap lock */
+	unsigned long *free_segmap;			/* free segment bitmap */
 };
 
 /* for active log information */
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
-	//unsigned char alloc_type;               /* current allocation type */
-	seg_t segno;	/* current segment number */
+	seg_t segno;				/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
-	seg_t next_segno;	/* preallocated segment */
+	seg_t next_segno;			/* preallocated segment */
 };
 
 struct hmfs_sm_info {
-	struct sit_info *sit_info;	/* whole segment information */
-	struct free_segmap_info *free_info;	/* free segment information */
+	struct sit_info *sit_info;				/* whole segment information */
+	struct free_segmap_info *free_info;		/* free segment information */
 	struct dirty_seglist_info *dirty_info;	/* dirty segment information */
-	struct curseg_info *curseg_array;	/* active segment information */
+	struct curseg_info *curseg_array;		/* active segment information */
 
-	unsigned int segment_count;	/* total # of segments */
-	unsigned int main_segments;	/* # of segments in main area */
-	unsigned int reserved_segments;	/* # of reserved segments */
-	unsigned int ovp_segments;	/* # of overprovision segments */
-	unsigned long limit_invalid_blocks;	/* # of limit invalid blocks */
-	unsigned long limit_free_blocks;	/* # of limit free blocks */
+	pgc_t segment_count;				/* total # of segments */
+	pgc_t main_segments;				/* # of segments in main area */
+	pgc_t reserved_segments;			/* # of reserved segments */
+	pgc_t ovp_segments;				/* # of overprovision segments */
+	pgc_t limit_invalid_blocks;		/* # of limit invalid blocks */
+	pgc_t limit_free_blocks;		/* # of limit free blocks */
 };
 
 /* Segment inlined functions */
@@ -83,7 +81,7 @@ static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 
 static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
 {
-	return (struct sit_info *)(SM_I(sbi)->sit_info);
+	return (SM_I(sbi)->sit_info);
 }
 
 static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
@@ -116,28 +114,29 @@ static inline struct free_segmap_info *FREE_I(struct hmfs_sb_info *sbi)
 
 static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 {
-	return (struct dirty_seglist_info *)(SM_I(sbi)->dirty_info);
+	return SM_I(sbi)->dirty_info;
 }
 
-static inline unsigned int find_next_inuse(struct free_segmap_info *free_i,
-					   unsigned int max, seg_t segno)
+static inline seg_t find_next_inuse(struct free_segmap_info *free_i,
+					   seg_t max, seg_t segno)
 {
-	unsigned int ret;
+	seg_t ret;
+
 	read_lock(&free_i->segmap_lock);
 	ret = find_next_bit(free_i->free_segmap, max, segno);
 	read_unlock(&free_i->segmap_lock);
 	return ret;
 }
 
-static inline u64 overprovision_segments(struct hmfs_sb_info *sbi)
+static inline pgc_t overprovision_segments(struct hmfs_sb_info *sbi)
 {
 	return SM_I(sbi)->ovp_segments;
 }
 
-static inline u64 free_segments(struct hmfs_sb_info *sbi)
+static inline pgc_t free_segments(struct hmfs_sb_info *sbi)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	u64 free_segs;
+	pgc_t free_segs;
 
 	read_lock(&free_i->segmap_lock);
 	free_segs = free_i->free_segments;
@@ -149,6 +148,7 @@ static inline u64 free_segments(struct hmfs_sb_info *sbi)
 static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
+
 	return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
 	 sit_i->mounted_time;
 }

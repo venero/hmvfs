@@ -13,7 +13,7 @@ struct node_info {
 	nid_t nid;
 	nid_t ino;
 	block_t blk_addr;
-	unsigned int version;
+	ver_t version;
 };
 
 struct nat_entry {

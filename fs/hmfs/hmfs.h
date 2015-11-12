@@ -50,6 +50,7 @@
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
 typedef unsigned long seg_t;		/* segment number type */
+typedef unsigned long pgc_t;	/* page count type */
 
 
 
@@ -138,15 +139,15 @@ struct hmfs_cm_info {
 
 	struct checkpoint_info *last_cp_i;
 
-	unsigned long valid_inode_count;
-	unsigned long valid_node_count;
+	pgc_t valid_inode_count;
+	pgc_t valid_node_count;
 
 	/* block whose count in summary is > 0 */
-	unsigned long valid_block_count;
+	pgc_t valid_block_count;
 	/* maximum # of blocks users could get */
-	unsigned long user_block_count;
+	pgc_t user_block_count;
 	/* # of blocks of all dirty ,full and current segments */
-	unsigned long alloc_block_count;
+	pgc_t alloc_block_count;
 	/* # fo blocks left in current segments */
 	int left_blocks_count[NR_CURSEG_TYPE];
 #ifdef CONFIG_HMFS_DEBUG
@@ -184,15 +185,15 @@ struct hmfs_sb_info {
 	char support_bg_gc;				/* Support bg gc or not */
 
 	/* FS statisic */
-	unsigned long long segment_count;			/* # of all segments */
-	unsigned long long segment_count_main;		/* # of segments in main area */
-	unsigned long long page_count_main;			/* # of pages in main area */
+	pgc_t segment_count;			/* # of all segments */
+	pgc_t segment_count_main;		/* # of segments in main area */
+	pgc_t page_count_main;			/* # of pages in main area */
 	atomic_t nr_dirty_map_pages;				/* # of dirty pages used by mmap */
 	int s_dirty;								/* FS is dirty or not */
 	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
-	unsigned long long main_addr_start;			/* Start address of main area */
-	unsigned long long main_addr_end;
+	block_t main_addr_start;			/* Start address of main area */
+	block_t main_addr_end;
 	char nat_height;							/* Height of nat tree in cp */
 
 	/* Managet Structure */
@@ -386,7 +387,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 					struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	unsigned long alloc_valid_block_count;
+	pgc_t alloc_valid_block_count;
 
 	spin_lock(&cm_i->stat_lock);
 
@@ -436,7 +437,7 @@ static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
 static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	unsigned long alloc_block_count;
+	pgc_t alloc_block_count;
 
 	spin_lock(&cm_i->stat_lock);
 	alloc_block_count = cm_i->alloc_block_count + 1;
@@ -454,7 +455,7 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 					 struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	u64 alloc_block_count;
+	pgc_t alloc_block_count;
 
 	spin_lock(&cm_i->stat_lock);
 	alloc_block_count = cm_i->alloc_block_count + count;
@@ -690,7 +691,7 @@ bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,
 		     char sum_type);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      unsigned long blk_addr, unsigned int version, bool dirty);
+		      block_t blk_addr, ver_t version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi);

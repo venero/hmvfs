@@ -234,12 +234,6 @@ struct hmfs_dir_entry *hmfs_parent_dir(struct inode *dir)
 	struct hmfs_dir_entry *de = NULL;
 	struct hmfs_dentry_block *dentry_blk = NULL;
 
-	// add inline.c here will become valid
-	//if (hmfs_has_inline_dentry(dir))
-	//      return hmfs_parent_inline_dir(dir, p);
-
-	// add data.c here will become valid
-	//page = get_lock_data_page(dir, 0);
 	dentry_blk = alloc_new_data_block(dir, 0);
 	if (IS_ERR(dentry_blk))
 		return NULL;
@@ -325,6 +319,7 @@ static int make_empty_dir(struct inode *inode, struct inode *parent,
 {
 	struct hmfs_dentry_block *dentry_blk = NULL;
 	struct hmfs_dentry_ptr d;
+
 	dentry_blk = alloc_new_data_block(inode, 0);
 	if (IS_ERR(dentry_blk))
 		return PTR_ERR(dentry_blk);
@@ -335,9 +330,8 @@ static int make_empty_dir(struct inode *inode, struct inode *parent,
 	return 0;
 }
 
-struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
-				      const struct qstr *name,
-				      struct page *dpage)
+static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *dir,
+				      const struct qstr *name)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -515,7 +509,7 @@ start:
 add_dentry:
 	if (inode) {
 		down_write(&HMFS_I(inode)->i_sem);
-		hn = init_inode_metadata(inode, dir, name, NULL);
+		hn = init_inode_metadata(inode, dir, name);
 		if (IS_ERR(hn)) {
 			err = PTR_ERR(hn);
 			goto fail;

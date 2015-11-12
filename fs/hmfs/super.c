@@ -152,15 +152,15 @@ bad_opt:
 
 static int hmfs_format(struct super_block *sb)
 {
-	u64 pages_count, main_segments_count, user_segments_count,
+	pgc_t pages_count, main_segments_count, user_segments_count,
 	 user_pages_count;
-	u64 init_size;
-	u64 area_addr, end_addr;
-	unsigned long long ssa_pages_count, sit_area_size;
-	u64 data_segaddr, node_segaddr;
-	u64 root_node_addr, cp_addr;
-	u64 ssa_addr, nat_addr, main_addr;
-	u64 sit_addr;
+	unsigned long long init_size;
+	block_t area_addr, end_addr;
+	pgc_t ssa_pages_count, sit_area_size;
+	block_t data_segaddr, node_segaddr;
+	block_t root_node_addr, cp_addr;
+	block_t ssa_addr, nat_addr, main_addr;
+	block_t sit_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
 	int length;
@@ -375,8 +375,7 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 		return super_1;
 	}
 
-	super_2 =
-	 start_addr + align_page_right(sizeof(struct hmfs_super_block));
+	super_2 = start_addr + align_page_right(sizeof(struct hmfs_super_block));
 	checksum = crc16(~0, (void *)super_2, length);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
@@ -399,7 +398,7 @@ static void init_once(void *foo)
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;
-/* free me when umount */
+
 	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
 							GFP_NOFS | __GFP_ZERO);
 	if (!fi)
@@ -416,8 +415,8 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 
 static void hmfs_i_callback(struct rcu_head *head)
 {
-	struct inode
-	*inode = container_of(head, struct inode, i_rcu);
+	struct inode *inode = container_of(head, struct inode, i_rcu);
+
 	kmem_cache_free(hmfs_inode_cachep, HMFS_I(inode));
 }
 
@@ -464,7 +463,6 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 	list_del(&hi->list);
 	INIT_LIST_HEAD(&hi->list);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
-	return;
 }
 
 static void hmfs_evict_inode(struct inode *inode)
@@ -607,8 +605,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	struct hmfs_super_block *super = NULL;
 	int retval = 0;
 	int i = 0;
-	unsigned long end_addr;
-	unsigned long long ssa_addr, sit_addr;
+	block_t end_addr;
+	block_t ssa_addr, sit_addr;
 	unsigned long long input_size;
 
 	/* sbi initialization */
@@ -655,8 +653,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 			retval = -EACCES;
 			goto out;
 		}
-	}
-	else {
+	} else {
 		retval = -EINVAL;
 		goto out;
 	}
@@ -757,6 +754,7 @@ struct dentry *hmfs_mount(struct file_system_type *fs_type, int flags,
 			  const char *dev_name, void *data)
 {
 	struct dentry *entry;
+	
 	entry = mount_nodev(fs_type, flags, data, hmfs_fill_super);
 	return entry;
 }

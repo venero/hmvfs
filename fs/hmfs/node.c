@@ -507,7 +507,7 @@ fail:
 }
 
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      unsigned long blk_addr, unsigned int version, bool dirty)
+		      block_t blk_addr, ver_t version, bool dirty)
 {
 	struct nat_entry *e, *le;
 retry:
@@ -738,7 +738,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 		     char sum_type)
 {
-	unsigned long long addr;
+	block_t addr;
 
 	if (likely(inode))
 		return __alloc_new_node(sbi, nid, inode, sum_type);

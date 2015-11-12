@@ -131,8 +131,8 @@ static int __get_victim(struct hmfs_sb_info *sbi, seg_t *result,
 static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 {
 	int ret;
-
 	struct sit_info *sit_i = SIT_I(sbi);
+
 	mutex_lock(&sit_i->sentry_lock);
 	ret = __get_victim(sbi, result, gc_type);
 	mutex_unlock(&sit_i->sentry_lock);
