@@ -49,7 +49,7 @@ enum {
 	GC_GREEDY = 0, GC_CB
 };
 
-static inline u64 free_user_blocks(struct hmfs_sb_info *sbi)
+static inline unsigned long long free_user_blocks(struct hmfs_sb_info *sbi)
 {
 	if (free_segments(sbi) < overprovision_segments(sbi))
 		return 0;

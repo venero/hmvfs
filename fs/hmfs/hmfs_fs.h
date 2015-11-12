@@ -119,7 +119,8 @@ enum FILE_TYPE {
 #define NODE_DIND_BLOCK		(NORMAL_ADDRS_PER_INODE + 5)
 
 /* SSA */
-#define SUM_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE/sizeof(struct hmfs_summary))
+#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
+#define SUM_ENTRY_PER_BLOCK (HMFS_SUMMARY_BLOCK_SIZE / sizeof(struct hmfs_summary))
 #define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
 /* summary block type, node or data, is stored to the summary_footer */
 #define SUM_TYPE_DATA		(0)	//      data block
@@ -130,7 +131,6 @@ enum FILE_TYPE {
 #define SUM_TYPE_IDN		(5)	//      indirect block
 #define SUM_TYPE_CP			(6)	//      checkpoint block
 
-#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 
 
 /* For superblock */

@@ -320,7 +320,7 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 	truncate_data_blocks_range(dn, ADDRS_PER_BLOCK);
 }
 
-static void truncate_partial_data_page(struct inode *inode, u64 from)
+static void truncate_partial_data_page(struct inode *inode, block_t from)
 {
 	unsigned offset = from & (HMFS_PAGE_SIZE - 1);
 
@@ -331,7 +331,7 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 	return;
 }
 
-static int truncate_blocks(struct inode *inode, u64 from)
+static int truncate_blocks(struct inode *inode, block_t from)
 {
 	struct dnode_of_data dn;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -422,8 +422,8 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	int ret = 0, ilock;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
-	pg_start = ((u64) offset) >> HMFS_PAGE_SIZE_BITS;
-	pg_end = ((u64) offset + len) >> HMFS_PAGE_SIZE_BITS;
+	pg_start = ((unsigned long long) offset) >> HMFS_PAGE_SIZE_BITS;
+	pg_end = ((unsigned long long) offset + len) >> HMFS_PAGE_SIZE_BITS;
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
 
@@ -470,8 +470,8 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	if (ret)
 		return ret;
 
-	pg_start = ((u64) offset) >> HMFS_PAGE_SIZE_BITS;
-	pg_end = ((u64) offset + len) >> HMFS_PAGE_SIZE_BITS;
+	pg_start = ((unsigned long long) offset) >> HMFS_PAGE_SIZE_BITS;
+	pg_end = ((unsigned long long) offset + len) >> HMFS_PAGE_SIZE_BITS;
 
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
