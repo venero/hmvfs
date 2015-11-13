@@ -569,6 +569,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dir);
 	int slots = GET_DENTRY_SLOTS(le16_to_cpu(dentry->name_len));
 	int i;
+	size_t dir_i_size;
 
 	bit_pos = dentry - dentry_blk->dentry;
 	for (i = 0; i < slots; i++)
@@ -601,7 +602,11 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK) {
 		// after add dir.c here will be valid
+		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
+		if (dir->i_blocks == bidx + 1) {
+			dir->i_blocks = hmfs_file_seek_hole_data(dir, ) 
+		}
 	}
 }
 

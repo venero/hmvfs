@@ -99,7 +99,8 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 	dn->node_block = blocks[level];
 	dn->level = level;
 	return 0;
-out:	return err;
+out:
+	return err;
 }
 
 /**

@@ -10,6 +10,64 @@
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
+static unsigned int start_block(unsigned int i, int level)
+{
+	if (level)
+		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDR_PER_BLOCK);
+	return 0;
+}
+
+unsigned int hmfs_file_seek_hole_data(struct inode *inode, unsigned int end_blk,
+				unsigned int start_pos, char type)
+{
+	int i = start_pos >> HMFS_PAGE_SIZE_BITS, j;
+	struct dnode_of_data dn;
+	struct direct_node *direct_node = NULL;
+	struct hmfs_inode *inode_block = NULL;
+	unsigned int ret;
+	int err;
+	unsigned start_blk;
+	block_t addr;
+
+	set_new_dnode(&dn, inode, NULL, NULL, 0);
+	while (i < end_blk) {
+		dn->node_block = NULL;
+		dn->nid = 0;
+		err = get_dnode_of_data(&dn, i, LOOKUP_NODE);
+		if (err && type == SEEK_HOLE)
+			return start_block(i, dn.level);
+	
+		start_blk = start_block(i, dn.level);
+		if (dn.level) {
+			direct_node = dn->node_block;
+			hmfs_bug_on(!direct_node);
+
+			for (j = start_blk - i; j < ADDRS_PER_BLOCK; j++) {
+				addr = le64_to_cpu(direct_node->addr[j]);
+				if (!addr && type == SEEK_HOLE)
+					return start_blk + j;
+				else if (addr && type == SEEK_DATA)
+					return start_blk + j;
+			}
+			i = start_blk + ADDRS_PER_BLOCK;
+		} else {
+			/* level 0, inode */
+			inode_block = dn->inode_block;
+			hmfs_bug_on(!inode_block);
+
+			for (j = start_blk - i; j < NORMAL_ADDRS_PER_INODE; j++) {
+				addr = le64_to_cpu(inode_block->i_addr[j]);
+				if (!addr && type == SEEK_HOLE)
+					return start_blk + j;
+				else if (addr && type == SEEK_DATA)
+					return start_blk + j;
+			}
+			i = start_blk + NORMAL_ADDRS_PER_INODE;
+		}
+	}
+	return end_blk;
+}
+
 /**
  * hmfs_file_llseek - llseek implementation for in-memory files
  * @file:	file structure to seek on
@@ -26,8 +84,12 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	int ret;
 	loff_t maxsize = inode->i_sb->s_maxbytes;
 	loff_t eof = i_size_read(inode);
+	unsigned pg_index, end_blk;
 
 	mutex_lock(&inode->i_mutex);
+
+	end_blk = (eof + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
+
 	switch (whence) {
 	case SEEK_END:		//size of the file plus offset [bytes]
 		offset += eof;
@@ -44,6 +106,8 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			ret = -ENXIO;
 			goto out;
 		}
+		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_DATA);
+		offset = pg_index << HMFS_PAGE_SIZE_BITS;
 		break;
 	case SEEK_HOLE:
 		/*
@@ -54,7 +118,8 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			ret = -ENXIO;
 			goto out;
 		}
-		offset = eof;
+		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_HOLE);
+		offset = pg_index << HMFS_PAGE_SIZE_BITS;
 		break;
 	}
 
