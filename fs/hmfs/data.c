@@ -130,6 +130,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			}
 			err = get_dnode_of_data(&dn, i, LOOKUP_NODE);
 			if (err) {
+				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
 				if (err == -ENODATA)
 					goto fill_null;
 				return err;
@@ -139,7 +140,8 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			init = false;
 		}
 		if (i > max_blk)
-			return -EINVAL;
+		{printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
+			return -EINVAL;}
 		if (!dn.level) {
 			hmfs_bug_on(sbi, dn.inode_block == NULL
 			       || dn.inode_block->i_addr == NULL);
@@ -150,8 +152,11 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			addr = dn.node_block->addr[ofs_in_node++];
 		}
 		if (addr == NULL_ADDR) {
-fill_null:		blocks[*size] = NULL;
+fill_null:		
+			blocks[*size] = NULL;
 			err = -ENODATA;
+
+				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
 		} else
 			blocks[*size] = ADDR(sbi, addr);
 		*size = *size + 1;

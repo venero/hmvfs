@@ -40,6 +40,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	if (S_ISDIR(mode)) {
 		set_inode_flag(HMFS_I(inode), FI_INC_LINK);
 		inode->i_size = HMFS_PAGE_SIZE;
+		inode->i_blocks = 1;
 	} else if (S_ISLNK(mode)) {
 		inode->i_size = HMFS_PAGE_SIZE;
 	} else {
@@ -261,7 +262,6 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 
 	if (new_inode) {
-			printk(KERN_INFO"%s-%d\n",__FUNCTION__,__LINE__);
 		err = -ENOTEMPTY;
 		if (old_dir_entry && !hmfs_empty_dir(new_inode))
 			goto out_k;
@@ -296,7 +296,6 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 		mark_inode_dirty(new_inode);
 	} else {
-			printk(KERN_INFO"%s-%d\n",__FUNCTION__,__LINE__);
 		err = hmfs_add_link(new_dentry, old_inode);
 		if (err)
 			goto out_k;

@@ -362,7 +362,8 @@ static int truncate_blocks(struct inode *inode, block_t from)
 		free_from += count;
 	}
 
-free_next:err = truncate_inode_blocks(inode, free_from);
+free_next:
+	err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
 	mutex_unlock_op(sbi, ilock);

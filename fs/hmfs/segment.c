@@ -273,6 +273,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 		return -ENOMEM;
 
 	bitmap_size = hmfs_bitmap_size(TOTAL_SEGS(sbi));
+	sit_i->bitmap_size = bitmap_size;
 	sit_i->dirty_sentries_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 	if (!sit_i->dirty_sentries_bitmap)
 		return -ENOMEM;

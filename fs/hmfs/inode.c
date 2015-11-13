@@ -88,6 +88,7 @@ int sync_hmfs_inode_size(struct inode *inode)
 		return PTR_ERR(hn);
 	hi = &hn->i;
 	hi->i_size = cpu_to_le64(inode->i_size);
+	hi->i_blocks = cpu_to_le64(inode->i_blocks);
 
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
 	if (!is_inode_flag_set(inode_i, FI_DIRTY_INODE)) {
