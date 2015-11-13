@@ -669,6 +669,7 @@ void hmfs_set_inode_flags(struct inode *inode);
 
 /* file.c */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count);
+unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk);
 void truncate_data_blocks(struct dnode_of_data *dn);
 void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);

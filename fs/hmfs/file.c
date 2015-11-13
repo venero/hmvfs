@@ -13,59 +13,114 @@
 static unsigned int start_block(unsigned int i, int level)
 {
 	if (level)
-		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDR_PER_BLOCK);
+		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDRS_PER_BLOCK);
 	return 0;
 }
 
-unsigned int hmfs_file_seek_hole_data(struct inode *inode, unsigned int end_blk,
-				unsigned int start_pos, char type)
+/* Find the last index of data block which is meaningful*/
+unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk)
 {
-	int i = start_pos >> HMFS_PAGE_SIZE_BITS, j;
 	struct dnode_of_data dn;
 	struct direct_node *direct_node = NULL;
 	struct hmfs_inode *inode_block = NULL;
-	unsigned int ret;
-	int err;
+	int err, j;
+	block_t addr;
 	unsigned start_blk;
+
+	set_new_dnode(&dn, dir, NULL, NULL, 0);
+	while (end_blk >= 0) {
+		dn.node_block = NULL;
+		dn.nid = 0;
+		err = get_dnode_of_data(&dn, end_blk, LOOKUP_NODE);
+		if (err) {
+			if (dn.level)
+				end_blk = start_block(end_blk, dn.level) - 1;
+			else
+				hmfs_bug_on(HMFS_I_SB(dir), 1);
+			continue;
+		}
+		start_blk = start_block(end_blk, dn.level);
+		if (dn.level) {
+			direct_node = dn.node_block;
+			hmfs_bug_on(HMFS_I_SB(dir), !direct_node);
+
+			for (j = end_blk - start_blk; j >= 0; j--) {
+				addr = le64_to_cpu(direct_node->addr[j]);
+				if (addr)
+					return start_blk + j;
+			}
+		} else {
+			inode_block = dn.inode_block;
+			hmfs_bug_on(HMFS_I_SB(dir), !inode_block);
+
+			for (j = end_blk - start_blk; j >= 0; j--) {
+				addr = le64_to_cpu(inode_block->i_addr[j]);
+				if (addr)
+					return start_blk + j;
+			}
+		}
+		end_blk = start_blk - 1;
+	}
+	hmfs_bug_on(HMFS_I_SB(dir), 1);
+	return 0;
+}
+
+static unsigned int hmfs_file_seek_hole_data(struct inode *inode, 
+				unsigned int end_blk, unsigned int start_pos, char type)
+{
+	int i = start_pos >> HMFS_PAGE_SIZE_BITS, j = 0;
+	struct dnode_of_data dn;
+	struct direct_node *direct_node = NULL;
+	struct hmfs_inode *inode_block = NULL;
+	int err;
+	unsigned start_blk = end_blk;
 	block_t addr;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	while (i < end_blk) {
-		dn->node_block = NULL;
-		dn->nid = 0;
+		dn.node_block = NULL;
+		dn.nid = 0;
 		err = get_dnode_of_data(&dn, i, LOOKUP_NODE);
-		if (err && type == SEEK_HOLE)
-			return start_block(i, dn.level);
+		if (err) {
+			if (type == SEEK_HOLE)
+				return start_block(i, dn.level);
+			if (dn.level)
+				i = start_block(i, dn.level) + ADDRS_PER_BLOCK;
+			else 
+				hmfs_bug_on(HMFS_I_SB(inode), 1);
+			continue;
+		}
 	
 		start_blk = start_block(i, dn.level);
 		if (dn.level) {
-			direct_node = dn->node_block;
-			hmfs_bug_on(!direct_node);
+			direct_node = dn.node_block;
+			hmfs_bug_on(HMFS_I_SB(inode), !direct_node);
 
 			for (j = start_blk - i; j < ADDRS_PER_BLOCK; j++) {
 				addr = le64_to_cpu(direct_node->addr[j]);
 				if (!addr && type == SEEK_HOLE)
-					return start_blk + j;
+					goto found;
 				else if (addr && type == SEEK_DATA)
-					return start_blk + j;
+					goto found;
 			}
 			i = start_blk + ADDRS_PER_BLOCK;
 		} else {
 			/* level 0, inode */
-			inode_block = dn->inode_block;
-			hmfs_bug_on(!inode_block);
+			inode_block = dn.inode_block;
+			hmfs_bug_on(HMFS_I_SB(inode), !inode_block);
 
 			for (j = start_blk - i; j < NORMAL_ADDRS_PER_INODE; j++) {
 				addr = le64_to_cpu(inode_block->i_addr[j]);
 				if (!addr && type == SEEK_HOLE)
-					return start_blk + j;
+					goto found;
 				else if (addr && type == SEEK_DATA)
-					return start_blk + j;
+					goto found;
 			}
 			i = start_blk + NORMAL_ADDRS_PER_INODE;
 		}
 	}
-	return end_blk;
+found:
+	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
 /**
@@ -427,7 +482,8 @@ static int truncate_blocks(struct inode *inode, block_t from)
 		free_from += count;
 	}
 
-free_next:err = truncate_inode_blocks(inode, free_from);
+free_next:
+	err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
 	mutex_unlock_op(sbi, ilock);
