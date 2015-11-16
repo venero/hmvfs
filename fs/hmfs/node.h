@@ -28,7 +28,7 @@ struct free_nid {
 /*
  * ?????
  */
-#define make_free_nid(nid,free)		(nid | ((u64)free << 63))
+#define make_free_nid(nid,free)		(nid | ((u32)free << 31))
 #define get_free_nid(nid)			((nid << 1) >> 1)
 
 static inline void node_info_to_raw_nat(struct node_info *ni,

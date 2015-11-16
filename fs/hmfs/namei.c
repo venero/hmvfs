@@ -21,7 +21,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		err = -ENOSPC;
 		goto fail;
 	}
-
+printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,ino);
 	inode->i_uid = current_fsuid();
 
 	if (dir->i_mode & S_ISGID) {
@@ -68,6 +68,7 @@ out:
 	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	unlock_new_inode(inode);
 fail:	
+	printk(KERN_INFO"bad inode\n");
 	make_bad_inode(inode);
 	iput(inode);
 	if (nid_free)
@@ -86,6 +87,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	inode = hmfs_new_inode(dir, mode);
 	if (IS_ERR(inode))
 		return inode;
+	printk(KERN_INFO"%s:%lu\n",__FUNCTION__,inode->i_ino);
 	ilock = mutex_lock_op(sbi);
 	err = hmfs_add_link(dentry, inode);
 	mutex_unlock_op(sbi, ilock);

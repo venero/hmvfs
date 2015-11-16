@@ -13,7 +13,7 @@ static nid_t hmfs_max_nid(struct hmfs_sb_info *sbi)
 	nid_t nid = 1;
 	int height = 0;
 
-	while (++height < sbi->nat_height)
+	while (++height <= sbi->nat_height)
 		nid *= NAT_ADDR_PER_NODE;
 	nid *= NAT_ENTRY_PER_BLOCK;
 	return nid;
@@ -840,7 +840,7 @@ static int is_valid_free_nid(struct hmfs_sb_info *sbi, nid_t nid)
 	}
 	read_unlock(&cm_i->journal_lock);
 
-	return 1;
+	return nid > HMFS_ROOT_INO;
 }
 
 static nid_t scan_nat_block(struct hmfs_sb_info *sbi,
@@ -865,6 +865,7 @@ found:
 			if (!is_valid_free_nid(sbi, start_nid))
 				continue;
 			add_free_nid(nm_i, start_nid, 0, pos);
+			printk(KERN_INFO"add free nid:%d %d %d\n",start_nid,*pos,nm_i->free_nids[*pos].nid);
 			*pos = *pos - 1;
 		}
 	}
@@ -877,6 +878,7 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 	struct hmfs_nat_block *nat_block = NULL;
 	nid_t nid = nm_i->next_scan_nid;
 	int pos = BUILD_FREE_NID_COUNT - 1;
+	int count;
 
 	if (nm_i->fcnt >= BUILD_FREE_NID_COUNT)
 		return nm_i->fcnt;
@@ -887,10 +889,21 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 		nat_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
 						nid);
 		nid = scan_nat_block(sbi, nat_block, nid, &pos);
+		printk(KERN_INFO"%s %d %d\n",__FUNCTION__,nm_i->max_nid,sbi->nat_height);
+	}
+	printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,nid<nm_i->max_nid);
+
+	count = BUILD_FREE_NID_COUNT - 1 - pos;
+	if (nid > nm_i->max_nid) {
+		pos++;
+		while (pos < BUILD_FREE_NID_COUNT) {
+			nm_i->free_nids[nm_i->fcnt++] =	nm_i->free_nids[pos++];
+		}	
+		hmfs_bug_on(sbi, nm_i->fcnt != count);
 	}
 
 	nm_i->next_scan_nid = nid;
-	return BUILD_FREE_NID_COUNT - 1 - pos;
+	return count;
 }
 
 bool alloc_nid(struct hmfs_sb_info * sbi, nid_t * nid)
@@ -906,6 +919,7 @@ retry:
 	spin_lock(&nm_i->free_nid_list_lock);
 
 	if (nm_i->fcnt > 0) {
+			printk(KERN_INFO"%s:%d\n",__FUNCTION__,nm_i->free_nids[nm_i->fcnt-1].nid);
 		*nid = get_free_nid(nm_i->free_nids[nm_i->fcnt - 1].nid);
 		nm_i->fcnt--;
 		spin_unlock(&nm_i->free_nid_list_lock);
