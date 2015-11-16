@@ -163,6 +163,7 @@ static struct hmfs_dir_entry *find_in_level(struct inode *dir,
 	bidx = dir_block_index(level, le32_to_cpu(namehash) % nbucket);
 	end_block = bidx + nblock;
 
+	printk(KERN_INFO"%s-%d:%d %d\n",__FUNCTION__,__LINE__,bidx,end_block);
 	err = get_data_blocks(dir, bidx, end_block, blocks, &size, RA_END);
 	if (size <= 0)
 		return NULL;
@@ -214,8 +215,9 @@ struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
 
 	name_hash = hmfs_dentry_hash(child);
 	max_depth = HMFS_I(dir)->i_current_depth;
-
 	for (level = 0; level < max_depth; level++) {
+
+printk(KERN_INFO"%s-%d:%s %d\n",__FUNCTION__,__LINE__,child->name, level);
 		de =
 		 find_in_level(dir, level, child, name_hash, bidx, ofs_in_blk);
 		if (de)
@@ -458,8 +460,8 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 		level = HMFS_I(dir)->clevel;
 		HMFS_I(dir)->chash = 0;
 	}
-	end_blk = dir->i_blocks;
-
+	end_blk = dir->i_size >> HMFS_PAGE_SIZE_BITS;
+printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,end_blk);
 start:
 	if (unlikely(current_depth == MAX_DIR_HASH_DEPTH))
 		return -ENOSPC;
@@ -477,22 +479,23 @@ start:
 		//FIXME: use bat process to reduce read time
 		if (block >= end_blk) {
 			dentry_blk = alloc_new_data_block(dir, block);
-			memset_nt(dentry_blk, 0, HMFS_PAGE_SIZE);
+			printk(KERN_INFO"alloc_new_data_block:%d %d\n",block,level);
 			bit_pos = 0;
-			dir->i_blocks = block + 1;
-			mark_size_dirty(dir, i_size_read(dir) + HMFS_PAGE_SIZE);
+			end_blk = block + 1;
+			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
+			printk(KERN_INFO"set_i_size:%d %d %d\n",dir->i_ino,i_size_read(dir),end_blk<<HMFS_PAGE_SIZE_BITS);
 			goto add_dentry;
 		} else {
-			err =
-			 get_data_blocks(dir, block, block + 1, blocks, &size,
+			err = get_data_blocks(dir, block, block + 1, blocks, &size,
 					 RA_DB_END);
 			dentry_blk = blocks[0];
-			if (err||size<=0)
-				printk(KERN_INFO"%s-%d:%d %d %d %d\n",__FUNCTION__,__LINE__,err,block,level,end_blk);
-			if (err || size <= 0)
+			if (size<=0)
+				printk(KERN_INFO"%s-%d:%d %d %d %d %d\n",__FUNCTION__,__LINE__,err,block,level,end_blk,size);
+			if (size <= 0)
 				return -EINVAL;
+			printk(KERN_INFO"%p %p\n",dentry_blk,&dentry_blk->dentry_bitmap);
 			bit_pos =
-			 room_for_filename(&dentry_blk->dentry_bitmap, slots,
+			 room_for_filename(dentry_blk->dentry_bitmap, slots,
 					   NR_DENTRY_IN_BLOCK);
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(dir, block);
@@ -579,10 +582,10 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 
 	bit_pos = dentry - dentry_blk->dentry;
 	for (i = 0; i < slots; i++)
-		clear_bit_le(bit_pos + i, &dentry_blk->dentry_bitmap);
+		clear_bit_le(bit_pos + i, dentry_blk->dentry_bitmap);
 
 	/* Let's check and deallocate this dentry page */
-	bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
+	bit_pos = find_next_bit_le(dentry_blk->dentry_bitmap,
 				   NR_DENTRY_IN_BLOCK, 0);
 
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
@@ -609,8 +612,9 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 	if (bit_pos == NR_DENTRY_IN_BLOCK) {
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
-		if (dir->i_blocks == bidx + 1) {
-			dir->i_blocks = hmfs_dir_seek_data_reverse(dir, bidx + 1); 
+		if (dir->i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {
+			dir->i_size = hmfs_dir_seek_data_reverse(dir, bidx + 1)
+					<< HMFS_PAGE_SIZE_BITS; 
 		}
 		mark_size_dirty(dir, dir_i_size - HMFS_PAGE_SIZE);
 	}
@@ -647,7 +651,7 @@ bool hmfs_empty_dir(struct inode *dir)
 			bit_pos = 2;
 		else
 			bit_pos = 0;
-		bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
+		bit_pos = find_next_bit_le(dentry_blk->dentry_bitmap,
 					   NR_DENTRY_IN_BLOCK, bit_pos);
 
 		if (bit_pos < NR_DENTRY_IN_BLOCK)

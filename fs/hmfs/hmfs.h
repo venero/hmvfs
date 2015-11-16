@@ -577,7 +577,7 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
 	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
 
 	d->max = NR_DENTRY_IN_BLOCK;
-	d->bitmap = &t->dentry_bitmap;
+	d->bitmap = t->dentry_bitmap;
 	d->dentry = t->dentry;
 	d->filename = t->filename;
 }

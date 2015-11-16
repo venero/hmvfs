@@ -86,7 +86,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 				goto out;
 			}
 		} else {
-			hmfs_bug_on(sbi, 1);
+			return -ENODATA;
 		}
 		if (i < level) {
 			parent = blocks[i];
@@ -131,9 +131,9 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			}
 			err = get_dnode_of_data(&dn, i, LOOKUP_NODE);
 			if (err) {
-				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
 				if (err == -ENODATA)
 					goto fill_null;
+				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,i);
 				return err;
 			}
 			end_blk_id = get_end_blk_index(i, dn.level);
@@ -141,8 +141,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			init = false;
 		}
 		if (i > max_blk)
-		{printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
-			return -EINVAL;}
+			return -EINVAL;
 		if (!dn.level) {
 			hmfs_bug_on(sbi, dn.inode_block == NULL
 			       || dn.inode_block->i_addr == NULL);
@@ -156,8 +155,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 fill_null:		
 			blocks[*size] = NULL;
 			err = -ENODATA;
-
-				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,err);
 		} else
 			blocks[*size] = ADDR(sbi, addr);
 		*size = *size + 1;
@@ -322,6 +319,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	if (src_addr != NULL_ADDR)
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
+	else memset_nt(dest, 0, HMFS_PAGE_SIZE);
 
 	setup_summary_of_new_data_block(sbi, new_addr, src_addr, inode->i_ino,
 					dn.ofs_in_node);
