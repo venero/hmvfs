@@ -495,11 +495,15 @@ start:
 			if (size<=0)
 				printk(KERN_INFO"%s-%d:%d %lu %d %lu %d\n",__FUNCTION__,__LINE__,err,block,level,end_blk,size);
 			if (size <= 0)
-				return -EINVAL;
+				return err;
+			err = 0;
 			printk(KERN_INFO"%p %p\n",dentry_blk,&dentry_blk->dentry_bitmap);
-			bit_pos =
-			 room_for_filename(dentry_blk->dentry_bitmap, slots,
+
+			if (dentry_blk)
+				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
 					   NR_DENTRY_IN_BLOCK);
+			else 
+				bit_pos = 0;
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(dir, block);
 				if (IS_ERR(dentry_blk)) {
