@@ -61,7 +61,7 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
 	if (err || size != 1 || data_blk[0] == NULL)
 		return ERR_PTR(-ENODATA);
-    err = vfs_follow_link(nd, data_blk[0]);
+  //  err = vfs_follow_link(nd, data_blk[0]);
 	return ERR_PTR(err);
 }
 

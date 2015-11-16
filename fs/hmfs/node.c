@@ -980,6 +980,7 @@ struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 	struct hmfs_nat_node *nat_root = cp_i->nat_root;
 	char nat_height = sbi->nat_height;
 
+	printk("%s: %p", __FUNCTION__, nat_root);
 	return __get_nat_page(sbi, L_ADDR(sbi, nat_root), blk_id, nat_height);
 }
 
@@ -1237,9 +1238,13 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 				new_root_node = ADDR(sbi, new_nat_root_addr);
 			}
 			old_blk_order = new_blk_order;
-			old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->new_version,
+			old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version ,
 					     old_blk_order * NAT_ENTRY_PER_BLOCK);
-			memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+			if(old_entry_block){
+				memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+			} else {
+				memset_nt(new_entry_block, 0, HMFS_PAGE_SIZE);
+			}
 		}
 		//add a entry to a page
 		_ofs = (ne->ni.nid) % LOG2_NAT_ENTRY_PER_BLOCK;

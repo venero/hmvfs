@@ -163,7 +163,6 @@ static struct hmfs_dir_entry *find_in_level(struct inode *dir,
 	bidx = dir_block_index(level, le32_to_cpu(namehash) % nbucket);
 	end_block = bidx + nblock;
 
-	printk(KERN_INFO"%s-%d:%d %d\n",__FUNCTION__,__LINE__,bidx,end_block);
 	err = get_data_blocks(dir, bidx, end_block, blocks, &size, RA_END);
 	if (size <= 0)
 		return NULL;
@@ -217,7 +216,6 @@ struct hmfs_dir_entry *hmfs_find_entry(struct inode *dir, struct qstr *child,
 	max_depth = HMFS_I(dir)->i_current_depth;
 	for (level = 0; level < max_depth; level++) {
 
-printk(KERN_INFO"%s-%d:%s %d\n",__FUNCTION__,__LINE__,child->name, level);
 		de =
 		 find_in_level(dir, level, child, name_hash, bidx, ofs_in_blk);
 		if (de)
@@ -427,12 +425,9 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
 	memcpy(d->filename[bit_pos], name->name, name->len);
 	de->ino = cpu_to_le32(ino);
 	set_de_type(de, mode);
-	printk(KERN_INFO"%s:%p\n",__FUNCTION__,d->bitmap);
 	for (i = 0; i < slots; i++)
 	{		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
-			printk(KERN_INFO"%s-set_pos:%d\n",name->name,i);
 	}
-	printk("%s-%d:%d\n",__FUNCTION__,__LINE__,((char*)d->bitmap)[0]);
 }
 
 /*
@@ -465,7 +460,6 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 		HMFS_I(dir)->chash = 0;
 	}
 	end_blk = dir->i_size >> HMFS_PAGE_SIZE_BITS;
-printk(KERN_INFO"%s-%d:%lu\n",__FUNCTION__,__LINE__,end_blk);
 start:
 	if (unlikely(current_depth == MAX_DIR_HASH_DEPTH))
 		return -ENOSPC;
@@ -483,7 +477,6 @@ start:
 		//FIXME: use bat process to reduce read time
 		if (block >= end_blk) {
 			dentry_blk = alloc_new_data_block(dir, block);
-			printk(KERN_INFO"alloc_new_data_block:%lu %d\n",block,level);
 			bit_pos = 0;
 			end_blk = block + 1;
 			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
@@ -492,12 +485,9 @@ start:
 			err = get_data_blocks(dir, block, block + 1, blocks, &size,
 					 RA_DB_END);
 			dentry_blk = blocks[0];
-			if (size<=0)
-				printk(KERN_INFO"%s-%d:%d %lu %d %lu %d\n",__FUNCTION__,__LINE__,err,block,level,end_blk,size);
 			if (size <= 0)
 				return err;
 			err = 0;
-			printk(KERN_INFO"%p %p\n",dentry_blk,&dentry_blk->dentry_bitmap);
 
 			if (dentry_blk)
 				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
@@ -525,7 +515,6 @@ add_dentry:
 		down_write(&HMFS_I(inode)->i_sem);
 		hn = init_inode_metadata(inode, dir, name);
 	if (IS_ERR(hn))
-		printk(KERN_INFO"%s-%d:%lu\n",__FUNCTION__,__LINE__,PTR_ERR(hn));
 		if (IS_ERR(hn)) {
 			err = PTR_ERR(hn);
 			goto fail;
@@ -534,7 +523,6 @@ add_dentry:
 	make_dentry_ptr(&d, (void *)dentry_blk, 1);
 	hmfs_update_dentry(inode->i_ino, inode->i_mode, &d, name, dentry_hash,
 			   bit_pos);
-	printk(KERN_INFO"%s-%d:%lu\n",__FUNCTION__,__LINE__,GET_SEGNO(HMFS_I_SB(dir),d.bitmap-HMFS_I_SB(dir)->virt_addr));
 
 	if (inode) {
 		/* we don't need to mark_inode_dirty now */
@@ -676,10 +664,8 @@ bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
 	struct hmfs_dir_entry *de = NULL;
 
 	bit_pos = ((unsigned long)ctx->pos % d->max);
-printk(KERN_INFO"%s:%p",__FUNCTION__,d->bitmap);
 	while (bit_pos < d->max) {
 		bit_pos = find_next_bit_le(d->bitmap, d->max, bit_pos);
-		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,bit_pos);
 		if (bit_pos >= d->max)
 			break;
 
@@ -688,12 +674,10 @@ printk(KERN_INFO"%s:%p",__FUNCTION__,d->bitmap);
 			d_type = hmfs_filetype_table[de->file_type];
 		else
 			d_type = DT_UNKNOWN;
-		printk(KERN_INFO"%s-%d:%s %p %d %d %d\n",__FUNCTION__,__LINE__,d->filename[bit_pos],d->filename[bit_pos],le16_to_cpu(de->name_len),le32_to_cpu(de->ino),d_type);
 		if (!dir_emit
 		    (ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
 		     le32_to_cpu(de->ino), d_type))
 		{
-				printk(KERN_INFO"%s-emit -error\n",__FUNCTION__);
 			return true;
 		}
 
