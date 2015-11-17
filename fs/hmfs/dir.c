@@ -654,8 +654,8 @@ bool hmfs_empty_dir(struct inode *dir)
 	return true;
 }
 
-bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
-			unsigned int start_pos)
+bool hmfs_fill_dentries(struct hmfs_sb_info *sbi, struct dir_context * ctx, 
+				struct hmfs_dentry_ptr * d, unsigned int start_pos)
 {
 	unsigned char d_type = DT_UNKNOWN;
 	unsigned int bit_pos;
@@ -716,7 +716,8 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 			continue;
 		make_dentry_ptr(&d, (void *)dentry_blk, 1);
 
-		if (hmfs_fill_dentries(ctx, &d, n * NR_DENTRY_IN_BLOCK))
+		if (hmfs_fill_dentries(HMFS_I_SB(inode), ctx, &d, 
+				n * NR_DENTRY_IN_BLOCK))
 			goto stop;
 
 		ctx->pos = (n + 1) * NR_DENTRY_IN_BLOCK;

@@ -663,7 +663,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 			goto out;
 		}
 	} else if (input_size) {
-			printk(KERN_INFO"Format\n");
 		hmfs_format(sb);
 	} else if (sbi->mnt_cp_version) {
 		if (!hmfs_readonly(sb)) {

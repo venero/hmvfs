@@ -157,6 +157,15 @@ struct hmfs_super_block {
 } __attribute__ ((packed));
 
 /* hmfs inode */
+/*
+ * What is the difference between i_size and i_blocks?
+ * i_size is used to determine the end of data blocks,
+ * i.e. end_blk = i_size >> HMFS_PAGE_SIZE_BITS, is the
+ * last valid data block. But there maybe no data in that
+ * block and the block whose id is small than end_blk.
+ * i_blocks is the exact number of data blocks that
+ * an inode contain.
+ */
 struct hmfs_inode {
 	__le16 i_mode;		/* file mode */
 	__u8 i_advise;		/* file hints */

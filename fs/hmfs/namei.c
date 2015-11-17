@@ -39,7 +39,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	if (S_ISDIR(mode)) {
 		set_inode_flag(HMFS_I(inode), FI_INC_LINK);
 		inode->i_size = HMFS_PAGE_SIZE;
-		inode->i_blocks = 2;
 	} else if (S_ISLNK(mode)) {
 		inode->i_size = HMFS_PAGE_SIZE;
 	} else {
