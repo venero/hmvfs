@@ -672,10 +672,9 @@ bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
 			d_type = hmfs_filetype_table[de->file_type];
 		else
 			d_type = DT_UNKNOWN;
-		if (!dir_emit
-		    (ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
-		     le32_to_cpu(de->ino), d_type))
-		{
+		if(le16_to_cpu(de->name_len))
+		if (!dir_emit(ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
+		     le32_to_cpu(de->ino), d_type)) {
 			return true;
 		}
 
@@ -701,7 +700,6 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 
 	if (!buf)
 		return -ENOMEM;
-
 	for (; n < npages; n++) {
 		if (i >= size) {
 			err = get_data_blocks(inode, n, npages, buf, &size,

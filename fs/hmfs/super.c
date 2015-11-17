@@ -30,6 +30,7 @@ enum {
 	Opt_gid,
 	Opt_bg_gc,
 	Opt_mnt_cp,
+	Opt_deep_fmt,
 };
 
 static const match_table_t tokens = {
@@ -41,6 +42,7 @@ static const match_table_t tokens = {
 	{Opt_gid, "gid=%u"},
 	{Opt_bg_gc, "bg_gc=%u"},
 	{Opt_mnt_cp, "mnt_cp=%u"},
+	{Opt_deep_fmt, "deep_fmt=%u"},
 };
 
 /*
@@ -133,6 +135,11 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 				goto bad_val;
 			sbi->mnt_cp_version = option;
 			break;
+		case Opt_deep_fmt:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->deep_fmt = option;
+			break;
 		default:
 			goto bad_opt;
 		}
@@ -182,6 +189,11 @@ static int hmfs_format(struct super_block *sb)
 	init_size = sbi->initsize;
 	end_addr = align_segment_left(init_size);
 
+	if (sbi->deep_fmt) {
+		printk(KERN_INFO"[HMFS]: deep format\n");
+		memset_nt(super, 0, init_size);
+	}
+
 	pages_count = init_size >> HMFS_PAGE_SIZE_BITS;
 
 /* prepare SSA area */
@@ -195,13 +207,16 @@ static int hmfs_format(struct super_block *sb)
 	    HMFS_PAGE_PER_SEG * sizeof(struct hmfs_summary));
 	ssa_pages_count = (main_segments_count * HMFS_SUMMARY_BLOCK_SIZE
 			   + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
+	if (!sbi->deep_fmt)
+		memset_nt(sbi->ssa_entries, 0, ssa_pages_count << HMFS_PAGE_SIZE_BITS);
 
 /* prepare SIT area */
 	area_addr += (ssa_pages_count << HMFS_PAGE_SIZE_BITS);
 	sit_addr = area_addr;
 	sbi->sit_entries = ADDR(sbi, sit_addr);
 	sit_area_size = main_segments_count * SIT_ENTRY_SIZE;
-	memset_nt(ADDR(sbi, sit_addr), 0, sit_area_size);
+	if (!sbi->deep_fmt)
+		memset_nt(sbi->sit_entries, 0, sit_area_size);
 
 /* prepare main area */
 	area_addr += sit_area_size;
@@ -253,6 +268,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
+	memset_nt(dent_blk, 0, HMFS_PAGE_SIZE);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
 	dent_blk->dentry[0].ino = cpu_to_le32(HMFS_ROOT_INO);
 	dent_blk->dentry[0].name_len = cpu_to_le16(1);
@@ -266,6 +282,7 @@ static int hmfs_format(struct super_block *sb)
 	hmfs_memcpy(dent_blk->filename[1], "..", 2);
 
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
+	printk(KERN_INFO"%s-%d:%p %p\n",__FUNCTION__,__LINE__,dent_blk,&dent_blk->dentry_bitmap[0]);
 
 /* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;

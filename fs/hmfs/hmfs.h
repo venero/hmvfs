@@ -183,6 +183,7 @@ struct hmfs_sb_info {
 	kuid_t uid;						/* user id */
 	kgid_t gid;						/* group id */
 	char support_bg_gc;				/* Support bg gc or not */
+	char deep_fmt;				/* whether set 0 of whole area of NVM */
 
 	/* FS statisic */
 	pgc_t segment_count;			/* # of all segments */
