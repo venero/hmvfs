@@ -980,7 +980,6 @@ struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 	struct hmfs_nat_node *nat_root = cp_i->nat_root;
 	char nat_height = sbi->nat_height;
 
-	printk("%s: %p", __FUNCTION__, nat_root);
 	return __get_nat_page(sbi, L_ADDR(sbi, nat_root), blk_id, nat_height);
 }
 
@@ -1003,8 +1002,8 @@ struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 	struct hmfs_nat_node *nat_root = cp_i->nat_root;
 	unsigned int height = 0, block_id;
 
-	height = index >> 27;
-	block_id = index & 0x7ffffff;
+	height = GET_NAT_NODE_HEIGHT(index);
+	block_id = GET_NAT_NODE_OFS(index);
 
 	return __get_nat_page(sbi, L_ADDR(sbi, nat_root), block_id, height);
 }
@@ -1021,13 +1020,14 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	 *cur_child_node = NULL;
 	block_t old_nat_addr, cur_stored_addr, child_stored_addr, _addr,
 	 child_node_addr;
-	unsigned int new_blk_order = 0, _ofs, nid;
+	unsigned int new_blk_order = 0, _ofs;
+	nid_t nid;
 	unsigned int i, start_version, dead_version, cur_version;
 	struct hmfs_summary *raw_summary;
 	char blk_type;
 
 	//preparation for summary update
-	nid = blk_order | ((block_t) height << 27);
+	nid = MAKE_NAT_NODE_NID(height, blk_order);
 	cur_version = CM_I(sbi)->new_version;
 	blk_type = (height == 0) ? SUM_TYPE_NATD : SUM_TYPE_NATN;
 

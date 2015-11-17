@@ -106,7 +106,7 @@ enum FILE_TYPE {
 #define LOG2_NAT_ADDRS_PER_NODE 9
 #define BITS_PER_NID 32
 #define LOG2_NAT_ENTRY_PER_BLOCK 9	//relatedd to ^
-#define NID_TO_BLOCK_OFS(nid)		(nid % NAT_ENTRY_PER_BLOCK)
+#define NID_TO_BLOCK_OFS(nid)		((nid) % NAT_ENTRY_PER_BLOCK)
 
 #define SIT_ENTRY_SIZE (sizeof(struct hmfs_sit_entry))
 #define SIT_ENTRY_PER_BLOCK (HMFS_PAGE_SIZE / SIT_ENTRY_SIZE)
