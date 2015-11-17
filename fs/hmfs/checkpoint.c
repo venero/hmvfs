@@ -514,17 +514,13 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 	flush_sit_entries(sbi);
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
-	set_struct(store_checkpoint, valid_block_count,
-		   cm_i->valid_block_count);
-	set_struct(store_checkpoint, valid_inode_count,
-		   cm_i->valid_inode_count);
+	set_struct(store_checkpoint, valid_block_count, cm_i->valid_block_count);
+	set_struct(store_checkpoint, valid_inode_count, cm_i->valid_inode_count);
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
-	set_struct(store_checkpoint, alloc_block_count,
-		   cm_i->alloc_block_count);
+	set_struct(store_checkpoint, alloc_block_count, cm_i->alloc_block_count);
 	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
-	set_struct(store_checkpoint, cur_node_segno,
-		   curseg_i[CURSEG_NODE].segno);
+	set_struct(store_checkpoint, cur_node_segno, curseg_i[CURSEG_NODE].segno);
 	set_struct(store_checkpoint, cur_node_blkoff,
 		   curseg_i[CURSEG_NODE].next_blkoff);
 	set_struct(store_checkpoint, cur_data_segno,

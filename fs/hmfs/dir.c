@@ -338,7 +338,6 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 	int err;
 	struct hmfs_node *hn = NULL;
 
-	//FIXME: inode block have been copied two times
 	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
 	if (IS_ERR(hn))
 		return hn;
@@ -596,7 +595,6 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		drop_nlink(inode);
 		if (S_ISDIR(inode->i_mode)) {
 			drop_nlink(inode);
-			//FIXME: why 0
 			i_size_write(inode, 0);
 		}
 		mark_inode_dirty(inode);

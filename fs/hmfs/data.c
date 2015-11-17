@@ -133,7 +133,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			if (err) {
 				if (err == -ENODATA)
 					goto fill_null;
-				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,i);
 				return err;
 			}
 			end_blk_id = get_end_blk_index(i, dn.level);

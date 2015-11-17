@@ -432,7 +432,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno, int gc_type)
 	if (get_summary_type(&(sum_blk->entries[0])) == SUM_TYPE_DATA) {
 		gc_data_segments(sbi, sum_blk->entries, segno);
 	} else {
-		//FIXME: Need I check type of summary entry
 		gc_node_segments(sbi, sum_blk->entries, segno);
 	}
 	recycle_segment(sbi, segno);
@@ -506,7 +505,7 @@ static int gc_thread_func(void *data)
 			wait_ms = GC_THREAD_MAX_SLEEP_TIME;
 			continue;
 		}
-		//FIXME: maybe need to increase sleep time
+
 		if (!mutex_trylock(&sbi->gc_mutex))
 			continue;
 

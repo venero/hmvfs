@@ -640,11 +640,6 @@ static void alloc_inode_success(struct hmfs_sb_info *sbi, struct hmfs_inode *hi)
 	}
 }
 
-static void alloc_nat_node_success(struct hmfs_sb_info *sbi,
-				   struct hmfs_nat_node *nat_node)
-{
-}
-
 /*
  * Call this function when allocating a new node successfully
  * for direct node, indirect node, inode, nat node and nat block
@@ -662,8 +657,6 @@ void alloc_new_node_success(struct hmfs_sb_info *sbi, void *new_node, int type)
 		alloc_inode_success(sbi, new_node);
 		break;
 	case SUM_TYPE_NATN:
-		alloc_nat_node_success(sbi, new_node);
-		break;
 	case SUM_TYPE_NATD:
 	default:
 		hmfs_bug_on(sbi, 1);
@@ -923,7 +916,6 @@ retry:
 	}
 	spin_unlock(&nm_i->free_nid_list_lock);
 
-	//FIXME: Is there deadlock here?
 	mutex_lock(&nm_i->build_lock);
 	num = build_free_nids(sbi);
 	spin_lock(&nm_i->free_nid_list_lock);
@@ -1015,7 +1007,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 					 void *nat_entry_page,
 					 unsigned short *alloc_cnt)
 {
-	//FIXME : cannot handle no space
+	//FIXME : cannot handle no NVM space for nat tree
 	struct hmfs_nat_node *cur_stored_node, *old_child_node = NULL,
 	 *cur_child_node = NULL;
 	block_t old_nat_addr, cur_stored_addr, child_stored_addr, _addr,
@@ -1035,8 +1027,10 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	if (!height) {
 		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATD);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
+
 		hmfs_bug_on(sbi, IS_ERR(cur_stored_node) || !cur_stored_node);
 		hmfs_bug_on(sbi, !nat_entry_page);
+
 		hmfs_memcpy(cur_stored_node, nat_entry_page, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
 		if (old_nat_node != NULL) {
@@ -1074,8 +1068,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	new_blk_order = blk_order & ((1 << _ofs) - 1);
 
 	if (old_nat_node != NULL) {
-		child_node_addr =
-		 le64_to_cpu(old_nat_node->addr[blk_order >> _ofs]);
+		child_node_addr = le64_to_cpu(old_nat_node->addr[blk_order >> _ofs]);
 		if (child_node_addr)
 			old_child_node = ADDR(sbi, child_node_addr);
 		else
@@ -1090,10 +1083,8 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 			cur_child_node = NULL;
 	}
 	child_stored_addr = recursive_flush_nat_pages(sbi, old_child_node,
-						      cur_child_node,
-						      new_blk_order, height - 1,
-						      nat_entry_page,
-						      alloc_cnt);
+						      cur_child_node, new_blk_order, height - 1,
+						      nat_entry_page, alloc_cnt);
 
 	if (child_stored_addr) {
 		cur_stored_node->addr[_ofs] = cpu_to_le64(child_stored_addr);	//change addr to new block
