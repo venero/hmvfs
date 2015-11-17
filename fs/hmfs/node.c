@@ -1012,16 +1012,15 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	 *cur_child_node = NULL;
 	block_t old_nat_addr, cur_stored_addr, child_stored_addr, _addr,
 	 child_node_addr;
-	unsigned int new_blk_order = 0, _ofs;
+	unsigned int i, cur_version, _ofs, new_blk_order;
 	nid_t nid;
-	unsigned int i, start_version, dead_version, cur_version;
 	struct hmfs_summary *raw_summary;
-	char blk_type;
+	unsigned char blk_type;
 
 	//preparation for summary update
 	nid = MAKE_NAT_NODE_NID(height, blk_order);
 	cur_version = CM_I(sbi)->new_version;
-	blk_type = (height == 0) ? SUM_TYPE_NATD : SUM_TYPE_NATN;
+	blk_type = ((height == 1) ? SUM_TYPE_NATD : SUM_TYPE_NATN);
 
 	//leaf, alloc & copy nat info block 
 	if (!height) {
@@ -1091,22 +1090,19 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 
 		for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
 			_addr = cur_stored_node->addr[i];
-			if (!_addr) {
+			if (_addr == NULL_ADDR) {
 				//block no allocated yet
 				continue;
 			}
 			raw_summary = get_summary_by_addr(sbi, _addr);
-			start_version = get_summary_start_version(raw_summary);
-			dead_version = get_summary_dead_version(raw_summary);
-			if (start_version == cur_version) {
-				//already changed in this flush
-				continue;
-			}
 			if (i == _ofs) {
+				//this entry COWed
+				printk(KERN_INFO"%s: h-t %d:%d\n", __FUNCTION__, height, blk_type);
 				make_summary_entry(raw_summary, nid,
 						   cur_version, 1, i, blk_type);
 			} else if (old_nat_node != NULL
 				   && old_nat_node == cur_nat_node) {
+				//brother COWed
 				inc_summary_count(raw_summary);
 			}
 		}
@@ -1180,6 +1176,8 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_nat_node *old_root_node, *new_root_node;
 	struct hmfs_nat_block *old_entry_block, *new_entry_block;
+	struct hmfs_summary *summary;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	block_t new_nat_root_addr;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *ne;
@@ -1214,8 +1212,6 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 
 	/* FIXME :
 	 * 1) no space
-	 * 2) lock for dirty entry list
-	 * 3) summary related work
 	 */
 	list_for_each_entry_from(ne, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (ne->ni.nid) >> LOG2_NAT_ENTRY_PER_BLOCK;
@@ -1247,10 +1243,16 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 				   new_root_node, new_blk_order, nat_height,
 				   new_entry_block, &alloc_cnt);
 	if (new_nat_root_addr != NULL_ADDR) {
-		// root node not COWed
+		// root node COWed
 		new_root_node = ADDR(sbi, new_nat_root_addr);
 	}
-	
+
+	BUG_ON( new_root_node==NULL || new_root_node == old_root_node);
+	new_nat_root_addr = L_ADDR(sbi, new_root_node);
+	printk("%s: new nat tree, root %p\n", __FUNCTION__, (void *)new_nat_root_addr);
+	summary = get_summary_by_addr(sbi, new_nat_root_addr);
+	make_summary_entry(summary, 0, cm_i->new_version, 1, 0, SUM_TYPE_NATN);
+
 	clean_dirty_nat_entries(sbi);
 
 	write_unlock(&nm_i->nat_tree_lock);
