@@ -282,7 +282,6 @@ static int hmfs_format(struct super_block *sb)
 	hmfs_memcpy(dent_blk->filename[1], "..", 2);
 
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
-	printk(KERN_INFO"%s-%d:%p %p\n",__FUNCTION__,__LINE__,dent_blk,&dent_blk->dentry_bitmap[0]);
 
 /* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
