@@ -2,6 +2,8 @@ hmfs_300M_2G:
 	sudo mount -t hmfs -o physaddr=0x80000000,uid=1000,gid=1000,init=140M none ~/hmfsMount/
 hmfs_300M_2G_remount:
 	sudo mount -t hmfs -o physaddr=0x80000000,uid=1000,gid=1000 none ~/hmfsMount/
+hmfs_1G_2G:
+	sudo mount -t hmfs -o physaddr=0x80000000,uid=1000,gid=1000,init=1G none ~/hmfsMount/
 ins_print:
 	sudo insmod $(PRINTPATH)/printt.ko
 rm_print:
