@@ -712,6 +712,8 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 		}
 
 		dentry_blk = buf[i++];
+		if (!dentry_blk)
+			continue;
 		make_dentry_ptr(&d, (void *)dentry_blk, 1);
 
 		if (hmfs_fill_dentries(ctx, &d, n * NR_DENTRY_IN_BLOCK))
