@@ -425,8 +425,7 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
 	de->ino = cpu_to_le32(ino);
 	set_de_type(de, mode);
 	for (i = 0; i < slots; i++)
-	{		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
-	}
+		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
 }
 
 /*
