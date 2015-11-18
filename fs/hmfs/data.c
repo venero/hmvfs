@@ -116,7 +116,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
 	block_t addr;
-	block_t max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
+	block_t max_blk = hmfs_max_file_size() >> HMFS_PAGE_SIZE_BITS;
 	int i;
 	int ofs_in_node = 0;
 	int end_blk_id = -1;

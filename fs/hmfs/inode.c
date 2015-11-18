@@ -39,7 +39,6 @@ static int do_read_inode(struct inode *inode)
 	hn = (struct hmfs_node *)get_node(sbi, inode->i_ino);
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
-
 	hi = &hn->i;
 
 	inode->i_mode = le16_to_cpu(hi->i_mode);
@@ -101,7 +100,6 @@ int sync_hmfs_inode(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
@@ -131,10 +129,6 @@ int sync_hmfs_inode(struct inode *inode)
 	hi->i_current_depth = cpu_to_le32(inode_i->i_current_depth);
 	hi->i_flags = cpu_to_le32(inode_i->i_flags);
 	hi->i_pino = cpu_to_le32(inode_i->i_pino);
-
-	rn->footer.nid = cpu_to_le32(inode->i_ino);
-	rn->footer.ino = cpu_to_le32(inode->i_ino);
-	rn->footer.cp_ver = cpu_to_le32(cp_i->version);
 
 	return 0;
 }

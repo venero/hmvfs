@@ -190,7 +190,6 @@ static int hmfs_format(struct super_block *sb)
 	end_addr = align_segment_left(init_size);
 
 	if (sbi->deep_fmt) {
-		printk(KERN_INFO"[HMFS]: deep format\n");
 		memset_nt(super, 0, init_size);
 	}
 
@@ -239,9 +238,6 @@ static int hmfs_format(struct super_block *sb)
 	root_node = ADDR(sbi, node_segaddr);
 /* node[0]: root inode */
 	node_blkoff += 1;
-	root_node->footer.nid = cpu_to_le32(HMFS_ROOT_INO);
-	root_node->footer.ino = cpu_to_le32(HMFS_ROOT_INO);
-	root_node->footer.cp_ver = cpu_to_le32(HMFS_DEF_CP_VER);
 
 	root_node->i.i_mode = cpu_to_le16(0x41ed);
 	root_node->i.i_links = cpu_to_le32(2);
@@ -707,7 +703,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
-	sb->s_maxbytes = hmfs_max_size();
+	sb->s_maxbytes = hmfs_max_file_size();
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 
@@ -740,11 +736,13 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	}
 
 	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
+		retval = -EINVAL;
 		goto free_root_inode;
 	}
 
 	sb->s_root = d_make_root(root);	
 	if (!sb->s_root) {
+		retval = -ENOMEM;
 		goto free_root_inode;
 	}
 	/* create debugfs */
@@ -753,6 +751,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	return 0;
 free_root_inode:
 	iput(root);
+	sb->s_root = NULL;
 free_segment_mgr:
 	destroy_segment_manager(sbi);
 	destroy_node_manager(sbi);
@@ -799,9 +798,24 @@ static void destroy_inodecache(void)
 	kmem_cache_destroy(hmfs_inode_cachep);
 }
 
+static void hmfs_check_struct_size(void)
+{
+	BUG_ON(sizeof(struct hmfs_super_block) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_inode) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct direct_node) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct indirect_node) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_node) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_nat_node) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_nat_block) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_dentry_block) > HMFS_PAGE_SIZE);
+	BUG_ON(sizeof(struct hmfs_checkpoint) > HMFS_PAGE_SIZE);
+}
+
 int init_hmfs(void)
 {
 	int err;
+
+	hmfs_check_struct_size();
 
 	err = init_inodecache();
 	if (err)

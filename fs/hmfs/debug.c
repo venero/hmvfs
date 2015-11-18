@@ -58,6 +58,7 @@ static int stat_show(struct seq_file *s, void *v)
 	struct hmfs_cm_info *cm_i = NULL;
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
+	unsigned long max_file_size = hmfs_max_file_size();
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
@@ -89,6 +90,9 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "main area range:%lu - %lu\n",
 			   (unsigned long)si->sbi->main_addr_start,
 			   (unsigned long)si->sbi->main_addr_end);
+		seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size / 1024,
+						max_file_size / 1024 / 1024, 
+						max_file_size / 1024 / 1024 / 1024);
 
 		head = &cm_i->orphan_inode_list;
 		seq_printf(s, "orphan inode:\n");

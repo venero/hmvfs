@@ -706,8 +706,10 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 		if (i >= size) {
 			err = get_data_blocks(inode, n, npages, buf, &size,
 					 RA_DB_END);
-			if (err)
+			if (size < 0) {
+				hmfs_bug_on(HMFS_I_SB(inode), !err);
 				goto stop;
+			}
 			i = 0;
 		}
 

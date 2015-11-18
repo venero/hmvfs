@@ -98,9 +98,17 @@ enum FILE_TYPE {
 
 
 #define NUM_NAT_JOURNALS_IN_CP	8
+
+#ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		2			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		2			/* # of nid stored in indirect node */
+#else
+#define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
+#define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
+#define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
+#endif
+
 #define HMFS_NAME_LEN		255
 #define NAT_ADDR_PER_NODE		512		/* # of nat node address stored in nat node */
 #define LOG2_NAT_ADDRS_PER_NODE 9
@@ -121,8 +129,6 @@ enum FILE_TYPE {
 /* SSA */
 #define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 #define SUM_ENTRY_PER_BLOCK (HMFS_SUMMARY_BLOCK_SIZE / sizeof(struct hmfs_summary))
-#define SUM_SIZE_BITS		(HMFS_PAGE_SIZE_BITS + 1)
-/* summary block type, node or data, is stored to the summary_footer */
 #define SUM_TYPE_DATA		(0)	//      data block
 #define SUM_TYPE_INODE		(1)	//      inode block
 #define SUM_TYPE_DN			(2)	//      direct block
@@ -189,8 +195,8 @@ struct hmfs_inode {
 
 	__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
-	__le32 i_nid[5];	/* direct(2), indirect(2),
-				   double_indirect(1) node id */
+	/* direct(2), indirect(2), double_indirect(1) node id */
+	__le32 i_nid[5];
 } __attribute__ ((packed));
 
 /* hmfs node */
@@ -202,12 +208,6 @@ struct indirect_node {
 	__le32 nid[NIDS_PER_BLOCK];	/* array of data block address */
 } __attribute__ ((packed));
 
-struct node_footer {
-	__le32 nid;		/* node id */
-	__le32 ino;		/* inode nunmber */
-	__le32 cp_ver;		/* checkpoint version */
-} __attribute__ ((packed));
-
 struct hmfs_node {
 	/* can be one of three types: inode, direct, and indirect types */
 	union {
@@ -215,7 +215,6 @@ struct hmfs_node {
 		struct direct_node dn;
 		struct indirect_node in;
 	};
-	struct node_footer footer;
 } __attribute__ ((packed));
 
 /* nat node */

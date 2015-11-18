@@ -184,6 +184,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 {
 	struct gc_move_arg args;
 	struct hmfs_node *last = NULL, *this = NULL;
+	struct hmfs_summary *par_sum = NULL;
 
 	/* 1. read summary of source blocks */
 	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum,
@@ -195,7 +196,10 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	while (args.start_version < args.dead_version) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
+		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
 		hmfs_bug_on(sbi, IS_ERR(this));
+		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
+						get_summary_type(par_sum) != SUM_TYPE_DN);
 
 		/* Now the pointer contains in direct node have been changed last time */
 		if (this == last)
@@ -204,7 +208,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		hmfs_bug_on(sbi, le64_to_cpu(this->dn.addr[args.ofs_in_node]) !=
 		       args.src_addr);
 
-		if (this->footer.nid == this->footer.ino)
+		if (get_summary_type(par_sum) == SUM_TYPE_INODE)
 			this->i.i_addr[args.ofs_in_node] = args.dest_addr;
 		else
 			this->dn.addr[args.ofs_in_node] = args.dest_addr;

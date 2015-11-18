@@ -499,7 +499,7 @@ static inline void inc_valid_inode_count(struct hmfs_sb_info *sbi)
 	spin_unlock(&cm_i->stat_lock);
 }
 
-static inline loff_t hmfs_max_size(void)
+static inline loff_t hmfs_max_file_size(void)
 {
 	loff_t res = 0;
 	res = NORMAL_ADDRS_PER_INODE;
