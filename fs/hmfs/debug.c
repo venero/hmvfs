@@ -35,7 +35,10 @@
 			"=========================================\n"
 
 #define USAGE_SIT	"=============== SIT USAGE ==============\n" \
-			" TODO\n"
+			" no parameters needed now. it should be fast to scan all segments\n"\
+            " only report bad segment\n"
+			"=========================================\n"
+
 #define USAGE_NAT "nat"
 #define USAGE_DATA "data"
 
@@ -492,12 +495,41 @@ static size_t print_sit_i(struct hmfs_sb_info *sbi)
 	return len;
 }
 
+// zj
+static inline int  get_vblocks_from_sit(struct hmfs_sb_info, seg_t segno)
+{
+    return __le16_to_cpu(get_sit_entry(sbi, segno)->vblocks);
+}
+
+static inline void print_error_segment(segno, vblocks_in_sit, vblocks_in_segment)
+{
+    printf("segment #%d:\n\
+            blocks recorded in sit %d\n\
+            blocks counted in segment %d\n", segno, vblocks_in_sit, vblocks_in_segment);
+
+}
+
 static int hmfs_print_sit(int args, char argv[][MAX_ARG_LEN + 1])
 {
 	struct hmfs_sb_info *sbi = info_buffer.sbi;
-	// /struct sit_info* sit_i = SIT_I(sbi);
+    seg_t segno = 0;
 
-	return print_sit_i(sbi);
+    for (; segno < TOTAL_SEGS(sbi); ++ segno) {
+        int vblocks_in_sit = get_vblocks_from_sit(sbi, segno);
+        int vblocks_in_segment = 0;
+        int blkno_in_segment = 0;
+        struct hmfs_summary_block *summary_block = get_summary_block(sbi, segno);
+
+        for (blkno_in_segment = 0; blkno_in_segment < HMFS_PAGE_PER_SEG; ++ blkno_in_segment) {
+            if (__le16_to_cpu(summary_block->entries[blkno_in_segment]->count)) 
+                ++ vblocks_in_segment;
+        }
+
+        if (vblocks_in_segment != vblocks_in_sit)
+            print_error_segment(segno, vblocks_in_sit, vblocks_in_segment);
+    }
+
+    return 0;
 }
 
 static int hmfs_print_nat(int args, char argv[][MAX_ARG_LEN + 1])
