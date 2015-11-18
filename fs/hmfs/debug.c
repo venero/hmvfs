@@ -1,5 +1,6 @@
 #ifdef CONFIG_HMFS_DEBUG
 
+#include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -36,7 +37,7 @@
 
 #define USAGE_SIT	"=============== SIT USAGE ==============\n" \
 			" no parameters needed now. it should be fast to scan all segments\n"\
-            " only report bad segment\n"
+            " only report bad segment\n"\
 			"=========================================\n"
 
 #define USAGE_NAT "nat"
@@ -473,37 +474,15 @@ static int hmfs_print_ssa(int args, char argv[][MAX_ARG_LEN + 1])
 	return len;
 }
 
-static size_t print_sit_i(struct hmfs_sb_info *sbi)
-{
-	size_t len = 0;
-	struct sit_info *sit_i = SIT_I(sbi);
-/*
-	len += hmfs_print(1, "sit_blocks: %u\n", sit_i->sit_blocks);
-	len +=
-	    hmfs_print(1, "written_valid_blocks: %u\n",
-			sit_i->written_valid_blocks);
-	len += hmfs_print(1, "bitmap_size: %llu\n", sit_i->bitmap_size);
-
-	len += hmfs_print(1, "dirty_sentries: %u\n", sit_i->dirty_sentries);
-	len += hmfs_print(1, "sents_per_block: %u\n", sit_i->sents_per_block);
-	len += hmfs_print(1, "elapsed_time: %llu\n", sit_i->elapsed_time);
-	len += hmfs_print(1, "mounted_time: %llu\n", sit_i->mounted_time);
-	len += hmfs_print(1, "min_mtime: %llu\n", sit_i->min_mtime);
-	len += hmfs_print(1, "max_mtime: %llu\n", sit_i->max_mtime);
-	*/
-
-	return len;
-}
-
 // zj
-static inline int  get_vblocks_from_sit(struct hmfs_sb_info, seg_t segno)
+static inline int  get_vblocks_from_sit(struct hmfs_sb_info *sbi, seg_t segno)
 {
     return __le16_to_cpu(get_sit_entry(sbi, segno)->vblocks);
 }
 
-static inline void print_error_segment(segno, vblocks_in_sit, vblocks_in_segment)
+static inline void print_error_segment(seg_t segno, int vblocks_in_sit, int vblocks_in_segment)
 {
-    printf("segment #%d:\n\
+    hmfs_print(0, "segment #%d:\n\
             blocks recorded in sit %d\n\
             blocks counted in segment %d\n", segno, vblocks_in_sit, vblocks_in_segment);
 
@@ -521,7 +500,7 @@ static int hmfs_print_sit(int args, char argv[][MAX_ARG_LEN + 1])
         struct hmfs_summary_block *summary_block = get_summary_block(sbi, segno);
 
         for (blkno_in_segment = 0; blkno_in_segment < HMFS_PAGE_PER_SEG; ++ blkno_in_segment) {
-            if (__le16_to_cpu(summary_block->entries[blkno_in_segment]->count)) 
+            if (__le16_to_cpu(summary_block->entries[blkno_in_segment].count)) 
                 ++ vblocks_in_segment;
         }
 

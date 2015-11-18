@@ -1,3 +1,4 @@
+#include <linux/vmalloc.h>
 #include "segment.h"		//hmfs.h is included
 
 static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)

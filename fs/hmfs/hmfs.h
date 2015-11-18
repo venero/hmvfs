@@ -10,6 +10,7 @@
 #include <linux/backing-dev.h>
 #include <linux/spinlock.h>
 #include <linux/radix-tree.h>
+#include <linux/vmalloc.h>
 #include "hmfs_fs.h"
 
 #define HMFS_DEF_FILE_MODE	0664

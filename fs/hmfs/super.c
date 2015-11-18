@@ -10,6 +10,7 @@
 #include <linux/crc16.h>
 #include <linux/sched.h>
 #include <linux/cred.h>
+#include <asm/io.h>
 
 #include "hmfs_fs.h"
 #include "gc.h"
