@@ -236,6 +236,7 @@ static int hmfs_format(struct super_block *sb)
 /* setup root inode */
 	root_node_addr = node_segaddr;
 	root_node = ADDR(sbi, node_segaddr);
+	memset_nt(root_node, 0, HMFS_PAGE_SIZE);
 /* node[0]: root inode */
 	node_blkoff += 1;
 
@@ -258,6 +259,8 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_mtime = cpu_to_le64(get_seconds());
 	root_node->i.i_generation = 0;
 	root_node->i.i_flags = 0;
+	root_node->i.i_namelen = cpu_to_le32(1);
+	memcpy(&(root_node->i.i_name), "/", 1);
 	root_node->i.i_current_depth = cpu_to_le32(1);
 	root_node->i.i_dir_level = DEF_DIR_LEVEL;
 

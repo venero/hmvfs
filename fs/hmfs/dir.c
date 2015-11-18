@@ -512,7 +512,7 @@ add_dentry:
 	if (inode) {
 		down_write(&HMFS_I(inode)->i_sem);
 		hn = init_inode_metadata(inode, dir, name);
-	if (IS_ERR(hn))
+
 		if (IS_ERR(hn)) {
 			err = PTR_ERR(hn);
 			goto fail;
