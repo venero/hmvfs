@@ -230,7 +230,8 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		dec_summary_count(summary);
 	}
 
-	if (!inc_valid_block_count(sbi, inode, 1))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
+									src_addr != NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
@@ -302,7 +303,8 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		dec_summary_count(summary);
 	}
 
-	if (!inc_valid_block_count(sbi, inode, 1))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
+									!= NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))

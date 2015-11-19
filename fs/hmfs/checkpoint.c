@@ -564,6 +564,10 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
+struct hmfs_inode *hi=get_node(sbi,3);
+for(ret=0;ret<NORMAL_ADDRS_PER_INODE;++ret)
+if(hi->i_addr[ret])
+		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,ret,le64_to_cpu(hi->i_addr[ret]));
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);

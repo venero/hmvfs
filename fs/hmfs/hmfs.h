@@ -400,8 +400,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 
 	alloc_valid_block_count = cm_i->alloc_block_count + count;
 
-	if (unlikely
-	    (cm_i->left_blocks_count[CURSEG_NODE] < count
+	if (unlikely(cm_i->left_blocks_count[CURSEG_NODE] < count
 	     && alloc_valid_block_count > cm_i->user_block_count)) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
@@ -409,6 +408,9 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 
 	if (inode)
 		inode->i_blocks += count;
+
+	if (inode && inode->i_ino == HMFS_ROOT_INO) 
+		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,(int)inode->i_blocks);
 
 	cm_i->valid_node_count += count;
 	cm_i->valid_block_count += count;
@@ -467,13 +469,15 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	spin_lock(&cm_i->stat_lock);
 	alloc_block_count = cm_i->alloc_block_count + count;
 
-	if (unlikely
-	    (cm_i->left_blocks_count[CURSEG_DATA] < count
+	if (unlikely(cm_i->left_blocks_count[CURSEG_DATA] < count
 	     && alloc_block_count > cm_i->user_block_count)) {
 		spin_unlock(&cm_i->stat_lock);
 		return false;
 	}
-	inode->i_blocks += count;
+	if (inode)
+		inode->i_blocks += count;
+	if (inode && inode->i_ino == HMFS_ROOT_INO) 
+		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,(int)inode->i_blocks);
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
 	cm_i->left_blocks_count[CURSEG_DATA] -= count;
@@ -565,6 +569,11 @@ static inline void inode_inc_dirty_map_pages_count(struct inode *inode)
 static inline void inode_dec_dirty_map_pages_count(struct inode *inode)
 {
 	atomic_dec(&HMFS_I(inode)->nr_dirty_map_pages);
+}
+
+static inline struct inode *get_stat_object(struct inode *inode, bool source)
+{
+	return source ? NULL : inode;
 }
 
 static inline int hmfs_readonly(struct super_block *sb)
