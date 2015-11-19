@@ -1,5 +1,5 @@
 #include <linux/fs.h>
-
+#include <linux/namei.h>
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
@@ -61,8 +61,8 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
 	if (err || size != 1 || data_blk[0] == NULL)
 		return ERR_PTR(-ENODATA);
-  //  err = vfs_follow_link(nd, data_blk[0]);
-	return ERR_PTR(err);
+	nd_set_link(nd, data_blk[0]);
+	return 0;
 }
 
 const struct inode_operations hmfs_symlink_inode_operations = {

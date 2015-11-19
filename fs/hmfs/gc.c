@@ -184,6 +184,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 {
 	struct gc_move_arg args;
 	struct hmfs_node *last = NULL, *this = NULL;
+	struct hmfs_summary *par_sum = NULL;
 
 	/* 1. read summary of source blocks */
 	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum,
@@ -195,7 +196,10 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	while (args.start_version < args.dead_version) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
+		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
 		hmfs_bug_on(sbi, IS_ERR(this));
+		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
+						get_summary_type(par_sum) != SUM_TYPE_DN);
 
 		/* Now the pointer contains in direct node have been changed last time */
 		if (this == last)
@@ -204,7 +208,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		hmfs_bug_on(sbi, le64_to_cpu(this->dn.addr[args.ofs_in_node]) !=
 		       args.src_addr);
 
-		if (this->footer.nid == this->footer.ino)
+		if (get_summary_type(par_sum) == SUM_TYPE_INODE)
 			this->i.i_addr[args.ofs_in_node] = args.dest_addr;
 		else
 			this->dn.addr[args.ofs_in_node] = args.dest_addr;
@@ -321,6 +325,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 	struct hmfs_checkpoint *hmfs_cp;
 	struct hmfs_nat_node *nat_node;
 	struct gc_move_arg args;
+	nid_t par_nid;
 
 	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum, type);
 
@@ -330,8 +335,9 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
 		else {
-			//FIXME:
-			this = get_nat_node(sbi, args.cp_i->version, args.nid);
+			par_nid = MAKE_NAT_NODE_NID(GET_NAT_NODE_HEIGHT(args.nid) - 1, 
+							GET_NAT_NODE_OFS(args.nid)); 
+			this = get_nat_node(sbi, args.cp_i->version, par_nid);
 		}
 
 		if (this == last)
@@ -342,8 +348,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 			hmfs_cp->nat_addr = cpu_to_le64(args.dest_addr);
 		} else {
 			nat_node = (struct hmfs_nat_node *)this;
-			nat_node->addr[args.ofs_in_node] =
-			 cpu_to_le64(args.dest_addr);
+			nat_node->addr[args.ofs_in_node] = cpu_to_le64(args.dest_addr);
 		}
 
 		last = this;
@@ -431,7 +436,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno, int gc_type)
 	if (get_summary_type(&(sum_blk->entries[0])) == SUM_TYPE_DATA) {
 		gc_data_segments(sbi, sum_blk->entries, segno);
 	} else {
-		//FIXME: Need I check type of summary entry
 		gc_node_segments(sbi, sum_blk->entries, segno);
 	}
 	recycle_segment(sbi, segno);
@@ -505,7 +509,7 @@ static int gc_thread_func(void *data)
 			wait_ms = GC_THREAD_MAX_SLEEP_TIME;
 			continue;
 		}
-		//FIXME: maybe need to increase sleep time
+
 		if (!mutex_trylock(&sbi->gc_mutex))
 			continue;
 

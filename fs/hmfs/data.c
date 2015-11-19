@@ -116,7 +116,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
 	block_t addr;
-	block_t max_blk = hmfs_max_size() >> HMFS_PAGE_SIZE_BITS;
+	block_t max_blk = hmfs_max_file_size() >> HMFS_PAGE_SIZE_BITS;
 	int i;
 	int ofs_in_node = 0;
 	int end_blk_id = -1;
@@ -133,7 +133,6 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 			if (err) {
 				if (err == -ENODATA)
 					goto fill_null;
-				printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,i);
 				return err;
 			}
 			end_blk_id = get_end_blk_index(i, dn.level);
@@ -231,7 +230,8 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		dec_summary_count(summary);
 	}
 
-	if (!inc_valid_block_count(sbi, inode, 1))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
+									src_addr != NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
@@ -303,7 +303,8 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		dec_summary_count(summary);
 	}
 
-	if (!inc_valid_block_count(sbi, inode, 1))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
+									!= NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))

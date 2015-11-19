@@ -39,7 +39,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	if (S_ISDIR(mode)) {
 		set_inode_flag(HMFS_I(inode), FI_INC_LINK);
 		inode->i_size = HMFS_PAGE_SIZE;
-		inode->i_blocks = 2;
 	} else if (S_ISLNK(mode)) {
 		inode->i_size = HMFS_PAGE_SIZE;
 	} else {
@@ -67,7 +66,6 @@ out:
 	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	unlock_new_inode(inode);
 fail:	
-	printk(KERN_INFO"bad inode\n");
 	make_bad_inode(inode);
 	iput(inode);
 	if (nid_free)
@@ -208,7 +206,6 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 	}
 	de = &res_blk->dentry[ofs_in_blk];
-	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
 
 	mutex_unlock_op(sbi, ilock);

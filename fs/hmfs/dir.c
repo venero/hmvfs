@@ -338,7 +338,6 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 	int err;
 	struct hmfs_node *hn = NULL;
 
-	//FIXME: inode block have been copied two times
 	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
 	if (IS_ERR(hn))
 		return hn;
@@ -426,8 +425,7 @@ void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *d,
 	de->ino = cpu_to_le32(ino);
 	set_de_type(de, mode);
 	for (i = 0; i < slots; i++)
-	{		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
-	}
+		test_and_set_bit_le(bit_pos + i, (void *)d->bitmap);
 }
 
 /*
@@ -514,7 +512,7 @@ add_dentry:
 	if (inode) {
 		down_write(&HMFS_I(inode)->i_sem);
 		hn = init_inode_metadata(inode, dir, name);
-	if (IS_ERR(hn))
+
 		if (IS_ERR(hn)) {
 			err = PTR_ERR(hn);
 			goto fail;
@@ -596,7 +594,6 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		drop_nlink(inode);
 		if (S_ISDIR(inode->i_mode)) {
 			drop_nlink(inode);
-			//FIXME: why 0
 			i_size_write(inode, 0);
 		}
 		mark_inode_dirty(inode);
@@ -656,8 +653,8 @@ bool hmfs_empty_dir(struct inode *dir)
 	return true;
 }
 
-bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
-			unsigned int start_pos)
+bool hmfs_fill_dentries(struct hmfs_sb_info *sbi, struct dir_context * ctx, 
+				struct hmfs_dentry_ptr * d, unsigned int start_pos)
 {
 	unsigned char d_type = DT_UNKNOWN;
 	unsigned int bit_pos;
@@ -674,10 +671,10 @@ bool hmfs_fill_dentries(struct dir_context * ctx, struct hmfs_dentry_ptr * d,
 			d_type = hmfs_filetype_table[de->file_type];
 		else
 			d_type = DT_UNKNOWN;
-		if (!dir_emit
-		    (ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
-		     le32_to_cpu(de->ino), d_type))
-		{
+
+		hmfs_bug_on(sbi, !le16_to_cpu(de->name_len));
+		if (!dir_emit(ctx, d->filename[bit_pos], le16_to_cpu(de->name_len),
+		     le32_to_cpu(de->ino), d_type)) {
 			return true;
 		}
 
@@ -708,15 +705,20 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 		if (i >= size) {
 			err = get_data_blocks(inode, n, npages, buf, &size,
 					 RA_DB_END);
-			if (err)
+			if (size < 0) {
+				hmfs_bug_on(HMFS_I_SB(inode), !err);
 				goto stop;
+			}
 			i = 0;
 		}
 
 		dentry_blk = buf[i++];
+		if (!dentry_blk)
+			continue;
 		make_dentry_ptr(&d, (void *)dentry_blk, 1);
 
-		if (hmfs_fill_dentries(ctx, &d, n * NR_DENTRY_IN_BLOCK))
+		if (hmfs_fill_dentries(HMFS_I_SB(inode), ctx, &d, 
+				n * NR_DENTRY_IN_BLOCK))
 			goto stop;
 
 		ctx->pos = (n + 1) * NR_DENTRY_IN_BLOCK;

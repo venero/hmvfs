@@ -62,6 +62,7 @@ static int stat_show(struct seq_file *s, void *v)
 	struct hmfs_cm_info *cm_i = NULL;
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
+	unsigned long max_file_size = hmfs_max_file_size();
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
@@ -93,6 +94,9 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "main area range:%lu - %lu\n",
 			   (unsigned long)si->sbi->main_addr_start,
 			   (unsigned long)si->sbi->main_addr_end);
+		seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size / 1024,
+						max_file_size / 1024 / 1024, 
+						max_file_size / 1024 / 1024 / 1024);
 
 		head = &cm_i->orphan_inode_list;
 		seq_printf(s, "orphan inode:\n");
@@ -121,7 +125,6 @@ static const struct file_operations stat_fops = {
 
 static int info_open(struct inode *inode, struct file *file)
 {
-	;			//file->private_data = inode->i_private;
 	return 0;
 }
 
@@ -146,12 +149,12 @@ static ssize_t info_write(struct file *file, const char __user * buffer,
 			  size_t count, loff_t * ppos)
 {
 	char cmd[MAX_CMD_LEN + 1] = { 0 };
+
 	if (*ppos >= MAX_CMD_LEN + 1) {
 		return 0;
 	}
 	if (*ppos + count > MAX_CMD_LEN + 1)
 		return -EFAULT;	//cmd buffer overflow
-	//count = MAX_CMD_LEN - *ppos;
 
 	if (copy_from_user(cmd, buffer, count))
 		return -EFAULT;
@@ -258,110 +261,86 @@ int hmfs_print(int mode, const char *fmt, ...)
 }
 
 //return how many bytes written to file buffer
-static int print_cp_one(struct checkpoint_info *cpi, int detail)
+static int print_cp_one(struct hmfs_checkpoint *cp, int detail)
 {
 	size_t len = 0;
-	struct hmfs_checkpoint *cp = cpi->cp;
-	len += hmfs_print(1, "version: %u\n", cpi->version);
-	//len += hmfs_print(1, "next_version: %u\n", cpi->next_version);       //append
+
+	if (!cp)
+		return 0;
+	len += hmfs_print(1, "version: %u\n", le32_to_cpu(cp->checkpoint_ver));
+
 	if (detail) {
 		len += hmfs_print(1, "------detail info------\n");
-		if (NULL == cp) {
-			len += hmfs_print(1, "member cp is NULL...\n");
-			return len;
-		}
-		//len += hmfs_print(1, "member cp is %lu...\n", (unsigned long long)cp);
-		len +=
-		    hmfs_print(1, "checkpoint_ver: %u\n",
-				le32_to_cpu(cp->checkpoint_ver));
-		len +=
-		    hmfs_print(1, "alloc_block_count: %u\n",
-				le64_to_cpu(cp->alloc_block_count));
-		len +=
-		    hmfs_print(1, "valid_block_count: %u\n",
-				le64_to_cpu(cp->valid_block_count));
-		len +=
-		    hmfs_print(1, "free_segment_count: %u\n",
-				le64_to_cpu(cp->free_segment_count));
-		len +=
-		    hmfs_print(1, "cur_node_segno: %u\n",
-				le32_to_cpu(cp->cur_node_segno));
-		len +=
-		    hmfs_print(1, "cur_node_blkoff: %u\n",
-				le16_to_cpu(cp->cur_node_blkoff));
-		len +=
-		    hmfs_print(1, "cur_data_segno: %u\n",
-				le32_to_cpu(cp->cur_data_segno));
-		len +=
-		    hmfs_print(1, "cur_data_blkoff: %u\n",
-				le16_to_cpu(cp->cur_data_blkoff));
-		len +=
-		    hmfs_print(1, "prev_cp_addr: %x\n",
-				le64_to_cpu(cp->prev_cp_addr));
-		len +=
-		    hmfs_print(1, "next_cp_addr: %x\n",
-				le64_to_cpu(cp->checkpoint_ver));
-		//len += hmfs_print(1, "next_version: %u\n", le32_to_cpu(cp->next_version));
-		len +=
-		    hmfs_print(1, "valid_inode_count: %u\n",
-				le32_to_cpu(cp->valid_inode_count));
-		len +=
-		    hmfs_print(1, "valid_node_count: %u\n",
-				le32_to_cpu(cp->valid_node_count));
-		len +=
-		    hmfs_print(1, "nat_addr: %x\n", le64_to_cpu(cp->nat_addr));
-		len +=
-		    hmfs_print(1, "orphan_addr: %x\n",
-				le64_to_cpu(cp->orphan_addr));
-		len +=
-		    hmfs_print(1, "next_scan_nid: %u\n",
-				le32_to_cpu(cp->next_scan_nid));
-		len +=
-		    hmfs_print(1, "elapsed_time: %u\n",
-				le32_to_cpu(cp->elapsed_time));
-		len += hmfs_print(1, "\n");
+		len += hmfs_print(1, "checkpoint_ver: %u\n",
+						le32_to_cpu(cp->checkpoint_ver));
+		len += hmfs_print(1, "alloc_block_count: %u\n",
+						le64_to_cpu(cp->alloc_block_count));
+		len += hmfs_print(1, "valid_block_count: %u\n",
+						le64_to_cpu(cp->valid_block_count));
+		len += hmfs_print(1, "free_segment_count: %u\n",
+						le64_to_cpu(cp->free_segment_count));
+		len += hmfs_print(1, "cur_node_segno: %u\n",
+						le32_to_cpu(cp->cur_node_segno));
+		len += hmfs_print(1, "cur_node_blkoff: %u\n",
+						le16_to_cpu(cp->cur_node_blkoff));
+		len += hmfs_print(1, "cur_data_segno: %u\n",
+						le32_to_cpu(cp->cur_data_segno));
+		len += hmfs_print(1, "cur_data_blkoff: %u\n",
+						le16_to_cpu(cp->cur_data_blkoff));
+		len += hmfs_print(1, "prev_cp_addr: %x\n",
+						le64_to_cpu(cp->prev_cp_addr));
+		len += hmfs_print(1, "next_cp_addr: %x\n",
+						le64_to_cpu(cp->checkpoint_ver));
+		len += hmfs_print(1, "valid_inode_count: %u\n",
+						le32_to_cpu(cp->valid_inode_count));
+		len += hmfs_print(1, "valid_node_count: %u\n",
+						le32_to_cpu(cp->valid_node_count));
+		len += hmfs_print(1, "nat_addr: %x\n", le64_to_cpu(cp->nat_addr));
+		len += hmfs_print(1, "orphan_addr: %x\n",
+						le64_to_cpu(cp->orphan_addr));
+		len += hmfs_print(1, "next_scan_nid: %u\n",
+						le32_to_cpu(cp->next_scan_nid));
+		len += hmfs_print(1, "elapsed_time: %u\n",
+						le32_to_cpu(cp->elapsed_time));
+		len += hmfs_print(1, "\n\n");
 	}
 	return len;
 }
 
 static int print_cp_nth(struct hmfs_sb_info *sbi, int n, int detail)
 {
-	size_t len = 0, i = 0;
-	struct list_head *head, *this;
+	size_t i = 0;
 	struct hmfs_cm_info *cmi = CM_I(sbi);
-	struct checkpoint_info *cpi, *entry;
+	struct checkpoint_info *cpi;
+	struct hmfs_checkpoint *hmfs_cp = NULL;
+	block_t next_addr;
+
 	cpi = cmi->last_cp_i;
-	head = &cpi->list;
-	list_for_each(this, head) {
-		entry = list_entry(this, struct checkpoint_info, list);
-		if (i++ == n)
-			break;
+	hmfs_cp = cpi->cp;
+
+	while (i++ < n) {
+		next_addr = le64_to_cpu(hmfs_cp->next_cp_addr);
+		hmfs_cp = ADDR(sbi, next_addr);
 	}
-	if (i == n + 1)
-		len = print_cp_one(cpi, detail);
-	else
-		len =
-		    hmfs_print(1, "there doesn't have %u checkpoints.\n",
-				n + 1);
-	return len;
+	return print_cp_one(hmfs_cp, detail);
 }
 
 static int print_cp_all(struct hmfs_sb_info *sbi, int detail)
 {
-	size_t len = 0, i = 0;
-	struct list_head *head, *this;
+	size_t len = 0;
 	struct hmfs_cm_info *cmi = CM_I(sbi);
-	struct checkpoint_info *cpi, *entry;
+	struct checkpoint_info *cpi;
+	struct hmfs_checkpoint *hmfs_cp = NULL;
+	block_t next_addr;
+
 	cpi = cmi->last_cp_i;
-	head = &cpi->list;
-	list_for_each(this, head) {
-		entry = list_entry(this, struct checkpoint_info, list);
-		hmfs_print(1, "------%uth checkpoint info------\n", i++);
-		len += print_cp_one(entry, 0);	//member cp can't be used except for current checkpint
-		//len += print_cp_one(cpi, detail);
-	}
-	if (0 == i)
-		len = hmfs_print(1, "None.\n");
+	hmfs_cp = cpi->cp;
+
+	do {
+		next_addr = le64_to_cpu(hmfs_cp->next_cp_addr);
+		hmfs_cp = ADDR(sbi, next_addr);
+		len += print_cp_one(hmfs_cp, detail);	//member cp can't be used except for current checkpint
+	} while (hmfs_cp != cpi->cp);
 	return len;
 }
 
@@ -376,7 +355,6 @@ static int print_cp_all(struct hmfs_sb_info *sbi, int detail)
 static int hmfs_print_cp(int args, char argv[][MAX_ARG_LEN + 1])
 {
 	struct hmfs_sb_info *sbi = info_buffer.sbi;
-	struct checkpoint_info *cur = CM_I(sbi)->cur_cp_i;
 	const char *opt = argv[1];
 	size_t len = 0;
 	int detail = 1;
@@ -385,7 +363,7 @@ static int hmfs_print_cp(int args, char argv[][MAX_ARG_LEN + 1])
 		detail = 0;
 	if ('c' == opt[0]) {
 		hmfs_print(1, "======Current checkpoint info======\n");
-		len = print_cp_one(cur, detail);
+		len = print_cp_one(NULL, detail);
 	} else if ('a' == opt[0]) {
 		hmfs_print(1, "======Total checkpoints info======\n");
 		len = print_cp_all(sbi, detail);
@@ -485,7 +463,6 @@ static inline void print_error_segment(seg_t segno, int vblocks_in_sit, int vblo
     hmfs_print(0, "segment #%d:\n\
             blocks recorded in sit %d\n\
             blocks counted in segment %d\n", segno, vblocks_in_sit, vblocks_in_segment);
-
 }
 
 static int hmfs_print_sit(int args, char argv[][MAX_ARG_LEN + 1])
@@ -596,8 +573,6 @@ static int traverse_nat(struct hmfs_sb_info *sbi, block_t cp_addr,
 
 	if (!root_addr)
 		return 0;
-	hmfs_print(1, "sbi->nat_height: %d\n", sbi->nat_height);
-	hmfs_print(1, "nat root address: %p, height: %d, offset: %d\n", root_addr, h, offset);
 
 	err = hmfs_check_ssa(sbi, cp_addr, root_addr, h, offset, nid);
 	if (0 != err){
@@ -639,7 +614,6 @@ static int hmfs_consis(void)
 	block_t cp_head_addr, cp_addr;
 	struct hmfs_super_block *sb = HMFS_RAW_SUPER(sbi);
 	struct hmfs_cm_info* cmi = sbi->cm_info;
-	struct checkpoint_info* cur_cpi = cmi->cur_cp_i;
 	hmfs_print(1, "cmi->valid_inode: %d\n", cmi->valid_inode_count);
 
 

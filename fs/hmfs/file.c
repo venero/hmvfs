@@ -400,13 +400,15 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
 	struct hmfs_node *raw_node = (struct hmfs_node *)dn->node_block;
 	struct hmfs_node *new_node = NULL;
-	void *data_blk;
 	block_t addr;
+	struct hmfs_summary *node_sum = NULL;
 	nid_t nid;
 	char sum_type;
 
-	nid = le32_to_cpu(raw_node->footer.nid);
+	node_sum = get_summary_by_addr(sbi, L_ADDR(sbi, raw_node));
+	nid = get_summary_nid(node_sum);
 	sum_type = dn->level ? SUM_TYPE_DN : SUM_TYPE_INODE;
+	hmfs_bug_on(sbi, sum_type != get_summary_type(node_sum));
 	new_node = alloc_new_node(sbi, nid, dn->inode, sum_type);
 
 	if (IS_ERR(new_node))
@@ -416,9 +418,10 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 			addr = raw_node->dn.addr[ofs];
 		else
 			addr = raw_node->i.i_addr[ofs];
+
 		if (addr == NULL_ADDR)
 			continue;
-		data_blk = ADDR(sbi, addr);
+
 		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;
 		else
