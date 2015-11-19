@@ -378,6 +378,7 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
+	struct curseg_info *curseg_t = CURSEG_I(sbi);
 	seg_t segno, total_segs = TOTAL_SEGS(sbi), offset = 0;
 	unsigned short valid_blocks;
 
@@ -394,6 +395,10 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 		test_and_set_bit(segno, dirty_i->dirty_segmap);
 		mutex_unlock(&dirty_i->seglist_lock);
 	}
+
+	/* Clear the current segments */
+	for (i = 0; i < NR_CURSEG_TYPE; i++)
+		clear_bit(curseg_t[i].segno, dirty_i->dirty_segmap);
 }
 
 static int build_dirty_segmap(struct hmfs_sb_info *sbi)
