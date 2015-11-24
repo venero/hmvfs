@@ -5,9 +5,9 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
-#define GC_THREAD_MIN_SLEEP_TIME	30000	/* milliseconds */
-#define GC_THREAD_MAX_SLEEP_TIME	60000
-#define GC_THREAD_NOGC_SLEEP_TIME	300000	/* 5 min */
+#define GC_THREAD_MIN_SLEEP_TIME	3000	/* milliseconds */
+#define GC_THREAD_MAX_SLEEP_TIME	6000
+#define GC_THREAD_NOGC_SLEEP_TIME	3000	/* 5 min */
 
 #define MAX_SEG_SEARCH				16
 
@@ -49,7 +49,7 @@ enum {
 	GC_GREEDY = 0, GC_CB
 };
 
-static inline u64 free_user_blocks(struct hmfs_sb_info *sbi)
+static inline unsigned long long free_user_blocks(struct hmfs_sb_info *sbi)
 {
 	if (free_segments(sbi) < overprovision_segments(sbi))
 		return 0;
@@ -65,7 +65,7 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 	unsigned long invalid_user_blocks = cm_i->alloc_block_count
 	 - cm_i->valid_block_count;
 
-	BUG_ON(cm_i->alloc_block_count < cm_i->valid_block_count);
+	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
 
 	if (invalid_user_blocks > sm_i->limit_invalid_blocks
 	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)

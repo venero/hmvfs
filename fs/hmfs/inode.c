@@ -6,9 +6,28 @@ struct backing_dev_info hmfs_backing_dev_info __read_mostly = {
 	.capabilities = BDI_CAP_NO_ACCT_AND_WRITEBACK,
 };
 
+void hmfs_set_inode_flags(struct inode *inode)
+{
+	unsigned int flags = HMFS_I(inode)->i_flags;
+
+	inode->i_flags &= ~(S_SYNC | S_APPEND | S_IMMUTABLE | S_NOATIME | 
+			S_DIRSYNC);
+
+	if (flags & FS_SYNC_FL)
+		inode->i_flags |= S_SYNC;
+	if (flags & FS_APPEND_FL)
+		inode->i_flags |= S_APPEND;
+	if (flags & FS_IMMUTABLE_FL)
+		inode->i_flags |= S_IMMUTABLE;
+	if (flags & FS_NOATIME_FL)
+		inode->i_flags |= S_NOATIME;
+	if (flags & FS_DIRSYNC_FL)
+		inode->i_flags |= S_DIRSYNC;
+}
+
 static int do_read_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
@@ -20,7 +39,6 @@ static int do_read_inode(struct inode *inode)
 	hn = (struct hmfs_node *)get_node(sbi, inode->i_ino);
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
-
 	hi = &hn->i;
 
 	inode->i_mode = le16_to_cpu(hi->i_mode);
@@ -29,7 +47,7 @@ static int do_read_inode(struct inode *inode)
 	set_nlink(inode, le32_to_cpu(hi->i_links));
 	inode->i_size = le64_to_cpu(hi->i_size);
 	inode->i_blocks = le64_to_cpu(hi->i_blocks);
-
+	printk("%s-%d:%d\n",__FUNCTION__,__LINE__,inode->i_blocks);
 	inode->i_atime.tv_sec = le64_to_cpu(hi->i_atime);
 	inode->i_ctime.tv_sec = le64_to_cpu(hi->i_ctime);
 	inode->i_mtime.tv_sec = le64_to_cpu(hi->i_mtime);
@@ -37,8 +55,6 @@ static int do_read_inode(struct inode *inode)
 	inode->i_mtime.tv_nsec = 0;
 	inode->i_ctime.tv_nsec = 0;
 	inode->i_generation = le32_to_cpu(hi->i_generation);
-
-	//TODO: deal with device file
 
 	fi->i_current_depth = le32_to_cpu(hi->i_current_depth);
 	fi->i_flags = le32_to_cpu(hi->i_flags);
@@ -50,18 +66,19 @@ static int do_read_inode(struct inode *inode)
 void mark_size_dirty(struct inode *inode, loff_t size)
 {
 	struct hmfs_inode_info *hi = HMFS_I(inode);
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	i_size_write(inode, size);
 	set_inode_flag(hi, FI_DIRTY_SIZE);
 	list_del(&hi->list);
+	INIT_LIST_HEAD(&hi->list);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 }
 
 int sync_hmfs_inode_size(struct inode *inode)
 {
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
 
@@ -70,9 +87,10 @@ int sync_hmfs_inode_size(struct inode *inode)
 		return PTR_ERR(hn);
 	hi = &hn->i;
 	hi->i_size = cpu_to_le64(inode->i_size);
+	hi->i_blocks = cpu_to_le64(inode->i_blocks);
 
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
-	if (!is_inode_flag_set(inode_i, FI_DIRTY_SIZE)) {
+	if (!is_inode_flag_set(inode_i, FI_DIRTY_INODE)) {
 		list_del(&inode_i->list);
 		INIT_LIST_HEAD(&inode_i->list);
 	}
@@ -83,7 +101,6 @@ int sync_hmfs_inode(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
@@ -91,7 +108,6 @@ int sync_hmfs_inode(struct inode *inode)
 	rn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
 	if (IS_ERR(rn))
 		return PTR_ERR(rn);
-
 	hi = &(rn->i);
 
 	clear_inode_flag(inode_i, FI_DIRTY_INODE);
@@ -115,16 +131,7 @@ int sync_hmfs_inode(struct inode *inode)
 	hi->i_flags = cpu_to_le32(inode_i->i_flags);
 	hi->i_pino = cpu_to_le32(inode_i->i_pino);
 
-	rn->footer.nid = cpu_to_le32(inode->i_ino);
-	rn->footer.ino = cpu_to_le32(inode->i_ino);
-	rn->footer.cp_ver = cpu_to_le32(cp_i->version);
-
 	return 0;
-}
-
-static int is_meta_inode(unsigned long ino)
-{
-	return ino < HMFS_ROOT_INO;
 }
 
 /* allocate an inode */
@@ -139,9 +146,6 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 
 	if (!(inode->i_state & I_NEW))
 		return inode;
-
-	if (is_meta_inode(ino))
-		goto make_now;
 
 	ret = do_read_inode(inode);
 	if (ret)
@@ -167,21 +171,9 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_op = &hmfs_special_inode_operations;
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 	}
-	goto out;
-make_now:
-	//FIXME: Delete all meta-inode
-	if (ino == HMFS_NAT_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else if (ino == HMFS_SIT_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else if (ino == HMFS_SSA_INO) {
-		mapping_set_gfp_mask(inode->i_mapping, GFP_HMFS_ZERO);
-	} else {
-		ret = -EIO;
-		goto bad_inode;
-	}
-out:	unlock_new_inode(inode);
+	unlock_new_inode(inode);
 	return inode;
-bad_inode://XXX:iget_failed(inode);
+bad_inode:
+	iget_failed(inode);
 	return ERR_PTR(ret);
 }

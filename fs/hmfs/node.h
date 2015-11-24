@@ -7,13 +7,20 @@
 #define FREE_NID_BLK_SIZE		(HMFS_PAGE_SIZE * 2)
 #define BUILD_FREE_NID_COUNT	(HMFS_PAGE_SIZE / sizeof(nid_t))
 
-#define IS_NAT_ROOT(nid)	!nid
+#define IS_NAT_ROOT(nid)	(!nid)
+
+#define NAT_NODE_OFS_BITS				27
+#define NAT_NODE_OFS_MASK				((1 << NAT_NODE_OFS_BITS) - 1)
+
+#define GET_NAT_NODE_HEIGHT(nid)		((nid) >> NAT_NODE_OFS_BITS)
+#define GET_NAT_NODE_OFS(nid)			((nid) & NAT_NODE_OFS_MASK)
+#define MAKE_NAT_NODE_NID(height, ofs)	(((height) << NAT_NODE_OFS_BITS) | ((ofs) & NAT_NODE_OFS_MASK))
 
 struct node_info {
 	nid_t nid;
 	nid_t ino;
 	block_t blk_addr;
-	unsigned int version;
+	ver_t version;
 };
 
 struct nat_entry {
@@ -28,8 +35,8 @@ struct free_nid {
 /*
  * ?????
  */
-#define make_free_nid(nid,free)		(nid | ((u64)free << 63))
-#define get_free_nid(nid)			((nid << 1) >> 1)
+#define make_free_nid(nid,free)		((nid) | (((u32)free) << 31))
+#define get_free_nid(nid)			(((nid) << 1) >> 1)
 
 static inline void node_info_to_raw_nat(struct node_info *ni,
 					struct hmfs_nat_entry *ne)

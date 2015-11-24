@@ -21,7 +21,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		err = -ENOSPC;
 		goto fail;
 	}
-
 	inode->i_uid = current_fsuid();
 
 	if (dir->i_mode & S_ISGID) {
@@ -52,7 +51,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		nid_free = true;
 		goto out;
 	}
-	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);
@@ -92,7 +90,8 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 	return inode;
-out:	clear_nlink(inode);
+out:
+	clear_nlink(inode);
 	unlock_new_inode(inode);
 	make_bad_inode(inode);
 	iput(inode);
@@ -161,7 +160,7 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		     struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int err, ilock;
 
 	inode->i_ctime = CURRENT_TIME;
@@ -175,7 +174,8 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		goto out;
 	d_instantiate(dentry, inode);
 	return 0;
-out:	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
+out:	
+	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	iput(inode);
 	return err;
 }
@@ -206,12 +206,12 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 	}
 	de = &res_blk->dentry[ofs_in_blk];
-	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
 
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
-fail:	return err;
+fail:
+	return err;
 }
 
 static int hmfs_rmdir(struct inode *dir, struct dentry *dentry)
@@ -305,7 +305,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
 
-	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, old_inode,
+	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
 			  old_bidx);
 
 	if (old_dir_entry) {
@@ -315,8 +315,10 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:	mutex_unlock_op(sbi, ilock);
-out:	return err;
+out_k:	
+	mutex_unlock_op(sbi, ilock);
+out:
+	return err;
 }
 
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,

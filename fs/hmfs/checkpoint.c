@@ -10,7 +10,7 @@ static struct kmem_cache *cp_info_entry_slab;
 
 static struct kmem_cache *map_inode_entry_slab;
 
-static unsigned int next_checkpoint_ver(unsigned int version)
+static ver_t next_checkpoint_ver(ver_t version)
 {
 	//TODO
 	return version + 1;
@@ -69,6 +69,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 		orphan = list_entry(this, struct orphan_inode_entry, list);
 		if (orphan->ino == ino) {
 			list_del(&orphan->list);
+			INIT_LIST_HEAD(&orphan->list);
 			kmem_cache_free(orphan_entry_slab, orphan);
 			cm_i->n_orphans--;
 			break;
@@ -92,7 +93,7 @@ int check_orphan_space(struct hmfs_sb_info *sbi)
 
 static int __add_dirty_map_inode(struct inode *inode, struct map_inode_entry *new)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct list_head *head = &sbi->dirty_map_inodes;
 	struct list_head *this;
 	struct map_inode_entry *entry;
@@ -108,7 +109,7 @@ static int __add_dirty_map_inode(struct inode *inode, struct map_inode_entry *ne
 
 void add_dirty_map_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct map_inode_entry *new;
 retry:
 	new = kmem_cache_alloc(map_inode_entry_slab, GFP_NOFS);
@@ -127,7 +128,7 @@ retry:
 
 void remove_dirty_map_inode(struct inode *inode)
 {
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct list_head *head = &sbi->dirty_map_inodes;
 	struct list_head *this;
 	struct map_inode_entry *entry;
@@ -138,6 +139,7 @@ void remove_dirty_map_inode(struct inode *inode)
 		entry = list_entry(this, struct map_inode_entry, list);
 		if (entry->inode == inode) {
 			list_del(&entry->list);
+			INIT_LIST_HEAD(&entry->list);
 			kmem_cache_free(map_inode_entry_slab, entry);
 			break;
 		}
@@ -151,7 +153,6 @@ static void sync_checkpoint_info(struct hmfs_sb_info *sbi,
 				 struct checkpoint_info *cp)
 {
 	cp->version = le32_to_cpu(hmfs_cp->checkpoint_ver);
-	cp->next_version = le32_to_cpu(hmfs_cp->next_version);
 	cp->nat_root = ADDR(sbi, le64_to_cpu(hmfs_cp->nat_addr));
 	cp->cp = hmfs_cp;
 }
@@ -166,14 +167,16 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 	sync_checkpoint_info(sbi, prev_checkpoint, cm_i->cur_cp_i);
 	radix_tree_insert(&cm_i->cp_tree_root, cm_i->new_version,
 			  cm_i->cur_cp_i);
-	list_add(&cm_i->last_cp_i->list, &cm_i->cur_cp_i->list);
+	list_add(&cm_i->cur_cp_i->list, &cm_i->last_cp_i->list);
 	cm_i->new_version = next_checkpoint_ver(cm_i->new_version);
 	cm_i->last_cp_i = cm_i->cur_cp_i;
+retry:
 	cm_i->cur_cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
 
-	//TODO
-	if (!cm_i->cur_cp_i)
-		BUG();
+	if (!cm_i->cur_cp_i) {
+		cond_resched();
+		goto retry;
+	}
 
 	cm_i->cur_cp_i->version = cm_i->new_version;
 	cm_i->cur_cp_i->nat_root = NULL;
@@ -183,13 +186,13 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 }
 
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
-					    unsigned int version)
+					    ver_t version)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct checkpoint_info *cp_i, *entry;
 	struct list_head *this, *head;
 	struct hmfs_checkpoint *hmfs_cp;
-	unsigned long long next_addr;
+	block_t next_addr;
 
 	if (version == cm_i->new_version)
 		return cm_i->cur_cp_i;
@@ -212,8 +215,13 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 			next_addr = le64_to_cpu(cp_i->cp->next_cp_addr);
 
 			hmfs_cp = ADDR(sbi, next_addr);
-			entry =
-			 kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+retry:
+			entry = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+
+			if (!entry) {
+				cond_resched();
+				goto retry;
+			}
 
 			sync_checkpoint_info(sbi, hmfs_cp, entry);
 
@@ -228,13 +236,42 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	return cp_i;
 }
 
+static struct hmfs_checkpoint *get_mnt_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
+				ver_t version)
+{
+	struct hmfs_checkpoint *entry = cp;
+	ver_t current_version;
+	block_t addr;
+
+	do {
+		addr = le64_to_cpu(entry->next_cp_addr);
+		entry = ADDR(sbi, addr);
+		current_version = le32_to_cpu(entry->checkpoint_ver);
+	} while(current_version != version && entry != cp);
+
+	if (current_version == version)
+		return entry;
+	return NULL;
+}
+
 int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i;
 	struct checkpoint_info *cp_i;
 	struct hmfs_super_block *super = ADDR(sbi, 0);
 	struct hmfs_checkpoint *hmfs_cp;
-	unsigned long long cp_addr;
+	block_t cp_addr;
+
+	/* Init checkpoint_info list */
+	cp_addr = le64_to_cpu(super->cp_page_addr);
+	hmfs_cp = ADDR(sbi, cp_addr);
+
+	if (sbi->mnt_cp_version && sbi->mnt_cp_version != 
+			le32_to_cpu(hmfs_cp->checkpoint_ver)) {
+		hmfs_cp = get_mnt_checkpoint(sbi, hmfs_cp, sbi->mnt_cp_version);
+		if (!hmfs_cp)
+			return -EINVAL;
+	}
 
 	cm_i = kzalloc(sizeof(struct hmfs_cm_info), GFP_KERNEL);
 
@@ -248,11 +285,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 		goto out_cp_i;
 	}
 
-	/* Init checkpoint_info list */
-	cp_addr = le64_to_cpu(super->cp_page_addr);
-	printk(KERN_INFO"%s:cp_addr:%llu\n",__FUNCTION__,cp_addr);
-	hmfs_cp = ADDR(sbi, cp_addr);
-
+	
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
 	cm_i->valid_node_count = le32_to_cpu(hmfs_cp->valid_node_count);
 	cm_i->valid_block_count = le32_to_cpu(hmfs_cp->valid_block_count);
@@ -275,8 +308,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	/* Allocate and Init current checkpoint_info */
 	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
 	INIT_LIST_HEAD(&cp_i->list);
-	cm_i->new_version =
-	 next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
+	cm_i->new_version = next_checkpoint_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp_i->version = cm_i->new_version;
 	cp_i->nat_root = NULL;
 	cp_i->cp = NULL;
@@ -297,12 +329,13 @@ out_cm_i:
 static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)
 {
 	struct checkpoint_info *cp_i = cm_i->last_cp_i, *entry;
-	struct list_head *head, *this;
+	struct list_head *head, *this, *tmp;
 
 	head = &cp_i->list;
-	list_for_each(this, head) {
+	list_for_each_safe(this, tmp, head) {
 		entry = list_entry(this, struct checkpoint_info, list);
 		list_del(this);
+		INIT_LIST_HEAD(&entry->list);
 		radix_tree_delete(&cm_i->cp_tree_root, entry->version);
 		kmem_cache_free(cp_info_entry_slab, entry);
 	}
@@ -325,22 +358,19 @@ int destroy_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 int create_checkpoint_caches(void)
 {
-	orphan_entry_slab = kmem_cache_create("hmfs_orphan_entry",
-					      sizeof(struct orphan_inode_entry),
-					      0, SLAB_RECLAIM_ACCOUNT, NULL);
+	orphan_entry_slab = hmfs_kmem_cache_create("hmfs_orphan_entry",
+					      sizeof(struct orphan_inode_entry), NULL);
 	if (unlikely(!orphan_entry_slab))
 		return -ENOMEM;
 
-	cp_info_entry_slab = kmem_cache_create("hmfs_checkpoint_info_entry",
-					       sizeof(struct checkpoint_info),
-					       0, SLAB_RECLAIM_ACCOUNT, NULL);
+	cp_info_entry_slab = hmfs_kmem_cache_create("hmfs_checkpoint_info_entry",
+					       sizeof(struct checkpoint_info), NULL);
 	if (cp_info_entry_slab == NULL) {
 		goto free_orphan;
 	}
 	
-	map_inode_entry_slab = kmem_cache_create("hmfs_map_inode_entry",
-					sizeof(struct map_inode_entry), 0, SLAB_RECLAIM_ACCOUNT,
-					NULL);
+	map_inode_entry_slab = hmfs_kmem_cache_create("hmfs_map_inode_entry",
+					sizeof(struct map_inode_entry), NULL);
 	if(map_inode_entry_slab == NULL)
 		goto free_cp_info;
 	return 0;
@@ -358,26 +388,6 @@ void destroy_checkpoint_caches(void)
 	kmem_cache_destroy(orphan_entry_slab);
 	kmem_cache_destroy(cp_info_entry_slab);
 	kmem_cache_destroy(map_inode_entry_slab);
-}
-
-//      Find checkpoint by given version number
-u32 find_checkpoint_version(struct hmfs_sb_info *sbi, u32 version,
-			    struct hmfs_checkpoint *checkpoint)
-{
-	struct hmfs_checkpoint *cp = NULL;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-
-	u32 ver;
-	cp = cm_i->last_cp_i->cp;
-	ver = cp->checkpoint_ver;
-	while (ver != version) {
-		cp = ADDR(sbi, le64_to_cpu(cp->next_cp_addr));
-		ver = le32_to_cpu(cp->checkpoint_ver);
-		if (cp->prev_cp_addr == 0)
-			return version;
-	}
-	checkpoint = cp;
-	return 0;
 }
 
 static void sync_map_data_pages(struct hmfs_sb_info *sbi)
@@ -401,9 +411,7 @@ static void sync_map_data_pages(struct hmfs_sb_info *sbi)
 		inode = igrab(entry->inode);
 		if (!inode)
 			continue;
-#ifdef CONFIG_DEBUG	
-		BUG_ON(atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
-#endif
+		hmfs_bug_on(sbi, atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
 		index = 0;
 		
 		mapping = inode->i_mapping;
@@ -417,10 +425,8 @@ static void sync_map_data_pages(struct hmfs_sb_info *sbi)
 			for (i = 0; i < nr_pages; i++) {
 				page = pvec.pages[i];
 				lock_page(page);
-#ifdef CONFIG_DEBUG
-				BUG_ON(page->mapping != mapping);
-				BUG_ON(!PageDirty(page));
-#endif
+				hmfs_bug_on(sbi, page->mapping != mapping);
+				hmfs_bug_on(sbi, !PageDirty(page));
 				clear_page_dirty_for_io(page);
 				
 				if (hmfs_write_data_page(page, &wbc)) {	
@@ -430,9 +436,7 @@ static void sync_map_data_pages(struct hmfs_sb_info *sbi)
 			}
 			pagevec_release(&pvec);
 		}
-#ifdef CONFIG_DEBUG
-		BUG_ON(!atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
-#endif
+		hmfs_bug_on(sbi, !atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
 	}
 }
 
@@ -440,11 +444,12 @@ static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
 {
 	struct list_head *head, *this, *next;
 	struct hmfs_inode_info *inode_i;
+	int ret;
 
 	head = &sbi->dirty_inodes_list;
 	list_for_each_safe(this, next, head) {
 		inode_i = list_entry(this, struct hmfs_inode_info, list);
-		__hmfs_write_inode(&inode_i->vfs_inode);
+		ret = __hmfs_write_inode(&inode_i->vfs_inode);
 	}
 }
 
@@ -471,29 +476,6 @@ static void unblock_operations(struct hmfs_sb_info *sbi)
 	mutex_unlock_all(sbi);
 }
 
-//      Find checkpoint whose prev_checkpoint version is given version number
-u32 find_next_checkpoint_version(struct hmfs_sb_info *sbi, u32 version,
-				 struct hmfs_checkpoint *checkpoint)
-{
-	struct hmfs_checkpoint *cp_next = NULL;
-	struct hmfs_checkpoint *cp = NULL;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-
-	u32 ver;
-	cp_next = ADDR(sbi, le64_to_cpu(cm_i->last_cp_i->cp->prev_cp_addr));
-	cp = ADDR(sbi, cp_next->prev_cp_addr);
-	ver = cp->checkpoint_ver;
-	while (ver != version) {
-		cp_next = cp;
-		cp = ADDR(sbi, cp->prev_cp_addr);
-		ver = le32_to_cpu(cp->checkpoint_ver);
-		if (cp->prev_cp_addr == 0)
-			return version;
-	}
-	checkpoint = cp_next;
-	return 0;
-}
-
 static block_t flush_orphan_inodes(struct hmfs_sb_info *sbi)
 {
 	return 0;
@@ -507,7 +489,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct hmfs_summary *summary;
 	unsigned int cp_checksum, sb_checksum;
-	unsigned store_version;
+	ver_t store_version;
 	int length;
 	block_t store_checkpoint_addr = 0;
 	block_t nat_root_addr, orphan_blocks_addr;
@@ -532,17 +514,13 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 	flush_sit_entries(sbi);
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
-	set_struct(store_checkpoint, valid_block_count,
-		   cm_i->valid_block_count);
-	set_struct(store_checkpoint, valid_inode_count,
-		   cm_i->valid_inode_count);
+	set_struct(store_checkpoint, valid_block_count, cm_i->valid_block_count);
+	set_struct(store_checkpoint, valid_inode_count, cm_i->valid_inode_count);
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
-	set_struct(store_checkpoint, alloc_block_count,
-		   cm_i->alloc_block_count);
+	set_struct(store_checkpoint, alloc_block_count, cm_i->alloc_block_count);
 	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
-	set_struct(store_checkpoint, cur_node_segno,
-		   curseg_i[CURSEG_NODE].segno);
+	set_struct(store_checkpoint, cur_node_segno, curseg_i[CURSEG_NODE].segno);
 	set_struct(store_checkpoint, cur_node_blkoff,
 		   curseg_i[CURSEG_NODE].next_blkoff);
 	set_struct(store_checkpoint, cur_data_segno,
@@ -555,14 +533,11 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 
 	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
 	store_checkpoint->prev_cp_addr = next_checkpoint->prev_cp_addr;
-	store_checkpoint->next_version = next_checkpoint->checkpoint_ver;
 
 	//FIXME:Atomic write?
 	next_checkpoint->prev_cp_addr = cpu_to_le64(store_checkpoint_addr);
 	prev_checkpoint->next_cp_addr = cpu_to_le64(store_checkpoint_addr);
-	prev_checkpoint->next_version = store_checkpoint->checkpoint_ver;
 	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
-	printk("%s:write cp:%llu\n",__FUNCTION__,store_checkpoint_addr);
 
 	length = (char *)(&store_checkpoint->checksum) -
 			(char *)store_checkpoint;
@@ -589,6 +564,10 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
+struct hmfs_inode *hi=get_node(sbi,3);
+for(ret=0;ret<NORMAL_ADDRS_PER_INODE;++ret)
+if(hi->i_addr[ret])
+		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,ret,le64_to_cpu(hi->i_addr[ret]));
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
@@ -599,79 +578,33 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 	return ret;
 }
 
-//      Step1: read cp to cpi
-//      Step2: set B-tree root to this checkpoint
-int read_checkpoint(struct hmfs_sb_info *sbi, u32 version)
-{
-
-	struct hmfs_checkpoint *checkpoint = NULL;
-	struct checkpoint_info *cpi = NULL;
-	struct hmfs_super_block *super;
-	int ret = 0;
-	printk(KERN_INFO "Read checkpoint stage 3.\n");
-	super = ADDR(sbi, 0);
-	ret = find_checkpoint_version(sbi, version, checkpoint);
-	if (ret != 0) {
-		printk("Version %d not found.\n", ret);
-		return -1;
-	}
-	/*
-	   cpi = kzalloc(sizeof(struct checkpoint_info), GFP_KERNEL);
-	   cpi->load_version = version;
-	   cpi->store_version = next_checkpoint_ver(super->latest_cp_version);
-
-	   cpi->cur_node_segno = checkpoint->cur_node_segno;
-	   cpi->cur_node_blkoff = checkpoint->cur_node_blkoff;
-	   cpi->cur_data_segno = checkpoint->cur_data_segno;
-	   cpi->cur_data_blkoff = checkpoint->cur_data_blkoff;
-
-	   cpi->valid_inode_count = checkpoint->valid_inode_count;
-	   cpi->valid_node_count = checkpoint->valid_node_count;
-
-	   cpi->valid_block_count = checkpoint->valid_block_count;
-	   cpi->user_block_count = checkpoint->user_block_count;
-	 */
-//      FIXME: [Goku]
-//      cpi->alloc_valid_block_count =
-	/*
-	   cpi->load_checkpoint_addr = checkpoint->prev_checkpoint_addr;
-	 */
-//      FIXME: [Goku] Orphan part
-	cpi->cp = checkpoint;
-
-//      FIXME: [Goku] cp_page
-
-//      cpi->si should be changed when sit is initialed.
-
-	printk(KERN_INFO "Read checkpoint end.\n");
-	return 0;
-}
-
 //      Step1: delete all valid counter
 //      Step2: construct bypass link
 //      Step3: delete checkpoint itself
-int delete_checkpoint(struct hmfs_sb_info *sbi, u32 version)
+int delete_checkpoint(struct hmfs_sb_info *sbi, unsigned int version)
 {
 	struct hmfs_checkpoint *checkpoint = NULL;
-	struct hmfs_checkpoint *next_checkpoint = NULL;
+	struct hmfs_checkpoint *next_cp = NULL, *prev_cp = NULL;
 	block_t nat_root_addr;
-	int ret = 0;
+
 	printk(KERN_INFO "Delete checkpoint stage 1.\n");
-	ret = find_checkpoint_version(sbi, version, checkpoint);
-	if (ret != 0) {
-		printk("Version %d not found.\n", ret);
+
+	checkpoint = CM_I(sbi)->last_cp_i->cp;
+	checkpoint = get_mnt_checkpoint(sbi, checkpoint, version);
+	if (!checkpoint) {
+		printk("Version %d not found.\n", version);
 		return -1;
 	}
 	nat_root_addr = le64_to_cpu(checkpoint->nat_addr);
 	dc_nat_root(sbi, nat_root_addr);
 
 	printk(KERN_INFO "Delete checkpoint stage 2.\n");
-	ret = find_next_checkpoint_version(sbi, version, next_checkpoint);
-	if (ret != 0) {
-		printk("Version %d not found.\n", ret);
-		return -1;
-	}
-	next_checkpoint->prev_cp_addr = checkpoint->prev_cp_addr;
+	next_cp = ADDR(sbi, le64_to_cpu(checkpoint->next_cp_addr));
+	prev_cp = ADDR(sbi, le64_to_cpu(checkpoint->prev_cp_addr));
+
+	next_cp->prev_cp_addr = checkpoint->prev_cp_addr;
+	prev_cp->next_cp_addr = checkpoint->next_cp_addr;
+
 	printk(KERN_INFO "Delete checkpoint stage 3.\n");
 	dc_checkpoint(sbi, L_ADDR(sbi, checkpoint));
 	return 0;
