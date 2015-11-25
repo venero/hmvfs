@@ -43,8 +43,11 @@
 					BUG();								\
 				}										\
 			} while(0)
+#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
+							__FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define hmfs_bug_on(sbi, condition)
+#define hmfs_dbg(fmt, ...)
 #endif
 
 typedef unsigned int nid_t;

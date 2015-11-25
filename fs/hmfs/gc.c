@@ -36,8 +36,7 @@ static unsigned int get_cb_cost(struct hmfs_sb_info *sbi, unsigned int segno)
 	if (mtime > sit_i->max_mtime)
 		sit_i->max_mtime = mtime;
 	if (sit_i->max_mtime != sit_i->min_mtime)
-		age = 100
-		 - div64_u64(100 * (mtime - sit_i->min_mtime),
+		age = 100 - div64_u64(100 * (mtime - sit_i->min_mtime),
 			     sit_i->max_mtime - sit_i->min_mtime);
 
 	return UINT_MAX - ((100 * (100 - u) * age) / (100 + u));
@@ -467,6 +466,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	seg_t segno;
 	struct sit_info *sit_i = SIT_I(sbi);
 
+	hmfs_dbg("Enter GC\n");
 gc_more:
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
@@ -484,6 +484,7 @@ gc_more:
 		goto out;
 	ret = 0;
 
+	hmfs_dbg("GC Victim:%d\n", (int)segno);
 	garbage_collect(sbi, segno, gc_type);
 
 	if (gc_type == FG_GC) {
@@ -500,7 +501,7 @@ gc_more:
 	}
 out:
 	mutex_unlock(&sbi->gc_mutex);
-
+	hmfs_dbg("Exit GC\n");
 	return ret;
 }
 
@@ -516,10 +517,8 @@ static int gc_thread_func(void *data)
 		if (try_to_freeze())
 			continue;
 		else
-			wait_event_interruptible_timeout(*wq,
-							 kthread_should_stop(),
-							 msecs_to_jiffies
-							 (wait_ms));
+			wait_event_interruptible_timeout(*wq, kthread_should_stop(),
+							 msecs_to_jiffies(wait_ms));
 
 		if (kthread_should_stop())
 			break;
