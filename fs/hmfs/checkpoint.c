@@ -185,6 +185,38 @@ retry:
 	mutex_unlock(&cm_i->cp_tree_lock);
 }
 
+struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
+				struct checkpoint_info *cp_i)
+{
+	ver_t next_version;
+	struct hmfs_checkpoint *this_cp, *next_cp;
+	block_t next_addr;
+	struct checkpoint_info *next_cp_i;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+
+	this_cp = cp_i->cp;
+	next_addr = le64_to_cpu(this_cp->next_cp_addr);
+	next_cp = ADDR(sbi, next_addr);
+	next_version = le32_to_cpu(next_cp->checkpoint_ver);
+	next_cp_i = radix_tree_lookup(&cm_i->cp_tree_root, next_version);
+
+	if (!next_cp_i) {
+retry:
+		next_cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+		if (!next_cp_i) {
+			cond_resched();
+			goto retry;
+		}
+
+		sync_checkpoint_info(sbi, next_cp, next_cp_i);
+		//TODO: sort cp_i according to version
+		list_add(&next_cp_i->list, &cm_i->last_cp_i->list);
+		radix_tree_insert(&cm_i->cp_tree_root, next_cp_i->version,
+						next_cp_i);
+	}
+	return next_cp_i;
+}
+
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    ver_t version)
 {
@@ -510,7 +542,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	store_version = cm_i->new_version;
 	store_checkpoint_addr = alloc_free_node_block(sbi);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
-	make_summary_entry(summary, 0, cm_i->new_version, 1, 0, SUM_TYPE_CP);
+	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 	flush_sit_entries(sbi);
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
@@ -564,10 +596,6 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
-struct hmfs_inode *hi=get_node(sbi,3);
-for(ret=0;ret<NORMAL_ADDRS_PER_INODE;++ret)
-if(hi->i_addr[ret])
-		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,ret,le64_to_cpu(hi->i_addr[ret]));
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);

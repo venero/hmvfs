@@ -375,24 +375,6 @@ out_up:
 
 }
 
-static void setup_summary_of_delete_block(struct hmfs_sb_info *sbi,
-					  block_t blk_addr)
-{
-	struct hmfs_summary *sum;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	int count;
-
-	sum = get_summary_by_addr(sbi, blk_addr);
-	count = get_summary_count(sum) - 1;
-	set_summary_count(sum, count);
-	hmfs_bug_on(sbi, count < 0);
-
-	if (!count) {
-		set_summary_dead_version(sum, cm_i->new_version);
-		invalidate_block_after_dc(sbi, blk_addr);
-	}
-}
-
 /* dn->node_block should be writable */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 {
@@ -427,7 +409,6 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		else
 			new_node->i.i_addr[ofs] = NULL_ADDR;
 
-		setup_summary_of_delete_block(sbi, addr);
 		nr_free++;
 	}
 	if (nr_free) {

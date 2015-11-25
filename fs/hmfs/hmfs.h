@@ -595,15 +595,13 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
 static inline void make_summary_entry(struct hmfs_summary *summary,
 				      nid_t nid,
 				      ver_t start_version,
-				      unsigned int count,
 				      unsigned int ofs_in_node,
 				      unsigned char type)
 {
 	summary->nid = cpu_to_le32(nid);
 	summary->start_version = cpu_to_le32(start_version);
-	summary->count = cpu_to_le16(count);
-	summary->dead_version = HMFS_DEF_DEAD_VER;
-	summary->ont = cpu_to_le16((ofs_in_node << 7) | (type & 0x7f));
+	summary->ofs_in_node = cpu_to_le16(ofs_in_node);
+	summary->bt = cpu_to_le16(type);
 }
 
 static inline nid_t get_summary_nid(struct hmfs_summary *summary)
@@ -611,14 +609,9 @@ static inline nid_t get_summary_nid(struct hmfs_summary *summary)
 	return le32_to_cpu(summary->nid);
 }
 
-static inline unsigned int get_summary_count(struct hmfs_summary *summary)
-{
-	return le16_to_cpu(summary->count);
-}
-
 static inline unsigned int get_summary_offset(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->ont) >> 7;
+	return le16_to_cpu(summary->ofs_in_node);
 }
 
 static inline ver_t get_summary_start_version(struct hmfs_summary
@@ -629,41 +622,37 @@ static inline ver_t get_summary_start_version(struct hmfs_summary
 
 static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->ont) & 0x7f;
+	return le16_to_cpu(summary->bt) & 0x7f;
 }
 
-static inline ver_t get_summary_dead_version(struct hmfs_summary
-						    *summary)
+static inline int get_summary_valid_bit(struct hmfs_summary *summary)
 {
-	return le32_to_cpu(summary->dead_version);
+	return le16_to_cpu(summary->bt) & (~0x7f);
 }
 
-static inline void set_summary_count(struct hmfs_summary *summary, int count)
+static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 {
-	summary->count = cpu_to_le16(count);
+	int bt = le16_to_cpu(summary->bt);
+
+	bt |= 0x80;
+	summary->bt = cpu_to_le16(bt);
 }
 
-static inline void inc_summary_count(struct hmfs_summary *summary)
+static inline void set_summary_type(struct hmfs_summary *summary, int type)
 {
-	int count = get_summary_count(summary);
-	count++;
-	set_summary_count(summary, count);
+	int t = le16_to_cpu(summary->bt);
+	t &= ~0x7f;
+	t |= type & 0x7f;
+	summary->bt = cpu_to_le16(t);
 }
 
-static inline void dec_summary_count(struct hmfs_summary *summary)
+static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 {
-	int count = get_summary_count(summary);
-	BUG_ON(count - 1 < 0);
-	set_summary_count(summary, count - 1);
+	int bt = le16_to_cpu(summary->bt);
+
+	bt &= 0x7f;
+	summary->bt = cpu_to_le16(bt);
 }
-
-static inline void set_summary_dead_version(struct hmfs_summary *summary,
-					    unsigned int version)
-{
-	summary->dead_version = cpu_to_le32(version);
-}
-
-
 
 
 /* define prototype function */
@@ -721,7 +710,6 @@ struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, ver_t version,
 				     nid_t nid);
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
-void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* segment.c*/
 void flush_sit_entries(struct hmfs_sb_info *sbi);
@@ -765,6 +753,8 @@ void destroy_checkpoint_caches(void);
 int write_checkpoint(struct hmfs_sb_info *sbi);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    unsigned int version);
+struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
+				struct checkpoint_info *cp_i);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,

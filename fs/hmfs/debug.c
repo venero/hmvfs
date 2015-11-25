@@ -390,12 +390,11 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 
 	len += hmfs_print(1, "-- [%016x] --\n", blk_addr>>HMFS_PAGE_SIZE_BITS);
 	len += hmfs_print(1, "  nid: %u\n", le32_to_cpu(sum_entry->nid));
-	len += hmfs_print(1, "  dead_version: %u\n",
-			   le32_to_cpu(sum_entry->dead_version));
 	len += hmfs_print(1, "  start_version: %u\n",
 			   le32_to_cpu(sum_entry->start_version));
-	len += hmfs_print(1, "  count: %u\n", le16_to_cpu(sum_entry->count));
-	len += hmfs_print(1, "  ont: %u\n", le16_to_cpu(sum_entry->ont));
+	len += hmfs_print(1, "  ofs_in_node: %u\n", get_summary_offset(sum_entry));
+	len += hmfs_print(1, "  type: %u\n", get_summary_type(sum_entry));
+	len += hmfs_print(1, "  v bit: %u\n", !!get_summary_valid_bit(sum_entry));
 	len += hmfs_print(1, "\n");
 
 	return len;
@@ -490,7 +489,6 @@ static int hmfs_print_data(int args, char argv[][MAX_ARG_LEN + 1])
 static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr, 
 			  block_t blk_addr, size_t h, size_t offset, block_t nid)
 {
-	uint cp_ver, dead_ver, start_ver;
 	struct hmfs_checkpoint* cp;
 	struct hmfs_summary* summary;
 	block_t raw_nid, raw_height;
@@ -530,23 +528,6 @@ static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr,
 				blk_addr, h, raw_nid);
 			ret_val = -1;
 		}
-	}
-
-	//check version
-	cp_ver = le32_to_cpu(cp->checkpoint_ver);
-	dead_ver = le32_to_cpu(summary->dead_version);
-	start_ver = le32_to_cpu(summary->start_version);
-	if ( (0 != dead_ver && cp_ver >= dead_ver) || cp_ver < start_ver) {
-		hmfs_print(1, "**error** summary version error: ");
-		hmfs_print(1, "version of nat node at %#x, ");
-		if (cp_ver >= dead_ver) {
-			hmfs_print(1, "checkpoint version(%d) >= dead version(%d)\n", 
-				cp_ver, dead_ver);
-		} else {
-			hmfs_print(1, "checkpoint version(%d) < start version(%d)\n", 
-				cp_ver, start_ver);
-		}
-		ret_val = -1;
 	}
 
 	return ret_val;

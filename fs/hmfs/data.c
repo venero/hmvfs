@@ -166,17 +166,12 @@ static void setup_summary_of_new_data_block(struct hmfs_sb_info *sbi,
 					    unsigned int ino,
 					    unsigned int ofs_in_node)
 {
-	struct hmfs_summary *src_sum, *dest_sum;
+	struct hmfs_summary *dest_sum;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
 	dest_sum = get_summary_by_addr(sbi, new_addr);
-	make_summary_entry(dest_sum, ino, cm_i->new_version, 1, ofs_in_node,
+	make_summary_entry(dest_sum, ino, cm_i->new_version, ofs_in_node,
 			   SUM_TYPE_DATA);
-
-	if (src_addr != NULL_ADDR) {
-		src_sum = get_summary_by_addr(sbi, src_addr);
-		set_summary_dead_version(src_sum, cm_i->new_version);
-	}
 }
 
 /**
@@ -221,13 +216,6 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		summary = get_summary_by_addr(sbi, src_addr);
 		if (get_summary_start_version(summary) == cp_i->version)
 			return src;
-
-		/* 
-		 * Here we need to copy content from source data to dest data block
-		 * Because we have increase count of src_addr in alloc_new_node,
-		 * we need to decrease count of it.
-		 */
-		dec_summary_count(summary);
 	}
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
@@ -294,13 +282,6 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		summary = get_summary_by_addr(sbi, src_addr);
 		if (get_summary_start_version(summary) == cp_i->version)
 			return src;
-
-		/* 
-		 * Here we need to copy content from source data to dest data block
-		 * Because we have increase count of src_addr in alloc_new_node,
-		 * we need to decrease count of it.
-		 */
-		dec_summary_count(summary);
 	}
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr

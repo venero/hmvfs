@@ -381,6 +381,7 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 	struct curseg_info *curseg_t = CURSEG_I(sbi);
 	seg_t segno, total_segs = TOTAL_SEGS(sbi), offset = 0;
 	unsigned short valid_blocks;
+	int i;
 
 	while (1) {
 		/* find dirty segmap based on free segmap */
@@ -617,17 +618,6 @@ void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr)
 //      In this design version, here is the only ADDR in DC operations
 void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
-	struct hmfs_summary *summary;
-	int count;
-
-	summary = get_summary_by_addr(sbi, blk_addr);
-	count = le32_to_cpu(summary->count);
-	count = count - 1;
-	if (unlikely(count < 0)) {
-		hmfs_bug_on(sbi, 1);
-	}
-
-	summary->count = cpu_to_le32(count);
 }
 
 void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr)
@@ -706,15 +696,7 @@ void dc_data(struct hmfs_sb_info *sbi, block_t data_block_addr)
 //      Increase the count of a block
 int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
-	struct hmfs_summary *summary;
 	int count = 0;
 
-	summary = get_summary_by_addr(sbi, blk_addr);
-	count = get_summary_count(summary);
-	count = count + 1;
-	if (unlikely(count >> 15 == 1))
-		hmfs_bug_on(sbi, 1);
-
-	set_summary_count(summary, count);
 	return count;
 }

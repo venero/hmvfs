@@ -145,13 +145,8 @@ static int prepare_move_arguments(struct gc_move_arg *arg,
 				  int type)
 {
 	arg->start_version = get_summary_start_version(sum);
-	arg->dead_version = get_summary_dead_version(sum);
 	arg->nid = get_summary_nid(sum);
 	arg->ofs_in_node = get_summary_offset(sum);
-	arg->count = get_summary_count(sum);
-
-	if (!arg->dead_version)
-		arg->dead_version = CM_I(sbi)->new_version;
 
 	arg->cp_i = get_checkpoint_info(sbi, arg->start_version);
 	if (type == TYPE_DATA)
@@ -174,9 +169,9 @@ static void update_dest_summary(struct hmfs_summary *src_sum,
 {
 	dest_sum->start_version = src_sum->start_version;
 	dest_sum->nid = src_sum->nid;
-	dest_sum->dead_version = src_sum->dead_version;
-	dest_sum->count = src_sum->count;
-	dest_sum->ont = src_sum->ont;
+	dest_sum->ofs_in_node = src_sum->ofs_in_node;
+	/* should not set valid bit */
+	set_summary_type(dest_sum, get_summary_type(src_sum));
 }
 
 static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -193,11 +188,16 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	/* 2. move blocks */
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version < args.dead_version) {
+	while (1) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
 		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
-		hmfs_bug_on(sbi, IS_ERR(this));
+
+		if (IS_ERR(this)) {
+			/* the node(args.nid) has been deleted */
+			break;
+		}
+
 		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
 						get_summary_type(par_sum) != SUM_TYPE_DN);
 
@@ -205,8 +205,10 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		if (this == last)
 			goto next;
 
-		hmfs_bug_on(sbi, le64_to_cpu(this->dn.addr[args.ofs_in_node]) !=
-		       args.src_addr);
+		/* Now src data block has been COW or parent node has been removed */
+		if (le64_to_cpu(this->dn.addr[args.ofs_in_node]) != args.src_addr) {
+			break;
+		}
 
 		if (get_summary_type(par_sum) == SUM_TYPE_INODE)
 			this->i.i_addr[args.ofs_in_node] = args.dest_addr;
@@ -215,19 +217,12 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 		last = this;
 
-		/* Update counter */
-		if (++args.nrchange >= args.count)
-			break;
-
 next:
-		args.parent_addr = L_ADDR(sbi, this);
-		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
-
-		args.start_version = get_summary_dead_version(args.parent_sum);
-		if (!args.start_version)
+		/* cp_i is the lastest checkpoint, stop */
+		if (args.cp_i == CM_I(sbi)->last_cp_i) {
 			break;
-
-		args.cp_i = get_checkpoint_info(sbi, args.start_version);
+		}
+		args.cp_i = get_next_checkpoint_info(sbi, args.cp_i);
 	}
 
 	/* 5. Update summary infomation of dest block */
@@ -248,6 +243,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	if (test_and_clear_bit(segno, sit_i->dirty_sentries_bitmap)) {
 		sit_i->dirty_sentries--;
 	}
+	//FIXME: we should write sit in checkpoint
 	sit_entry = get_sit_entry(sbi, segno);
 	seg_entry = get_seg_entry(sbi, segno);
 	seg_entry->valid_blocks = 0;
@@ -274,7 +270,7 @@ static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 	int off = 0;
 
 	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
-		if (!le16_to_cpu(sum->count))
+		if (!get_summary_valid_bit(sum))
 			continue;
 
 		move_data_block(sbi, segno, off, sum);
@@ -292,27 +288,26 @@ static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version < args.dead_version) {
+	while (1) {
 		this = get_nat_entry_block(sbi, args.cp_i->version, args.nid);
-		if (IS_ERR(this) || this == last)
+		if (IS_ERR(this))
+			break;
+
+		if (this == last)
 			goto next;
 
-		hmfs_bug_on(sbi, le64_to_cpu(this->entries[args.ofs_in_node].block_addr)
-		       != args.src_addr);
+		/* Src node has been COW or removed */
+		if (le64_to_cpu(this->entries[args.ofs_in_node].block_addr) !=
+						args.src_addr)
+			break;
 
 		this->entries[args.ofs_in_node].block_addr = cpu_to_le64(args.dest_addr);
 		last = this;
 
-		if (++args.nrchange >= args.count)
-			break;
 next:
-		args.parent_addr = L_ADDR(sbi, this);
-		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
-
-		args.start_version = get_summary_dead_version(args.parent_sum);
-		if (!args.start_version)
+		if (args.cp_i == CM_I(sbi)->last_cp_i)
 			break;
-		args.cp_i = get_checkpoint_info(sbi, args.start_version);
+		args.cp_i = get_next_checkpoint_info(sbi, args.cp_i);
 	}
 
 	update_dest_summary(src_sum, args.dest_sum);
@@ -331,7 +326,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	while (args.start_version < args.dead_version) {
+	while (1) {
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
 		else {
@@ -340,6 +335,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 			this = get_nat_node(sbi, args.cp_i->version, par_nid);
 		}
 
+		hmfs_bug_on(sbi, !this);
 		if (this == last)
 			goto next;
 
@@ -353,16 +349,10 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 
 		last = this;
 
-		if (++args.nrchange >= args.count)
-			break;
 next:
-		args.parent_addr = L_ADDR(sbi, this);
-		args.parent_sum = get_summary_by_addr(sbi, args.parent_addr);
-
-		args.start_version = get_summary_dead_version(args.parent_sum);
-		if (!args.start_version)
+		if (args.cp_i == CM_I(sbi)->last_cp_i)
 			break;
-		args.cp_i = get_checkpoint_info(sbi, args.start_version);
+		args.cp_i = get_next_checkpoint_info(sbi, args.cp_i);
 	}
 
 	update_dest_summary(src_sum, args.dest_sum);
@@ -398,7 +388,7 @@ static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 	int off = 0;
 
 	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
-		if (!le16_to_cpu(sum->count))
+		if (!get_summary_valid_bit(sum))
 			continue;
 
 		switch (get_summary_type(sum)) {

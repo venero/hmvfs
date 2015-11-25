@@ -315,16 +315,20 @@ static int hmfs_format(struct super_block *sb)
 	data_summary_block = get_summary_block(sbi, 1);
 
 	summary = &node_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 1, 0,
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
 			   SUM_TYPE_INODE);
+	set_summary_valid_bit(summary);
 	summary = &node_summary_block->entries[1];
-	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 1, 0, SUM_TYPE_NATN);
+	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
+	set_summary_valid_bit(summary);
 	summary = &node_summary_block->entries[2];
-	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 1, 0, SUM_TYPE_CP);
+	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_CP);
+	set_summary_valid_bit(summary);
 
 	summary = &data_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 1, 0,
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
 			   SUM_TYPE_DATA);
+	set_summary_valid_bit(summary);
 
 /* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
@@ -513,10 +517,6 @@ static void hmfs_evict_inode(struct inode *inode)
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
 	truncate_node(&dn);
-
-	if (!ret) {
-		setup_summary_of_delete_node(sbi, ni.blk_addr);
-	}
 
 	sb_end_intwrite(inode->i_sb);
 out:

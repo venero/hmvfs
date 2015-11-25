@@ -322,10 +322,10 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
 	__le32 nid;		/* parent node id */
-	__le32 dead_version;	/* version of checkpoint delete this block */
 	__le32 start_version;
-	__le16 count;		/*  */
-	__le16 ont;		/* ofs_in_node and type */
+	__le16 ofs_in_node;		/* offset in parent node */
+	__le16 bt;				/* valid bit and type */
+	__le32 waste_1;
 } __attribute__ ((packed));
 
 /* 8KB-sized summary block structure */

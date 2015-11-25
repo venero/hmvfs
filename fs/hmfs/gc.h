@@ -18,11 +18,9 @@ struct hmfs_gc_kthread {
 
 struct gc_move_arg {
 	unsigned int start_version;
-	unsigned int dead_version;
 	unsigned int nid;
 	unsigned int ofs_in_node;
 	int nrchange;
-	int count;
 	block_t src_addr, dest_addr, parent_addr;
 	char *dest, *src;
 	struct hmfs_summary *dest_sum, *parent_sum;
