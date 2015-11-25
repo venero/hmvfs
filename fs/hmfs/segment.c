@@ -132,6 +132,18 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
 	return page_addr;
 }
 
+/* Use for GC state */
+void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno, 
+				int *segoff, int seg_type)
+{
+	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
+
+	mutex_lock(&seg_i->curseg_mutex);
+	*segno = seg_i->segno;
+	*segoff = seg_i->next_blkoff;
+	mutex_unlock(&seg_i->curseg_mutex);
+}
+
 block_t alloc_free_data_block(struct hmfs_sb_info * sbi)
 {
 	return get_free_block(sbi, CURSEG_DATA);

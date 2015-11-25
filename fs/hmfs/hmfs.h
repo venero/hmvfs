@@ -724,6 +724,8 @@ block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
 block_t alloc_free_node_block(struct hmfs_sb_info *sbi);
 unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
 				   seg_t segno, int blkoff);
+void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
+				int *segoff, int seg_type);
 void dc_nat_root(struct hmfs_sb_info *sbi, block_t nat_root_addr);
 void dc_checkpoint(struct hmfs_sb_info *sbi, block_t cp_addr);
 void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr);

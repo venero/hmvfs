@@ -21,6 +21,14 @@ enum FILE_TYPE {
 	HMFS_FT_MAX,
 };
 
+enum FS_STATE {
+	HMFS_NONE,
+	HMFS_GC_DATA,
+	HMFS_GC_NODE,
+	HMFS_RM_CP,
+	HMFS_ADD_CP,
+};
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
@@ -157,8 +165,8 @@ struct hmfs_super_block {
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	__le16 checksum;
 	u8 nat_height;
+	__le16 checksum;
 
 } __attribute__ ((packed));
 
@@ -294,6 +302,15 @@ struct hmfs_checkpoint {
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
 	__le16 checksum;
+
+	__u8 state;				/* fs state, use set_fs_state */
+	/*
+	 * HMFS_GC_DATA: it represent (segno + 1) of current segment,
+	 * because segment 0 is a valid segment, and we use state_arg 0
+	 * to represent free state, thus we need add 1 to split segment 0 
+	 * ans state
+	 */
+	__le64 state_arg;		/* fs state arguments, for recovery */
 } __attribute__ ((packed));
 
 
@@ -367,6 +384,51 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 		      "movnti %%eax,(%%rdi)\n"
 		      "12:\n":"=D" (dummy1), "=d"(dummy2):"D"(dest), "a"(qword),
 		      "d"(length):"memory", "rcx");
+}
+
+//FIXME: is this mov atomically
+/* use CPU instructions to atomically write up to 8 bytes */
+static inline void hmfs_memcpy_atomic(void *dest, const void *src, u8 size)
+{
+	switch (size) {
+	case 1: { 
+		volatile u8 *daddr = dest;
+		const u8 *saddr = src;
+		*daddr = *saddr;
+		break;
+	}
+	case 2: {
+		volatile __le16 *daddr = dest;
+		const u16 *saddr = src;
+		*daddr = cpu_to_le16(*saddr);
+		break;
+	}
+	case 4: {
+		volatile __le32 *daddr = dest;
+		const u32 *saddr = src;
+		*daddr = cpu_to_le32(*saddr);
+		break;
+	}
+	case 8: {
+		volatile __le64 *daddr = dest;
+		const u64 *saddr = src;
+		*daddr = cpu_to_le64(*saddr);
+		break;
+	}
+	default:
+		BUG();
+	}
+}
+
+static inline void set_fs_state_arg(struct hmfs_checkpoint *hmfs_cp, u64 value)
+{
+	hmfs_memcpy_atomic(&hmfs_cp->state_arg, &value, 8);
+}
+
+static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)
+{
+	set_fs_state_arg(hmfs_cp, 0);
+	hmfs_memcpy_atomic(&hmfs_cp->state, &state, 1);
 }
 
 static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block

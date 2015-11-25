@@ -387,6 +387,7 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	u16 checksum, real_checksum;
 
 	super_1 = start_addr;
+	//TODO: write checksum function
 	length = (void *)(&super_1->checksum) - (void *)super_1;
 	checksum = crc16(~0, (void *)super_1, length);
 	real_checksum = le16_to_cpu(super_1->checksum);
