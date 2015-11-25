@@ -22,11 +22,12 @@ enum FILE_TYPE {
 };
 
 enum FS_STATE {
-	HMFS_NONE,
-	HMFS_GC_DATA,
-	HMFS_GC_NODE,
-	HMFS_RM_CP,
-	HMFS_ADD_CP,
+	HMFS_NONE,		/* Normal state */
+	HMFS_GC_DATA,	/* Collect data garbage */
+	HMFS_GC_NODE,	/* Collect node garbage */
+	HMFS_CP_GC,		/* Do checkpoint for GC */
+	HMFS_RM_CP,		/* Delete a checkpoint */
+	HMFS_ADD_CP,	/* Do normal checkpoint */
 };
 
 #define HMFS_MAJOR_VERSION		0

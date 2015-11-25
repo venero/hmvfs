@@ -219,7 +219,7 @@ struct hmfs_sb_info {
 	struct list_head dirty_map_inodes;			/* Inodes which contains dirty DRAM page */
 	spinlock_t dirty_map_inodes_lock;			/* Lock of dirty map inodes list */
 
-	int por_doing;								/* recovery is doing or not */
+	int recovery_doing;								/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
 };
 

@@ -398,12 +398,6 @@ int hmfs_write_data_page(struct page *page,
 
 	zero_user_segment(page, offset, PAGE_CACHE_SIZE);
 write:
-	//FIXME: need por_doing
-	if (sbi->por_doing) {
-		err = AOP_WRITEPAGE_ACTIVATE;
-		goto redirty_out;
-	}
-
 	if (S_ISDIR(inode->i_mode)) {
 		hmfs_bug_on(sbi, 1);
 	}
