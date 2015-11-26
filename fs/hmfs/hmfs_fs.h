@@ -341,8 +341,8 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 struct hmfs_summary {
 	__le32 nid;		/* parent node id */
 	__le32 start_version;
-	__le16 ofs_in_node;		/* offset in parent node */
-	__le16 bt;				/* valid bit and type */
+	__le16 ofs_in_node;	/* offset in parent node */
+	__le16 bt;		/* valid bit and type */
 	__le32 waste_1;
 } __attribute__ ((packed));
 

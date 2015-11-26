@@ -888,8 +888,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	//FIXME : cannot handle no NVM space for nat tree
 	struct hmfs_nat_node *cur_stored_node, *old_child_node = NULL,
 	 *cur_child_node = NULL;
-	block_t cur_stored_addr, child_stored_addr, _addr,
-	 child_node_addr;
+	block_t old_nat_addr, cur_stored_addr, child_stored_addr, child_node_addr;
 	unsigned int i, cur_version, _ofs, new_blk_order;
 	nid_t nid;
 	struct hmfs_summary *raw_summary;
@@ -933,8 +932,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	}
 	//go to child
 	_ofs = blk_order >> ((height - 1) * LOG2_NAT_ADDRS_PER_NODE);
-	new_blk_order = blk_order & ((1 << ((height - 1) *
-									LOG2_NAT_ADDRS_PER_NODE)) - 1);
+	new_blk_order = blk_order & ((1 << ((height - 1) * LOG2_NAT_ADDRS_PER_NODE)) - 1);
 
 	if (old_nat_node != NULL) {
 		child_node_addr = le64_to_cpu(old_nat_node->addr[_ofs]);
@@ -955,24 +953,9 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 						      nat_entry_page, alloc_cnt);
 
 	if (child_stored_addr) {
+		//child COWed
 		cur_stored_node->addr[_ofs] = cpu_to_le64(child_stored_addr);	//change addr to new block
-
-		for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
-			_addr = cur_stored_node->addr[i];
-			if (_addr == NULL_ADDR) {
-				//block no allocated yet
-				continue;
-			}
-			raw_summary = get_summary_by_addr(sbi, _addr);
-			if (i == _ofs) {
-				//this entry COWed
-				make_summary_entry(raw_summary, nid,
-						   cur_version, i, blk_type);
-			} else if (old_nat_node != NULL
-				   && old_nat_node == cur_nat_node) {
-				//brother COWed
-			}
-		}
+		make_summary_entry(raw_summary, nid, cur_version, i, blk_type);
 	}
 	return cur_stored_addr;
 }
