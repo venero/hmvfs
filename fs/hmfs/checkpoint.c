@@ -286,6 +286,66 @@ static struct hmfs_checkpoint *get_mnt_checkpoint(struct hmfs_sb_info *sbi, stru
 	return NULL;
 }
 
+static void recovery_cp_gc(struct hmfs_sb_info *sbi, 
+				struct hmfs_checkpoint *hmfs_cp)
+{
+	block_t rs_cp_addr, nx_cp_addr;	
+	struct hmfs_checkpoint *rs_cp, *nx_cp;
+	struct hmfs_super_block *raw_super;
+	int checksum;
+
+	/* If HMFS_CP_GC set, we have taken store_checkpoint_addr */
+	rs_cp_addr = le64_to_cpu(hmfs_cp->state_arg_2);
+	rs_cp = ADDR(sbi, rs_cp_addr);
+	nx_cp_addr = le64_to_cpu(rs_cp->next_cp_addr);
+	nx_cp = ADDR(sbi, nx_cp_addr);
+
+	hmfs_bug_on(sbi, le64_to_cpu(rs_cp->prev_cp_addr) != L_ADDR(sbi, hmfs_cp));
+	hmfs_bug_on(sbi, le32_to_cpu(hmfs_cp->checkpoint_ver) < 
+					le32_to_cpu(rs_cp->checkpoint_ver));
+	hmfs_bug_on(sbi, le32_to_cpu(nx_cp->checkpoint_ver) < 
+					le32_to_cpu(hmfs_cp->checkpoint_ver));
+
+	/* Flush SIT and SSA in checkpoint log area */
+	recovery_sit_entries(sbi, hmfs_cp);
+
+	hmfs_cp->next_cp_addr = cpu_to_le64(rs_cp_addr);
+	nx_cp->prev_cp_addr = cpu_to_le64(rs_cp_addr);
+	raw_super->cp_page_addr = cpu_to_le64(rs_cp_addr);
+	
+	checksum = hmfs_make_checksum(rs_cp);
+	set_struct(rs_cp, checksum, checksum);
+
+	raw_super = HMFS_RAW_SUPER(sbi);
+	checksum = hmfs_make_checksum(raw_super);
+	set_struct(raw_super, checksum, checksum);
+
+	raw_super = next_super_block(raw_super);
+	hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
+
+	set_fs_state(hmfs_cp, HMFS_NONE);
+
+	move_to_next_checkpoint(sbi, rs_cp);
+}
+
+void check_checkpoint_state(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	u8 state;
+
+	state = hmfs_cp->state;
+	switch(state) {
+	case HMFS_NONE:
+		return;
+	case HMFS_GC_DATA:
+	case HMFS_GC_NODE:
+		recovery_gc_crash(sbi, hmfs_cp);
+	case HMFS_CP_GC:
+		recovery_cp_gc(sbi, hmfs_cp);
+	}
+}
+
 int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i;
@@ -513,7 +573,7 @@ static block_t flush_orphan_inodes(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
-static int do_checkpoint(struct hmfs_sb_info *sbi)
+static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
@@ -522,7 +582,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_summary *summary;
 	unsigned int cp_checksum, sb_checksum;
 	ver_t store_version;
-	int length;
 	block_t store_checkpoint_addr = 0;
 	block_t nat_root_addr, orphan_blocks_addr;
 	struct hmfs_nat_node *nat_root;
@@ -532,19 +591,31 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 
 	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
+	
+	if (!gc_cp)
+		set_fs_state(prev_checkpoint, HMFS_ADD_CP);
 
-	nat_root = flush_nat_entries(sbi);
-	if (IS_ERR(nat_root))
-		return PTR_ERR(nat_root);
-	nat_root_addr = L_ADDR(sbi, nat_root);
-	orphan_blocks_addr = flush_orphan_inodes(sbi);
+	/* GC process should not update nat tree */
+	if (!gc_cp) {
+		nat_root = flush_nat_entries(sbi);
+		if (IS_ERR(nat_root))
+			return PTR_ERR(nat_root);
+		nat_root_addr = L_ADDR(sbi, nat_root);
+	} else {
+		nat_root_addr = le64_to_cpu(prev_checkpoint->nat_addr);
+	}
+
+	if (!gc_cp)
+		orphan_blocks_addr = flush_orphan_inodes(sbi);
+	else
+		orphan_blocks_addr = 0;
 
 	store_version = cm_i->new_version;
-	store_checkpoint_addr = alloc_free_node_block(sbi);
+	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
+	store_checkpoint_addr = L_ADDR(sbi, store_checkpoint);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
-	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
-	flush_sit_entries(sbi);
+
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
 	set_struct(store_checkpoint, valid_block_count, cm_i->valid_block_count);
 	set_struct(store_checkpoint, valid_inode_count, cm_i->valid_inode_count);
@@ -562,28 +633,31 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	set_struct(store_checkpoint, orphan_addr, orphan_blocks_addr);
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
+	set_struct(store_checkpoint, type, gc_cp ? CP_GC : CP_NORMAL);
 
 	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
 	store_checkpoint->prev_cp_addr = next_checkpoint->prev_cp_addr;
+
+	set_fs_state_arg_2(prev_checkpoint, store_checkpoint_addr);
+
+	flush_sit_entries(sbi, gc_cp);
 
 	//FIXME:Atomic write?
 	next_checkpoint->prev_cp_addr = cpu_to_le64(store_checkpoint_addr);
 	prev_checkpoint->next_cp_addr = cpu_to_le64(store_checkpoint_addr);
 	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
 
-	length = (char *)(&store_checkpoint->checksum) -
-			(char *)store_checkpoint;
-	cp_checksum = crc16(~0, (void *)store_checkpoint, length);
+	cp_checksum = hmfs_make_checksum(store_checkpoint);
 	set_struct(store_checkpoint, checksum, cp_checksum);
 
-	length = (char *)(&raw_super->checksum) - (char *)raw_super;
-	sb_checksum = crc16(~0, (char *)raw_super, length);
+	sb_checksum = hmfs_make_checksum(raw_super);
 	set_struct(raw_super, checksum, sb_checksum);
 
 	//TODO: memory barrier?
 	raw_super = next_super_block(raw_super);
-	hmfs_memcpy(raw_super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
+	hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
 
+	set_fs_state(prev_checkpoint, HMFS_NONE);
 	move_to_next_checkpoint(sbi, store_checkpoint);
 
 	return 0;
@@ -592,14 +666,15 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 //      Step1: calculate info and write sit and nat to NVM
 //      Step2: write CP itself to NVM
 //      Step3: remaining job
-int write_checkpoint(struct hmfs_sb_info *sbi)
+int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
 
 	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
-	ret = do_checkpoint(sbi);
+
+	ret = do_checkpoint(sbi, gc_cp);
 
 	unblock_operations(sbi);
 	mutex_unlock(&cm_i->cp_mutex);

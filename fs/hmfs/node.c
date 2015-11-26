@@ -621,6 +621,14 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 		return ADDR(sbi, addr);
 	}
 
+	if (sum_type == SUM_TYPE_CP) {
+		if (!inc_valid_node_count(sbi, NULL, 1))
+			return ERR_PTR(-ENOSPC);
+		addr = alloc_free_node_block(sbi);
+		memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
+		return ADDR(sbi, addr);
+	}
+
 	if (!inc_gc_block_count(sbi, CURSEG_NODE))
 		return ERR_PTR(-ENOSPC);
 	sbi = HMFS_I_SB(inode);

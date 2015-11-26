@@ -240,6 +240,9 @@ struct hmfs_inode_info {
 struct hmfs_stat_info {
 	struct list_head stat_list;
 	struct hmfs_sb_info *sbi;
+
+	int nr_gc_try;			/* Time of call hmfs_gc */
+	int nr_gc_real;			/* Time of doing GC */
 };
 
 /*
@@ -715,10 +718,11 @@ struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
 
 /* segment.c*/
-void flush_sit_entries(struct hmfs_sb_info *sbi);
+void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp);
+void recovery_sit_entries(struct hmfs_sb_info *sbi,
+				struct hmfs_checkpoint *hmfs_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
-void allocate_new_segments(struct hmfs_sb_info *sbi);
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 					     seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
@@ -755,11 +759,12 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-int write_checkpoint(struct hmfs_sb_info *sbi);
+int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 					    unsigned int version);
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i);
+void check_checkpoint_state(struct hmfs_sb_info *sbi);
 
 /* data.c */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
@@ -798,6 +803,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
+void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);
 

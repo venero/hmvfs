@@ -304,7 +304,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	spin_unlock(&cm_i->stat_lock);
 }
 
-static void gc_data_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
+static void gc_data_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			     unsigned int segno)
 {
 	int off = 0;
@@ -445,7 +445,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	cp_i->cp = (struct hmfs_checkpoint *)args.dest_addr;
 }
 
-static void gc_node_segments(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
+static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			     seg_t segno)
 {
 	int off = 0;
@@ -491,9 +491,9 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno, int gc_type)
 	sum_blk = get_summary_block(sbi, segno);
 
 	if (get_summary_type(&(sum_blk->entries[0])) == SUM_TYPE_DATA) {
-		gc_data_segments(sbi, sum_blk->entries, segno);
+		gc_data_segment(sbi, sum_blk->entries, segno);
 	} else {
-		gc_node_segments(sbi, sum_blk->entries, segno);
+		gc_node_segment(sbi, sum_blk->entries, segno);
 	}
 	recycle_segment(sbi, segno);
 }
@@ -519,40 +519,50 @@ void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp
 		seg_i = &(CURSEG_I(sbi)[CURSEG_DATA]);
 
 		/* Test whether GC crash in new segment */
-		if (seg_i->segno != dest_segno)
+		if (seg_i->segno != dest_segno) {
 			seg_i->next_segno = dest_segno;
+			seg_i->use_next_segno = true;
+		}
+		gc_data_segment(sbi, sum_blk->entries, victim_segno);
 		break;
 	case HMFS_GC_NODE:
 		seg_i = &(CURSEG_I(sbi)[CURSEG_NODE]);
 
-		if (seg_i->segno != dest_segno)
+		if (seg_i->segno != dest_segno) {
 			seg_i->next_segno = dest_segno;
+			seg_i->use_next_segno = true;
+		}
+		gc_node_segment(sbi, sum_blk->entries, victim_segno);
 		break;
 	default:
 		hmfs_bug_on(sbi, 1);
 	}
-
+	sbi->recovery_doing = 0;
 }
 
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 {
-	int nfree = 0;
 	int ret = -1;
 	seg_t segno;
 	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_stat_info *stat_i = sbi->stat_info;
 
 	hmfs_dbg("Enter GC\n");
-gc_more:
+	stat_i->nr_gc_try++;
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
+	
+	/* Write checkpoint before GC */
+	if (sit_i->dirty_sentries) {
+		ret = write_checkpoint(sbi, false);
+		if (ret)
+			goto out;
+	}
 
+gc_more:
+	//FIXME: when to write cp
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
-		if (sit_i->dirty_sentries) {
-			ret = write_checkpoint(sbi);
-			if (ret)
-				goto out;
-		}
 	}
 
 	if (!get_victim(sbi, &segno, gc_type))
@@ -560,20 +570,19 @@ gc_more:
 	ret = 0;
 
 	hmfs_dbg("GC Victim:%d\n", (int)segno);
+	stat_i->nr_gc_real++;
 	garbage_collect(sbi, segno, gc_type);
 
-	if (gc_type == FG_GC) {
-		nfree++;
-	}
-
-	if (has_not_enough_free_segs(sbi))
-		goto gc_more;
-
+	
 	if (sit_i->sentries) {
-		ret = write_checkpoint(sbi);
+		ret = write_checkpoint(sbi, true);
 		if (ret)
 			goto out;
 	}
+	
+	if (has_not_enough_free_segs(sbi))
+		goto gc_more;
+
 out:
 	mutex_unlock(&sbi->gc_mutex);
 	hmfs_dbg("Exit GC\n");

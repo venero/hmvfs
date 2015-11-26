@@ -30,6 +30,11 @@ enum FS_STATE {
 	HMFS_ADD_CP,	/* Do normal checkpoint */
 };
 
+enum {
+	CP_NORMAL,		/* Normal checkpoint */
+	CP_GC,			/* Checkpoint for GC */
+};
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
@@ -75,6 +80,9 @@ enum FS_STATE {
 #define align_segment_right(addr) (((addr) + HMFS_SEGMENT_SIZE - 1) & HMFS_SEGMENT_MASK)
 #define align_segment_left(addr) ((addr) & HMFS_SEGMENT_MASK)
 
+#define hmfs_make_checksum(obj)	crc16(~0, (void *)obj, (char *)(&obj->checksum) - \
+				(char *)obj)
+
 /* For directory operations */
 #define HMFS_DOT_HASH		0
 #define HMFS_DDOT_HASH		HMFS_DOT_HASH
@@ -107,6 +115,7 @@ enum FS_STATE {
 
 
 #define NUM_NAT_JOURNALS_IN_CP	8
+#define NUM_SIT_LOGS_IN_CP		10
 
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
@@ -254,6 +263,12 @@ struct hmfs_sit_entry {
 	__le16 waste;
 } __attribute__ ((packed));
 
+struct hmfs_sit_log_entry {
+	__le32 segno;
+	__le32 mtime;
+	__le16 vblocks;
+} __attribute__ ((packed));
+
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
@@ -299,6 +314,8 @@ struct hmfs_checkpoint {
 
 	__le32 elapsed_time;
 
+	__u8 type;			/* CP_NORMAL or CP_GC */
+
 	/* NAT */
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
@@ -312,6 +329,10 @@ struct hmfs_checkpoint {
 	 * ans state
 	 */
 	__le64 state_arg;		/* fs state arguments, for recovery */
+	__le64 state_arg_2;
+	struct hmfs_sit_log_entry sit_logs[NUM_SIT_LOGS_IN_CP];
+	__le16 nr_logs;
+
 } __attribute__ ((packed));
 
 
@@ -424,6 +445,11 @@ static inline void hmfs_memcpy_atomic(void *dest, const void *src, u8 size)
 static inline void set_fs_state_arg(struct hmfs_checkpoint *hmfs_cp, u64 value)
 {
 	hmfs_memcpy_atomic(&hmfs_cp->state_arg, &value, 8);
+}
+
+static inline void set_fs_state_arg_2(struct hmfs_checkpoint *hmfs_cp, u64 value)
+{
+	hmfs_memcpy_atomic(&hmfs_cp->state_arg_2, &value, 8);
 }
 
 static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)

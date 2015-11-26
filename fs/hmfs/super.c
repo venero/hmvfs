@@ -399,7 +399,8 @@ static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 	checksum = crc16(~0, (void *)super_2, length);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
-		return super_2;
+		hmfs_memcpy(super_1, super_2, sizeof(struct hmfs_super_block));
+		return super_1;
 	}
 
 	return NULL;
@@ -531,7 +532,7 @@ static void hmfs_put_super(struct super_block *sb)
 
 	if (sit_i->dirty_sentries) {
 		mutex_lock(&sbi->gc_mutex);
-		write_checkpoint(sbi);
+		write_checkpoint(sbi, false);
 		mutex_unlock(&sbi->gc_mutex);
 	}
 
@@ -575,7 +576,7 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 		return 0;
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
-		ret = write_checkpoint(sbi);
+		ret = write_checkpoint(sbi, false);
 		mutex_unlock(&sbi->gc_mutex);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
@@ -724,6 +725,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	retval = build_segment_manager(sbi);
 	if (retval)
 		goto free_segment_mgr;
+
+	check_checkpoint_state(sbi);
 
 	if (sbi->support_bg_gc && !hmfs_readonly(sb)){
 		/* start gc kthread */
