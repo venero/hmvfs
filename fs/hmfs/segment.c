@@ -200,6 +200,51 @@ static void new_curseg(struct hmfs_sb_info *sbi)
 	curseg->next_segno = segno;
 }
 
+void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned long offset = 0, journal_ofs;
+	pgc_t total_segs = TOTAL_SEGS(sbi);
+	struct hmfs_sit_entry *sit_entry;
+	struct seg_entry *seg_entry;
+	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
+#ifdef CONFIG_HMFS_DEBUG
+	pgc_t nrdirty = 0;
+
+	mutex_lock(&sit_i->sentry_lock);
+	while (1) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs)
+			nrdirty++;
+		else
+			break;
+		offset++;
+	}
+	offset = 0;
+	hmfs_bug_on(sbi, nrdirty != sit_i->dirty_sentries);
+	mutex_unlock(&sit_i->sentry_lock);
+#endif
+	hmfs_bug_on(sbi, sit_i->dirty_sentries > NUM_SIT_JOURNALS_IN_CP);
+
+	mutex_lock(&sit_i->sentry_lock);
+
+	memset_nt(raw_cp->sit_journals, 0, sizeof(struct hmfs_sit_journal)*NUM_SIT_JOURNALS_IN_CP);
+	journal_ofs = 0;
+	while (journal_ofs < sit_i->dirty_sentries) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs) {
+			sit_entry = &raw_cp->sit_journals[journal_ofs].entry;
+			seg_entry = get_seg_entry(sbi, offset);
+			offset = offset + 1;
+			seg_info_to_raw_sit(seg_entry, sit_entry);
+			hmfs_memcpy_atomic(&raw_cp->sit_journals[journal_ofs].segno, &offset, 8);
+			journal_ofs++;
+		} else
+			break;
+	}
+	mutex_unlock(&sit_i->sentry_lock);
+}
+
 void flush_sit_entries(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);

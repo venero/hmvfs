@@ -703,6 +703,9 @@ void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      block_t blk_addr, ver_t version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
+void recursive_mark_nat_valid(struct hmfs_sb_info *sbi,
+					 struct hmfs_nat_node *cur_nat_node,
+					 unsigned int blk_order, unsigned int version, u8 height);
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
@@ -715,6 +718,7 @@ struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
 
 /* segment.c*/
+void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp);
 void flush_sit_entries(struct hmfs_sb_info *sbi);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);

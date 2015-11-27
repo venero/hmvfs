@@ -292,7 +292,6 @@ static int hmfs_format(struct super_block *sb)
 	cp = ADDR(sbi, cp_addr);
 /* node[2]: init cp */
 	node_blkoff += 1;
-
 /* segment 0 is first node segment */
 	nat_journals = cp->nat_journals;
 

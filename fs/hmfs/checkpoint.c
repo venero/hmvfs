@@ -529,28 +529,32 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *prev_checkpoint, *next_checkpoint;
 	struct hmfs_checkpoint *store_checkpoint;
 	struct curseg_info *curseg_i = SM_I(sbi)->curseg_array;
+	__le64 store_cp_addr;
 
 	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
 
-	nat_root = flush_nat_entries(sbi);
-	if (IS_ERR(nat_root))
-		return PTR_ERR(nat_root);
-	nat_root_addr = L_ADDR(sbi, nat_root);
-	orphan_blocks_addr = flush_orphan_inodes(sbi);
-
+	//1. set new cp block
 	store_version = cm_i->new_version;
 	store_checkpoint_addr = alloc_free_node_block(sbi);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
+
+	orphan_blocks_addr = flush_orphan_inodes(sbi);
+	nat_root = flush_nat_entries(sbi);
+	if (IS_ERR(nat_root))
+		return PTR_ERR(nat_root);
+	
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
-	flush_sit_entries(sbi);
+	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
+	store_checkpoint->prev_cp_addr = next_checkpoint->prev_cp_addr;
+	nat_root_addr = L_ADDR(sbi, nat_root);
+	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
 	set_struct(store_checkpoint, valid_block_count, cm_i->valid_block_count);
 	set_struct(store_checkpoint, valid_inode_count, cm_i->valid_inode_count);
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
 	set_struct(store_checkpoint, alloc_block_count, cm_i->alloc_block_count);
-	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
 	set_struct(store_checkpoint, cur_node_segno, curseg_i[CURSEG_NODE].segno);
 	set_struct(store_checkpoint, cur_node_blkoff,
@@ -562,24 +566,32 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	set_struct(store_checkpoint, orphan_addr, orphan_blocks_addr);
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
-
-	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
-	store_checkpoint->prev_cp_addr = next_checkpoint->prev_cp_addr;
-
-	//FIXME:Atomic write?
-	next_checkpoint->prev_cp_addr = cpu_to_le64(store_checkpoint_addr);
-	prev_checkpoint->next_cp_addr = cpu_to_le64(store_checkpoint_addr);
-	raw_super->cp_page_addr = cpu_to_le64(store_checkpoint_addr);
-
 	length = (char *)(&store_checkpoint->checksum) -
 			(char *)store_checkpoint;
 	cp_checksum = crc16(~0, (void *)store_checkpoint, length);
 	set_struct(store_checkpoint, checksum, cp_checksum);
 
+	//2. flush SIT to cp
+	flush_sit_entries_to_cp(sbi, prev_checkpoint);
+
+	//3. connect to prev
+	store_cp_addr = cpu_to_le64(store_checkpoint_addr); 
+	prev_checkpoint->state_arg = cpu_to_le64(store_cp_addr); //*critical*
+	set_fs_state(prev_checkpoint, HMFS_ADD_CP);
+	set_summary_valid_bit(summary);
+	flush_sit_entries(sbi);
+	
+	//5. mark valid
+	recursive_mark_nat_valid(sbi, nat_root, 0, store_version, sbi->nat_height);
+
+	//6. connect to super
+	hmfs_memcpy_atomic(&prev_checkpoint->next_cp_addr, &store_cp_addr, 8);
+	hmfs_memcpy_atomic(&next_checkpoint->prev_cp_addr, &store_cp_addr, 8);
+	hmfs_memcpy_atomic(&raw_super->cp_page_addr, &store_cp_addr, 8);
 	length = (char *)(&raw_super->checksum) - (char *)raw_super;
 	sb_checksum = crc16(~0, (char *)raw_super, length);
 	set_struct(raw_super, checksum, sb_checksum);
-
+	
 	//TODO: memory barrier?
 	raw_super = next_super_block(raw_super);
 	hmfs_memcpy(raw_super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));

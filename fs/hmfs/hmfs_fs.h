@@ -107,6 +107,8 @@ enum FS_STATE {
 
 
 #define NUM_NAT_JOURNALS_IN_CP	8
+#define NUM_SIT_JOURNALS_IN_CP	500
+//?(sizeof(struct hmfs_checkpoint))-(void*)(((struct hmfs_checkpoint*)(0))->sit_journals)
 
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
@@ -254,6 +256,12 @@ struct hmfs_sit_entry {
 	__le16 waste;
 } __attribute__ ((packed));
 
+struct hmfs_sit_journal {
+	__le64 segno;//XXX 64?
+	struct hmfs_sit_entry entry;
+} __attribute__ ((packed));
+
+
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
@@ -299,19 +307,22 @@ struct hmfs_checkpoint {
 
 	__le32 elapsed_time;
 
-	/* NAT */
-	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
-
 	__le16 checksum;
 
+	/* NAT */
+	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 	__u8 state;				/* fs state, use set_fs_state */
 	/*
-	 * HMFS_GC_DATA: it represent (segno + 1) of current segment,
+	 * HMFS_GC_DATA: it represents (segno + 1) of current segment,
 	 * because segment 0 is a valid segment, and we use state_arg 0
 	 * to represent free state, thus we need add 1 to split segment 0 
 	 * ans state
+	 * HMFS_ADD_CP : represents flushing CP block
 	 */
 	__le64 state_arg;		/* fs state arguments, for recovery */
+
+	/* SIT */
+	struct hmfs_sit_journal sit_journals[NUM_SIT_JOURNALS_IN_CP];
 } __attribute__ ((packed));
 
 
