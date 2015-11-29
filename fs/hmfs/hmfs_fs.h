@@ -147,13 +147,14 @@ enum {
 /* SSA */
 #define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 #define SUM_ENTRY_PER_BLOCK (HMFS_SUMMARY_BLOCK_SIZE / sizeof(struct hmfs_summary))
-#define SUM_TYPE_DATA		(0)	//      data block
-#define SUM_TYPE_INODE		(1)	//      inode block
-#define SUM_TYPE_DN			(2)	//      direct block
-#define SUM_TYPE_NATN		(3)	//      nat node block
-#define SUM_TYPE_NATD		(4)	//      nat data block
-#define SUM_TYPE_IDN		(5)	//      indirect block
-#define SUM_TYPE_CP			(6)	//      checkpoint block
+#define SUM_TYPE_DATA		(0)		/* data block */
+#define SUM_TYPE_INODE		(1)		/* inode block */
+#define SUM_TYPE_DN			(2)		/* direct block */
+#define SUM_TYPE_NATN		(3)		/* nat node block */
+#define SUM_TYPE_NATD		(4)		/* nat data block */
+#define SUM_TYPE_IDN		(5)		/* indirect block */
+#define SUM_TYPE_CP			(6)		/* checkpoint block */
+#define SUM_TYPE_XDATA		(7) 	/* extended data block */
 
 
 
@@ -204,7 +205,7 @@ struct hmfs_inode {
 	__le64 i_mtime;		/* modification time */
 	__le32 i_generation;	/* file version (for NFS) */
 	__le32 i_current_depth;	/* only for directory depth */
-	__le32 i_xattr_nid;	/* nid to save xattr */
+	__le64 i_xattr_addr;	/* address to save xattr */
 	__le32 i_flags;		/* file attributes */
 	__le32 i_pino;		/* parent inode number */
 	__le32 i_namelen;	/* file name length */

@@ -58,6 +58,7 @@ static int do_read_inode(struct inode *inode)
 	fi->i_current_depth = le32_to_cpu(hi->i_current_depth);
 	fi->i_flags = le32_to_cpu(hi->i_flags);
 	fi->flags = 0;
+	fi->i_advise = hi->i_advise;
 	fi->i_pino = le32_to_cpu(hi->i_pino);
 	return 0;
 }
@@ -129,6 +130,7 @@ int sync_hmfs_inode(struct inode *inode)
 	hi->i_current_depth = cpu_to_le32(inode_i->i_current_depth);
 	hi->i_flags = cpu_to_le32(inode_i->i_flags);
 	hi->i_pino = cpu_to_le32(inode_i->i_pino);
+	hi->i_advise = inode_i->i_advise;
 
 	return 0;
 }

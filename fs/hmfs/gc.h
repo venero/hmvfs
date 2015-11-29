@@ -1,5 +1,5 @@
-#ifndef GC_H
-#define GC_H
+#ifndef HMFS_GC_H
+#define HMFS_GC_H
 #include <linux/wait.h>
 #include "segment.h"
 #include "hmfs.h"

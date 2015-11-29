@@ -15,6 +15,7 @@
 #include "gc.h"
 #include "segment.h"
 #include "node.h"
+#include "xattr.h"
 
 static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
 
@@ -31,6 +32,7 @@ enum {
 	Opt_bg_gc,
 	Opt_mnt_cp,
 	Opt_deep_fmt,
+	Opt_user_xattr,
 };
 
 static const match_table_t tokens = {
@@ -43,6 +45,7 @@ static const match_table_t tokens = {
 	{Opt_bg_gc, "bg_gc=%u"},
 	{Opt_mnt_cp, "mnt_cp=%u"},
 	{Opt_deep_fmt, "deep_fmt=%u"},
+	{Opt_user_xattr, "user_xattr"},
 };
 
 /*
@@ -128,8 +131,14 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 		case Opt_bg_gc:
 			if (match_int(&args[0], &option))
 				goto bad_val;
-			sbi->support_bg_gc = option;
+			if (option)
+				set_opt(sbi, BG_GC);
 			break;
+		case Opt_user_xattr:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if (option)
+				set_opt(sbi, XATTR_USER);
 		case Opt_mnt_cp:
 			if (match_int(&args[0], &option))
 				goto bad_val;
@@ -428,6 +437,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_current_depth = 1;
 	fi->i_flags = 0;
 	fi->flags = 0;
+	fi->i_advise = 0;
 	set_inode_flag(fi, FI_NEW_INODE);
 	atomic_set(&fi->nr_dirty_map_pages, 0);
 	INIT_LIST_HEAD(&fi->list);
@@ -636,6 +646,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sb->s_fs_info = sbi;
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
+	sbi->s_mount_opt = 0;
 	if (hmfs_parse_options((char *)data, sbi, 0)) {
 		retval = -EINVAL;
 		goto out;
@@ -708,6 +719,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
+	sb->s_xattr = hmfs_xattr_handlers;
 	sb->s_maxbytes = hmfs_max_file_size();
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
@@ -728,7 +740,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	check_checkpoint_state(sbi);
 
-	if (sbi->support_bg_gc && !hmfs_readonly(sb)){
+	if (test_opt(sbi, BG_GC) && !hmfs_readonly(sb)){
 		/* start gc kthread */
 		retval = start_gc_thread(sbi);
 		if (retval)

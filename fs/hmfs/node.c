@@ -853,11 +853,12 @@ static void *__get_nat_page(struct hmfs_sb_info *sbi,
 struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
 					   ver_t version, nid_t nid)
 {
-	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version);
+	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version, false);
 	unsigned int blk_id = nid / NAT_ENTRY_PER_BLOCK;
 	struct hmfs_nat_node *nat_root = cp_i->nat_root;
 	char nat_height = sbi->nat_height;
-
+	
+	hmfs_bug_on(sbi, !cp_i);
 	return __get_nat_page(sbi, L_ADDR(sbi, nat_root), blk_id, nat_height);
 }
 
@@ -876,12 +877,13 @@ struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi,
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index)
 {
-	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version);
+	struct checkpoint_info *cp_i = get_checkpoint_info(sbi, version, false);
 	struct hmfs_nat_node *nat_root = cp_i->nat_root;
 	unsigned int height = 0, block_id;
 
 	height = GET_NAT_NODE_HEIGHT(index);
 	block_id = GET_NAT_NODE_OFS(index);
+	hmfs_bug_on(sbi, !cp_i);
 
 	return __get_nat_page(sbi, L_ADDR(sbi, nat_root), block_id, height);
 }

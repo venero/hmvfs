@@ -7,6 +7,7 @@
 #include "gc.h"
 #include "segment.h"
 #include "node.h"
+#include "xattr.h"
 
 static void select_policy(struct hmfs_sb_info *sbi, int gc_type,
 			  struct victim_sel_policy *p)
@@ -138,7 +139,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	return ret;
 }
 
-static int prepare_move_arguments(struct gc_move_arg *arg,
+static int prepare_move_argument(struct gc_move_arg *arg,
 				  struct hmfs_sb_info *sbi, seg_t mv_segno,
 				  unsigned mv_offset, struct hmfs_summary *sum,
 				  int type)
@@ -152,7 +153,7 @@ static int prepare_move_arguments(struct gc_move_arg *arg,
 	arg->nid = get_summary_nid(sum);
 	arg->ofs_in_node = get_summary_offset(sum);
 
-	arg->cp_i = get_checkpoint_info(sbi, arg->start_version);
+	arg->cp_i = get_checkpoint_info(sbi, arg->start_version, true);
 	if (type == TYPE_DATA) {
 		get_current_segment_state(sbi, &test_segno, &test_segoff,
 						CURSEG_DATA);
@@ -201,8 +202,8 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	block_t addr_in_par;
 
 	/* 1. read summary of source blocks */
-	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum,
-			       SUM_TYPE_DATA);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
+			       TYPE_DATA);
 
 	/* 2. move blocks */
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
@@ -304,6 +305,55 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	spin_unlock(&cm_i->stat_lock);
 }
 
+static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
+				int src_off, struct hmfs_summary *src_sum)
+{
+	struct gc_move_arg arg;
+	struct hmfs_node *last = NULL, *this = NULL;
+	struct hmfs_summary *par_sum = NULL;
+	block_t addr_in_par;
+	int x_tag;
+
+	prepare_move_argument(&arg, sbi, src_segno, src_off, src_sum,
+					TYPE_DATA);
+
+	hmfs_memcpy(arg.dest, arg.src, HMFS_PAGE_SIZE);
+
+	while(1) {
+		this = __get_node(sbi, arg.cp_i, arg.nid);
+		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
+
+		if (IS_ERR(this))
+			break;
+
+		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE);
+
+		if (this == last)
+			goto next;
+
+		x_tag = le64_to_cpu(XATTR_HDR(arg.src)->h_magic);
+		addr_in_par = le64_to_cpu(*(__le64 *)((char *)this + x_tag));
+		
+		if ((!sbi->recovery_doing && addr_in_par != arg.src_addr) ||
+				(sbi->recovery_doing && addr_in_par != arg.src_addr &&
+				addr_in_par != arg.dest_addr)) {
+			break;
+		}
+		
+		hmfs_memcpy_atomic((char *)this + x_tag, &arg.dest_addr, 8);
+
+		last = this;
+
+next:
+		if (arg.cp_i == CM_I(sbi)->last_cp_i)
+			break;
+		arg.cp_i = get_next_checkpoint_info(sbi, arg.cp_i);
+	}
+
+	update_dest_summary(src_sum, arg.dest_sum);
+
+}
+
 static void gc_data_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			     unsigned int segno)
 {
@@ -317,19 +367,26 @@ static void gc_data_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 		if (!get_summary_valid_bit(sum))
 			continue;
 
-		move_data_block(sbi, segno, off, sum);
+		switch (get_summary_type(sum)) {
+		case SUM_TYPE_DATA:
+			move_data_block(sbi, segno, off, sum);
+			break;
+		case SUM_TYPE_XDATA:
+			move_xdata_block(sbi, segno, off, sum);
+		default:
+			hmfs_bug_on(sbi, 1);
+		}
 	}
 }
 
 static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
-			    unsigned int src_off, struct hmfs_summary *src_sum,
-			    int type)
+			    unsigned int src_off, struct hmfs_summary *src_sum)
 {
 	struct hmfs_nat_block *last = NULL, *this = NULL;
 	struct gc_move_arg args;
 	block_t addr_in_par;
 
-	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum, type);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
@@ -363,7 +420,7 @@ next:
 }
 
 static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_off,
-			   struct hmfs_summary *src_sum, int type)
+			   struct hmfs_summary *src_sum)
 {
 	void *last = NULL, *this = NULL;
 	struct hmfs_checkpoint *hmfs_cp;
@@ -372,7 +429,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 	nid_t par_nid;
 	block_t addr_in_par;
 
-	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum, type);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
 
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
@@ -428,11 +485,12 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct hmfs_checkpoint *prev_cp, *next_cp, *this_cp;
 	struct checkpoint_info *cp_i;
 
-	prepare_move_arguments(&args, sbi, src_segno, src_off, src_sum,
-			       SUM_TYPE_CP);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
+			       TYPE_NODE);
 	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
-	cp_i = get_checkpoint_info(sbi, args.start_version);
+	cp_i = get_checkpoint_info(sbi, args.start_version, false);
+	hmfs_bug_on(sbi, !cp_i);
 
 	this_cp = (struct hmfs_checkpoint *)args.src;
 	next_cp = ADDR(sbi, le64_to_cpu(this_cp->next_cp_addr));
@@ -460,19 +518,19 @@ static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 
 		switch (get_summary_type(sum)) {
 		case SUM_TYPE_IDN:
-			move_node_block(sbi, segno, off, sum, SUM_TYPE_IDN);
+			move_node_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_INODE:
-			move_node_block(sbi, segno, off, sum, SUM_TYPE_INODE);
+			move_node_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_DN:
-			move_node_block(sbi, segno, off, sum, SUM_TYPE_DN);
+			move_node_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_NATN:
-			move_nat_block(sbi, segno, off, sum, SUM_TYPE_NATN);
+			move_nat_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_NATD:
-			move_nat_block(sbi, segno, off, sum, SUM_TYPE_NATD);
+			move_nat_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_CP:
 			move_checkpoint_block(sbi, segno, off, sum);
@@ -484,13 +542,15 @@ static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 	}
 }
 
-static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno, int gc_type)
+static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct hmfs_summary_block *sum_blk;
+	int type;
 
 	sum_blk = get_summary_block(sbi, segno);
 
-	if (get_summary_type(&(sum_blk->entries[0])) == SUM_TYPE_DATA) {
+	type = get_summary_type(&(sum_blk->entries[0]));
+	if (type == SUM_TYPE_DATA || type == SUM_TYPE_XDATA) {
 		gc_data_segment(sbi, sum_blk->entries, segno);
 	} else {
 		gc_node_segment(sbi, sum_blk->entries, segno);
@@ -507,6 +567,10 @@ void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp
 	struct hmfs_summary_block *sum_blk;
 
 	state_arg = le64_to_cpu(hmfs_cp->state_arg);
+
+	if (!state_arg)
+		return;
+
 	dest_segno = (state_arg >> 32) - 1;
 	victim_segno = state_arg | ~0xffffffff;
 	state = hmfs_cp->state;
@@ -560,7 +624,6 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	}
 
 gc_more:
-	//FIXME: when to write cp
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
 	}
@@ -571,8 +634,7 @@ gc_more:
 
 	hmfs_dbg("GC Victim:%d\n", (int)segno);
 	stat_i->nr_gc_real++;
-	garbage_collect(sbi, segno, gc_type);
-
+	garbage_collect(sbi, segno);
 	
 	if (sit_i->sentries) {
 		ret = write_checkpoint(sbi, true);

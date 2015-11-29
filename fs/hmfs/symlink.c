@@ -1,4 +1,5 @@
 #include <linux/fs.h>
+#include <linux/xattr.h>
 #include <linux/namei.h>
 #include "hmfs_fs.h"
 #include "hmfs.h"
@@ -70,4 +71,10 @@ const struct inode_operations hmfs_symlink_inode_operations = {
 	.follow_link = hmfs_follow_link,
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif 
 };

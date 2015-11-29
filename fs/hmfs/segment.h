@@ -1,5 +1,5 @@
-#ifndef SEGMENT_H
-#define SEGMENT_H
+#ifndef HMFS_SEGMENT_H
+#define HMFS_SEGMENT_H
 
 #include "hmfs.h"
 

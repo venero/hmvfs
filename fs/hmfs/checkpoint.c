@@ -217,8 +217,12 @@ retry:
 	return next_cp_i;
 }
 
+/*
+ * no_fail: If checkpoint with version is miss, return the checkpoint
+ * whose version is slightly greater than version
+ */
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
-					    ver_t version)
+					    ver_t version, bool no_fail)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct checkpoint_info *cp_i, *entry;
@@ -233,15 +237,21 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	cp_i = radix_tree_lookup(&cm_i->cp_tree_root, version);
 	if (!cp_i) {
 		cp_i = cm_i->last_cp_i;
+		hmfs_bug_on(sbi, version > cp_i->version);
+
 		head = &cp_i->list;
 		/* Search a checkpoint_info whose version is closest to given version */
+		cp_i = NULL;
 		list_for_each(this, head) {
 			entry = list_entry(this, struct checkpoint_info, list);
-			if (entry->version < version
-			    && entry->version > cp_i->version) {
-				cp_i = entry;
+			if (entry->version < version) {
+				if (cp_i == NULL || entry->version > cp_i->version)
+					cp_i = entry;
 			}
 		}
+
+		if (cp_i == NULL)
+			cp_i = cm_i->last_cp_i;
 
 		do {
 			next_addr = le64_to_cpu(cp_i->cp->next_cp_addr);
@@ -261,7 +271,13 @@ retry:
 			radix_tree_insert(&cm_i->cp_tree_root, entry->version,
 					  entry);
 			cp_i = entry;
-		} while (cp_i->version != version);
+			if (cp_i->version == version || (no_fail && cp_i->version > version))
+				break;
+			if (cp_i->version > version) {
+				cp_i = NULL;
+				break;
+			}
+		} while (1);
 
 	}
 	mutex_unlock(&cm_i->cp_tree_lock);
@@ -334,16 +350,20 @@ void check_checkpoint_state(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
 	u8 state;
 
+	sbi->recovery_doing = 1;
 	state = hmfs_cp->state;
 	switch(state) {
 	case HMFS_NONE:
-		return;
+		break;
 	case HMFS_GC_DATA:
 	case HMFS_GC_NODE:
 		recovery_gc_crash(sbi, hmfs_cp);
+		break;
 	case HMFS_CP_GC:
 		recovery_cp_gc(sbi, hmfs_cp);
+		break;
 	}
+	sbi->recovery_doing = 0;
 }
 
 int init_checkpoint_manager(struct hmfs_sb_info *sbi)

@@ -7,6 +7,7 @@
 #include <linux/uaccess.h>
 #include <linux/mount.h>
 #include <linux/compat.h>
+#include <linux/xattr.h>
 #include "hmfs_fs.h"
 #include "hmfs.h"
 
@@ -294,8 +295,8 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
 		if (unlikely(IS_ERR(xip_mem)))
 			break;
 
-		copied =
-		 bytes - __copy_from_user_nocache(xip_mem + offset, buf, bytes);
+		copied = bytes - __copy_from_user_nocache(xip_mem + offset, 
+						buf, bytes);
 
 		if (likely(copied > 0)) {
 			status = copied;
@@ -795,4 +796,10 @@ const struct file_operations hmfs_file_operations = {
 const struct inode_operations hmfs_file_inode_operations = {
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif 
 };

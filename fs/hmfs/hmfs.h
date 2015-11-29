@@ -50,6 +50,14 @@
 #define hmfs_dbg(fmt, ...)
 #endif
 
+/* Mount option */
+#define HMFS_MOUNT_BG_GC			0x00000001
+#define HMFS_MOUNT_XATTR_USER		0x00000002
+
+#define clear_opt(sbi, option)	(sbi->s_mount_opt &= ~HMFS_MOUNT_##option)
+#define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
+#define test_opt(sbi, option)	(sbi->s_mount_opt & HMFS_MOUNT_##option)
+
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
 typedef unsigned long seg_t;		/* segment number type */
@@ -185,7 +193,6 @@ struct hmfs_sb_info {
 	unsigned int mnt_cp_version;	/* version of checkpoint for RO-Mount */
 	kuid_t uid;						/* user id */
 	kgid_t gid;						/* group id */
-	char support_bg_gc;				/* Support bg gc or not */
 	char deep_fmt;				/* whether set 0 of whole area of NVM */
 
 	/* FS statisic */
@@ -226,6 +233,7 @@ struct hmfs_sb_info {
 struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
+	unsigned char i_advise;				/* use to give file attribute hints */
 	hmfs_hash_t chash;					/* hash value of given file name */
 	unsigned int i_current_depth;		/* use only in directory structure */
 	unsigned int clevel;				/* maximum level of given file name */
@@ -482,8 +490,7 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	}
 	if (inode)
 		inode->i_blocks += count;
-	if (inode && inode->i_ino == HMFS_ROOT_INO) 
-		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,(int)inode->i_blocks);
+
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
 	cm_i->left_blocks_count[CURSEG_DATA] -= count;
@@ -761,12 +768,13 @@ int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
 int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
-					    unsigned int version);
+					    unsigned int version, bool no_fail);
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i);
 void check_checkpoint_state(struct hmfs_sb_info *sbi);
 
 /* data.c */
+void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
 void *alloc_new_data_block(struct inode *inode, int block);
@@ -807,6 +815,8 @@ void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);
 
+/* xattr.c */
+ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
