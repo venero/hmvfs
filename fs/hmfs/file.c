@@ -10,31 +10,9 @@
 #include <linux/xattr.h>
 #include <uapi/linux/magic.h>
 
-#include <linux/bootmem.h>
-#include <linux/init.h>
-#include <linux/io.h>
-#include <linux/module.h>
-#include <linux/slab.h>
-#include <linux/vmalloc.h>
-#include <linux/mmiotrace.h>
-
-#include <asm/cacheflush.h>
-#include <asm/e820.h>
-#include <asm/fixmap.h>
-#include <asm/pgtable.h>
-#include <asm/tlbflush.h>
-#include <asm/pgalloc.h>
-#include <asm/pat.h>
-
-
-#include <linux/vmalloc.h>
-#include <linux/kallsyms.h>
-#include <asm/pgtable.h>
-#include <asm/tlbflush.h>
-#include <asm/pgalloc.h>
-
 #include "hmfs_fs.h"
 #include "hmfs.h"
+#include "util.h"
 
 static struct kmem_cache *ro_file_address_cachep;
 
@@ -43,11 +21,6 @@ static unsigned int start_block(unsigned int i, int level)
 	if (level)
 		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDRS_PER_BLOCK);
 	return 0;
-}
-
-static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
-{
-	return addr_struct && (addr_struct->magic == HMFS_SUPER_MAGIC);
 }
 
 /* Find the last index of data block which is meaningful*/
@@ -156,6 +129,12 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
+#ifdef CONFIG_HMFS_FAST_READ
+static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
+{
+	return addr_struct && (addr_struct->magic == HMFS_SUPER_MAGIC);
+}
+
 static struct ro_file_address *new_ro_file_address(void *addr)
 {
 	struct ro_file_address *addr_struct;
@@ -185,7 +164,7 @@ static int remap_pte_file_range(struct inode *inode, pmd_t *pmd,
 	int st_index;
 	int err;
 
-	pte = pte_alloc_kernel(pmd, addr);
+	pte = hmfs_pte_alloc_kernel(pmd, addr);
 	if (!pte)
 		return -ENOMEM;
 	do {
@@ -205,7 +184,7 @@ static int remap_pte_file_range(struct inode *inode, pmd_t *pmd,
 			pfn = pfn_from_vaddr(sbi, blocks[*index]);
 		else
 			pfn = sbi->map_zero_page_number;
-		set_pte_at(&init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
+		set_pte_at(&hmfs_init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
 		(*index) += 1;
 	} while(pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
@@ -218,7 +197,7 @@ static int remap_pmd_file_range(struct inode *inode, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	pmd = pmd_alloc(&init_mm, pud, addr);
+	pmd = hmfs_pmd_alloc(&hmfs_init_mm, pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	do {
@@ -237,7 +216,7 @@ static int remap_pud_file_range(struct inode *inode, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	pud = pud_alloc(&init_mm, pgd, addr);
+	pud = hmfs_pud_alloc(&hmfs_init_mm, pgd, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {
@@ -312,7 +291,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	/* Search a VMALLOC area */
 	size = PAGE_CACHE_ALIGN(size);
-	area = get_vm_area(size, VM_IOREMAP);
+	area = hmfs_get_vm_area(size, VM_IOREMAP);
 	if (!area)
 		goto out;
 	vaddr = (unsigned long) area->addr;
@@ -323,6 +302,70 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 out:
 	return ret;
 }
+
+static int hmfs_release_file(struct inode *inode, struct file *filp)
+{
+	int ret = 0;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct ro_file_address *addr_struct = NULL;
+	struct vm_struct *area;
+
+	addr_struct = filp->private_data;
+	if (is_fast_read_file(addr_struct)) {
+		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
+						!= O_RDONLY);
+
+		/* 
+		 * Use the vm area unlocked, assuming the caller unsures there isn't
+		 * another iounmap for the same address in parallel. Reuse of the virtual
+		 * address is prevented by leaving it in the global lists 
+		 * until we're done with it.
+		 */
+		area = hmfs_find_vm_area((void __force *)addr_struct->start_addr);
+		if (!area) {
+			hmfs_bug_on(HMFS_I_SB(inode), 1);
+			goto check_mmap;
+		}
+		
+		/* Now, do it */
+		area = hmfs_remove_vm_area((void __force *)addr_struct->start_addr);
+		kfree(area);
+		free_ro_file_address(filp);
+	}
+
+check_mmap:
+	filemap_fdatawrite(inode->i_mapping);
+	
+	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
+		ret = sync_hmfs_inode(inode);
+	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode);
+
+	return ret;
+}
+
+
+#else
+int hmfs_file_open(struct inode *inode, struct file *filp)
+{
+	return generic_file_open(inode, filp);
+}
+
+static int hmfs_release_file(struct inode *inode, struct file *filp)
+{
+	int ret = 0;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+
+	filemap_fdatawrite(inode->i_mapping);
+	
+	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
+		ret = sync_hmfs_inode(inode);
+	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode);
+
+	return ret;
+}
+#endif
 
 /**
  * hmfs_file_llseek - llseek implementation for in-memory files
@@ -846,47 +889,6 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 static const struct vm_operations_struct hmfs_file_vm_ops = {
 	.fault = filemap_fault,
 };
-
-static int hmfs_release_file(struct inode *inode, struct file *filp)
-{
-	int ret = 0;
-	struct hmfs_inode_info *fi = HMFS_I(inode);
-	struct ro_file_address *addr_struct = NULL;
-	struct vm_struct *area;
-
-	addr_struct = filp->private_data;
-	if (is_fast_read_file(addr_struct)) {
-		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
-						!= O_RDONLY);
-
-		/* 
-		 * Use the vm area unlocked, assuming the caller unsures there isn't
-		 * another iounmap for the same address in parallel. Reuse of the virtual
-		 * address is prevented by leaving it in the global lists 
-		 * until we're done with it.
-		 */
-		area = find_vm_area((void __force *)addr_struct->start_addr);
-		if (!area) {
-			hmfs_bug_on(HMFS_I_SB(inode), 1);
-			goto check_mmap;
-		}
-		
-		/* Now, do it */
-		area = remove_vm_area((void __force *)addr_struct->start_addr);
-		kfree(area);
-		free_ro_file_address(filp);
-	}
-
-check_mmap:
-	filemap_fdatawrite(inode->i_mapping);
-	
-	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
-		ret = sync_hmfs_inode(inode);
-	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
-		ret = sync_hmfs_inode_size(inode);
-
-	return ret;
-}
 
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {

@@ -704,8 +704,13 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+#ifdef CONFIG_HMFS_FAST_READ
 int init_ro_file_address_cache(void);
 void destroy_ro_file_address_cache(void);
+#else
+#define init_ro_file_address_cache
+#define destroy_ro_file_address_cache
+#endif
 
 /* debug.c */
 void hmfs_create_root_stat(void);
@@ -837,6 +842,12 @@ void stop_gc_thread(struct hmfs_sb_info *sbi);
 /* xattr.c */
 ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 
+/* util.c */
+#ifdef CONFIG_HMFS_FAST_READ
+int init_util_function(void);
+#else
+#define init_util_function
+#endif
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {

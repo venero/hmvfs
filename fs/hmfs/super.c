@@ -863,6 +863,9 @@ int init_hmfs(void)
 
 	hmfs_check_struct_size();
 
+	err = init_util_function();
+	if (err)
+		goto fail;
 	err = init_inodecache();
 	if (err)
 		goto fail;
