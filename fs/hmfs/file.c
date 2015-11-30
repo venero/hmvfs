@@ -8,14 +8,46 @@
 #include <linux/mount.h>
 #include <linux/compat.h>
 #include <linux/xattr.h>
+#include <uapi/linux/magic.h>
+
+#include <linux/bootmem.h>
+#include <linux/init.h>
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
+#include <linux/mmiotrace.h>
+
+#include <asm/cacheflush.h>
+#include <asm/e820.h>
+#include <asm/fixmap.h>
+#include <asm/pgtable.h>
+#include <asm/tlbflush.h>
+#include <asm/pgalloc.h>
+#include <asm/pat.h>
+
+
+#include <linux/vmalloc.h>
+#include <linux/kallsyms.h>
+#include <asm/pgtable.h>
+#include <asm/tlbflush.h>
+#include <asm/pgalloc.h>
+
 #include "hmfs_fs.h"
 #include "hmfs.h"
+
+static struct kmem_cache *ro_file_address_cachep;
 
 static unsigned int start_block(unsigned int i, int level)
 {
 	if (level)
 		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDRS_PER_BLOCK);
 	return 0;
+}
+
+static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
+{
+	return addr_struct && (addr_struct->magic == HMFS_SUPER_MAGIC);
 }
 
 /* Find the last index of data block which is meaningful*/
@@ -124,6 +156,174 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
+static struct ro_file_address *new_ro_file_address(void *addr)
+{
+	struct ro_file_address *addr_struct;
+
+	addr_struct = kmem_cache_alloc(ro_file_address_cachep, GFP_KERNEL);
+
+	if (addr_struct) {
+		addr_struct->magic = HMFS_SUPER_MAGIC;
+		addr_struct->start_addr = addr;
+	}
+	return addr_struct;
+}
+
+static void free_ro_file_address(struct file *filp)
+{
+	kmem_cache_free(ro_file_address_cachep, filp->private_data);
+	filp->private_data = NULL;
+}
+
+static int remap_pte_file_range(struct inode *inode, pmd_t *pmd, 
+				unsigned long addr, unsigned long end, void** blocks, 
+				int *block_size, int *index)
+{
+	pte_t *pte;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	u64 pfn;
+	int st_index;
+	int err;
+
+	pte = pte_alloc_kernel(pmd, addr);
+	if (!pte)
+		return -ENOMEM;
+	do {
+		hmfs_bug_on(sbi, !pte_none(*pte));
+
+		if (*index >= *block_size) {
+			*block_size = 0;
+			*index = 0;
+			st_index = addr >> HMFS_PAGE_SIZE_BITS;
+			hmfs_bug_on(sbi, st_index >= INT_MAX / 2);
+			err = get_data_blocks(inode, st_index, INT_MAX / 2, blocks,
+							block_size, RA_DB_END);
+			if (!*block_size)
+				return err;
+		}
+		if (blocks[*index])
+			pfn = pfn_from_vaddr(sbi, blocks[*index]);
+		else
+			pfn = sbi->map_zero_page_number;
+		set_pte_at(&init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
+		(*index) += 1;
+	} while(pte++, addr += PAGE_SIZE, addr != end);
+	return 0;
+}
+
+static int remap_pmd_file_range(struct inode *inode, pud_t *pud, 
+				unsigned long addr, unsigned long end, void **blocks,
+				int *block_size, int *index)
+{
+	pmd_t *pmd;
+	unsigned long next;
+
+	pmd = pmd_alloc(&init_mm, pud, addr);
+	if (!pmd)
+		return -ENOMEM;
+	do {
+		next = pmd_addr_end(addr, end);
+		if (remap_pte_file_range(inode, pmd, addr, next, blocks, block_size,
+								index))
+			return -ENOMEM;
+	} while(pmd++, addr = next, addr != end);
+	return 0;
+}
+
+static int remap_pud_file_range(struct inode *inode, pgd_t *pgd,
+				unsigned long addr, unsigned long end, void** blocks,
+				int *block_size, int *index)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	pud = pud_alloc(&init_mm, pgd, addr);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+		if (remap_pmd_file_range(inode, pud, addr, next, blocks, block_size, 
+								index))
+			return -ENOMEM;
+	} while(pud++, addr = next, addr != end);
+	return 0;
+}
+
+static int remap_ro_file_range(struct inode *inode, unsigned long addr,
+				unsigned long end)
+{
+	pgd_t *pgd;
+	unsigned long start, next;
+	int err;
+	void *blocks;
+	struct page *page;
+	int block_size, index;
+
+	page = alloc_page(GFP_KERNEL);
+	if (!page)
+		return -ENOMEM;
+
+	blocks = kmap(page);
+	memset(blocks, 0, PAGE_CACHE_SIZE);
+	block_size = 0;
+	index = 0;
+	start = addr;
+	pgd = pgd_offset_k(addr);
+	
+	do {
+		next = pgd_addr_end(addr, end);
+		err = remap_pud_file_range(inode, pgd, addr, next, (void **)blocks,
+						&block_size, &index);
+		if (err)
+			break;
+	} while(pgd++, addr = next, addr != end);
+
+	flush_cache_vmap(start, end);
+
+	kunmap(blocks);
+	__free_page(page);
+	return err;
+}
+
+/* 
+ * Open file for hmfs, if it's a read-only file, then remap it into 
+ * VMALLOC area to accelerate reading
+ */
+int hmfs_file_open(struct inode *inode, struct file *filp)
+{
+	int ret;
+	unsigned long size;
+	struct hmfs_inode_info *fi;
+	struct vm_struct *area;
+	unsigned vaddr;
+
+	ret = generic_file_open(inode, filp);
+	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY)
+		return ret;;
+
+	if (filp->private_data)
+		goto out;
+
+	/* Do not map an empty file */
+	size = i_size_read(inode);
+	fi = HMFS_I(inode);
+	if (!size || fi->read_addr)
+		goto out;
+
+	/* Search a VMALLOC area */
+	size = PAGE_CACHE_ALIGN(size);
+	area = get_vm_area(size, VM_IOREMAP);
+	if (!area)
+		goto out;
+	vaddr = (unsigned long) area->addr;
+
+	ret = remap_ro_file_range(inode, vaddr, vaddr + size); 
+	if (!ret)
+		filp->private_data = new_ro_file_address(area->addr);
+out:
+	return ret;
+}
+
 /**
  * hmfs_file_llseek - llseek implementation for in-memory files
  * @file:	file structure to seek on
@@ -185,8 +385,8 @@ out:
 	return ret;
 }
 
-ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
-			   loff_t * ppos)
+static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
 {
 	/* from do_XIP_mapping_read */
 	struct inode *inode = filp->f_inode;
@@ -199,11 +399,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	index = pos >> HMFS_PAGE_SIZE_BITS;	
 	offset = pos & ~HMFS_PAGE_MASK;
 
-	mutex_lock(&inode->i_mutex);
 	isize = i_size_read(inode);
-	if (!isize)
-		goto out;
-
 	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
 	/*
 	 * nr : read length for this loop
@@ -246,8 +442,7 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 
 		/* copy to user space */
 		if (!zero)
-			left =
-			 __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
+			left = __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
 		else
 			left = __clear_user(buf + copied, nr);
 
@@ -262,7 +457,6 @@ ssize_t hmfs_xip_file_read(struct file * filp, char __user * buf, size_t len,
 	} while (copied < len);
 
 out:
-	mutex_unlock(&inode->i_mutex);
 	*ppos = pos + copied;
 	if (filp)
 		file_accessed(filp);
@@ -270,8 +464,48 @@ out:
 	return (copied ? copied : error);
 }
 
-static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user * buf,
-				     size_t count, loff_t pos, loff_t * ppos)
+static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	loff_t isize = i_size_read(filp->f_inode);
+	size_t copied = len;
+	unsigned long left;
+	struct ro_file_address *addr_struct = filp->private_data;
+	int err = 0;
+
+	if (*ppos + len > isize)
+		copied = isize - *ppos;
+	
+	left = __copy_to_user(buf, addr_struct->start_addr, copied);
+
+	if (left)
+		err = -EFAULT;
+
+	return err ? err : copied;
+}
+
+static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	int ret = 0;
+
+	mutex_lock(&filp->f_inode->i_mutex);
+
+	if (!i_size_read(filp->f_inode))
+		goto out;
+
+	if (likely(!is_fast_read_file((struct ro_file_address *)
+									filp->private_data)))
+		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
+	else
+		ret = hmfs_file_fast_read(filp, buf, len, ppos);
+
+out:
+	mutex_unlock(&filp->f_inode->i_mutex);
+	return ret;
+}
+static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
+				     size_t count, loff_t pos, loff_t *ppos)
 {
 	struct inode *inode = filp->f_inode;
 	long status = 0;
@@ -617,7 +851,33 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct ro_file_address *addr_struct = NULL;
+	struct vm_struct *area;
 
+	addr_struct = filp->private_data;
+	if (is_fast_read_file(addr_struct)) {
+		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
+						!= O_RDONLY);
+
+		/* 
+		 * Use the vm area unlocked, assuming the caller unsures there isn't
+		 * another iounmap for the same address in parallel. Reuse of the virtual
+		 * address is prevented by leaving it in the global lists 
+		 * until we're done with it.
+		 */
+		area = find_vm_area((void __force *)addr_struct->start_addr);
+		if (!area) {
+			hmfs_bug_on(HMFS_I_SB(inode), 1);
+			goto check_mmap;
+		}
+		
+		/* Now, do it */
+		area = remove_vm_area((void __force *)addr_struct->start_addr);
+		kfree(area);
+		free_ro_file_address(filp);
+	}
+
+check_mmap:
 	filemap_fdatawrite(inode->i_mapping);
 	
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
@@ -782,7 +1042,7 @@ const struct file_operations hmfs_file_operations = {
 	.write = hmfs_xip_file_write,
 	//.aio_read       = xip_file_aio_read,
 	//.aio_write      = xip_file_aio_write,
-	.open = generic_file_open,
+	.open = hmfs_file_open,
 	.release = hmfs_release_file,
 	.mmap = hmfs_file_mmap,
 	.fsync = hmfs_sync_file,
@@ -803,3 +1063,17 @@ const struct inode_operations hmfs_file_inode_operations = {
 	.removexattr = generic_removexattr,
 #endif 
 };
+
+int init_ro_file_address_cache(void)
+{
+	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
+					sizeof(struct ro_file_address), NULL)	;
+	if (!ro_file_address_cachep)
+		return -ENOMEM;
+	return 0;
+}
+
+void destroy_ro_file_address_cache(void)
+{
+	kmem_cache_destroy(ro_file_address_cachep);
+}

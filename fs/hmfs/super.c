@@ -438,6 +438,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_flags = 0;
 	fi->flags = 0;
 	fi->i_advise = 0;
+	fi->read_addr = NULL;
 	set_inode_flag(fi, FI_NEW_INODE);
 	atomic_set(&fi->nr_dirty_map_pages, 0);
 	INIT_LIST_HEAD(&fi->list);
@@ -535,6 +536,26 @@ out:
 	clear_inode(inode);
 }
 
+static int init_map_zero_page(struct hmfs_sb_info *sbi)
+{
+	sbi->map_zero_page = alloc_page((GFP_KERNEL | __GFP_ZERO));
+
+	if (!sbi->map_zero_page)
+		return -ENOMEM;
+	lock_page(sbi->map_zero_page);
+	sbi->map_zero_page_number = page_to_pfn(sbi->map_zero_page);
+	return 0;
+}
+
+static void destroy_map_zero_page(struct hmfs_sb_info *sbi)
+{
+	hmfs_bug_on(sbi, !PageLocked(sbi->map_zero_page));
+	unlock_page(sbi->map_zero_page);
+	__free_page(sbi->map_zero_page);
+	sbi->map_zero_page = NULL;
+	sbi->map_zero_page_number = 0;
+}
+
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -547,6 +568,7 @@ static void hmfs_put_super(struct super_block *sb)
 	}
 
 	hmfs_destroy_stats(sbi);
+	destroy_map_zero_page(sbi);
 	stop_gc_thread(sbi);
 	destroy_segment_manager(sbi);
 	destroy_node_manager(sbi);
@@ -764,6 +786,11 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		retval = -ENOMEM;
 		goto free_root_inode;
 	}
+
+	retval = init_map_zero_page(sbi);
+	if (retval)
+		goto free_root_inode;
+
 	/* create debugfs */
 	hmfs_build_stats(sbi);
 
@@ -845,12 +872,17 @@ int init_hmfs(void)
 	err = create_checkpoint_caches();
 	if (err)
 		goto fail_cp;
+	err = init_ro_file_address_cache();
+	if (err)
+		goto fail_ro_file;
 	err = register_filesystem(&hmfs_fs_type);
 	if (err)
 		goto fail_reg;
 	hmfs_create_root_stat();
 	return 0;
 fail_reg:
+	destroy_ro_file_address_cache();
+fail_ro_file:
 	destroy_checkpoint_caches();
 fail_cp:
 	destroy_node_manager_caches();
@@ -866,6 +898,7 @@ void exit_hmfs(void)
 	destroy_inodecache();
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
+	destroy_ro_file_address_cache();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
 }

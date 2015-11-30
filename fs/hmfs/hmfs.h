@@ -225,6 +225,8 @@ struct hmfs_sb_info {
 	/* Other */
 	struct list_head dirty_map_inodes;			/* Inodes which contains dirty DRAM page */
 	spinlock_t dirty_map_inodes_lock;			/* Lock of dirty map inodes list */
+	struct page *map_zero_page;					/* Empty page for hole in file */
+	u64 map_zero_page_number; 					/* pfn of above empty page */
 
 	int recovery_doing;								/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
@@ -243,6 +245,7 @@ struct hmfs_inode_info {
 	atomic_t nr_dirty_map_pages;
 	struct list_head list;
 	struct rw_semaphore i_sem;
+	void *read_addr;					/* Start address of read-only file */
 };
 
 struct hmfs_stat_info {
@@ -267,7 +270,16 @@ struct dnode_of_data {
 	int level;						/* depth of data block */
 };
 
-
+/* 
+ * This structure is used to describe start address
+ * of an read-only file that has been remap into VMALLOC
+ * area. Because we save the struct pointer in struct file,
+ * we need some magic number to verify the identity of this struct
+ */
+struct ro_file_address {
+	unsigned long magic;
+	void *start_addr;
+};
 
 extern const struct file_operations hmfs_file_operations;
 extern const struct file_operations hmfs_dir_operations;
@@ -373,6 +385,11 @@ static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
 
 	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
 		mutex_lock(&sbi->fs_lock[i]);
+}
+
+static inline u64 pfn_from_vaddr(struct hmfs_sb_info *sbi, void *vaddr)
+{
+	return (sbi->phys_addr + L_ADDR(sbi, vaddr)) >> PAGE_SHIFT;
 }
 
 static inline void mutex_unlock_all(struct hmfs_sb_info *sbi)
@@ -687,6 +704,8 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+int init_ro_file_address_cache(void);
+void destroy_ro_file_address_cache(void);
 
 /* debug.c */
 void hmfs_create_root_stat(void);
