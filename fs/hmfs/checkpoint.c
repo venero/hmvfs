@@ -307,7 +307,7 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 {
 	block_t rs_cp_addr, nx_cp_addr;	
 	struct hmfs_checkpoint *rs_cp, *nx_cp;
-	struct hmfs_super_block *raw_super;
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	int checksum;
 
 	/* If HMFS_CP_GC set, we have taken store_checkpoint_addr */
@@ -332,7 +332,6 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 	checksum = hmfs_make_checksum(rs_cp);
 	set_struct(rs_cp, checksum, checksum);
 
-	raw_super = HMFS_RAW_SUPER(sbi);
 	checksum = hmfs_make_checksum(raw_super);
 	set_struct(raw_super, checksum, checksum);
 
@@ -730,7 +729,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	return ret;
 }
 
-static int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
+int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 {
 	//XXX:after sbi initilization?
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
@@ -738,20 +737,19 @@ static int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *pre
 	unsigned int sb_checksum;
 	ver_t store_version;
 	int length;
-	block_t store_checkpoint_addr = 0;
+	block_t store_cp_addr = 0;
 	struct hmfs_nat_node *nat_root;
 	struct hmfs_checkpoint *next_cp;
 	struct hmfs_checkpoint *store_cp;
-	__le64 store_cp_addr;
 
 /* do */
 	/* 1. restore addr */
-	store_checkpoint_addr = le64_to_cpu(prev_cp->state_arg);
-	store_cp = ADDR(sbi, store_checkpoint_addr);
+	store_cp_addr = le64_to_cpu(prev_cp->state_arg);
+	store_cp = ADDR(sbi, store_cp_addr);
 
 	hmfs_bug_on(sbi, L_ADDR(sbi, prev_cp)!=le64_to_cpu(store_cp->prev_cp_addr));
 
-	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
+	summary = get_summary_by_addr(sbi, store_cp_addr);
 	set_summary_valid_bit(summary);
 
 	/* 2. flush cp-inlined SIT journal */

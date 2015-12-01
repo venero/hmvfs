@@ -1,5 +1,3 @@
-#ifdef CONFIG_HMFS_DEBUG
-
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -9,7 +7,6 @@
 #include "segment.h"
 
 #define GET_BY_ADDR(sbi, type, addr) ( (type)ADDR((sbi), (addr)) )
-
 
 #define MAX_CMD_LEN	((MAX_ARG_LEN + 2) * MAX_ARG_NUM)
 #define MAX_ARG_LEN (12)
@@ -28,14 +25,17 @@
 #define USAGE_CP	"cp"
 
 #define USAGE_SSA	"=============== SSA USAGE ==============\n"\
-      			"`ssa <idx1> <idx2>`\n"\
-			"  -- block summary in blk[idx1, idx2]\n"\
-      			"`ssa <segno>`\n"\
-			"  -- block summary in  segment[segno]\n"\
+      			" `ssa <idx1> <idx2>`\n"\
+			"   -- block summary in blk[idx1, idx2]\n"\
+      			" `ssa <segno>`\n"\
+			"   -- block summary in  segment[segno]\n"\
 			"=========================================\n"
 
 #define USAGE_SIT	"=============== SIT USAGE ==============\n" \
-			" TODO\n"
+			" no parameters needed now. it should be\n"\
+			" fase to scan all segments\n"\
+			"=========================================\n"
+
 #define USAGE_NAT "nat"
 #define USAGE_DATA "data"
 
@@ -90,9 +90,9 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "main area range:%lu - %lu\n",
 			   (unsigned long)si->sbi->main_addr_start,
 			   (unsigned long)si->sbi->main_addr_end);
-		seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size / 1024,
-						max_file_size / 1024 / 1024, 
-						max_file_size / 1024 / 1024 / 1024);
+		seq_printf(s, "max file size:%luk %luM %luG\n",
+			   max_file_size / 1024, max_file_size / 1024 / 1024,
+			   max_file_size / 1024 / 1024 / 1024);
 
 		head = &cm_i->orphan_inode_list;
 		seq_printf(s, "orphan inode:\n");
@@ -201,7 +201,7 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	list_add_tail(&si->stat_list, &hmfs_stat_list);
 	mutex_unlock(&hmfs_stat_mutex);
 
-	return hmfs_build_info(sbi, (1 << 20));//TODO
+	return hmfs_build_info(sbi, (1 << 20));	//TODO
 }
 
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
@@ -268,36 +268,40 @@ static int print_cp_one(struct hmfs_checkpoint *cp, int detail)
 	if (detail) {
 		len += hmfs_print(1, "------detail info------\n");
 		len += hmfs_print(1, "checkpoint_ver: %u\n",
-						le32_to_cpu(cp->checkpoint_ver));
+				  le32_to_cpu(cp->checkpoint_ver));
 		len += hmfs_print(1, "alloc_block_count: %u\n",
-						le64_to_cpu(cp->alloc_block_count));
+				  le64_to_cpu(cp->alloc_block_count));
 		len += hmfs_print(1, "valid_block_count: %u\n",
-						le64_to_cpu(cp->valid_block_count));
+				  le64_to_cpu(cp->valid_block_count));
 		len += hmfs_print(1, "free_segment_count: %u\n",
-						le64_to_cpu(cp->free_segment_count));
+				  le64_to_cpu(cp->free_segment_count));
 		len += hmfs_print(1, "cur_node_segno: %u\n",
-						le32_to_cpu(cp->cur_node_segno));
+				  le32_to_cpu(cp->cur_node_segno));
 		len += hmfs_print(1, "cur_node_blkoff: %u\n",
-						le16_to_cpu(cp->cur_node_blkoff));
+				  le16_to_cpu(cp->cur_node_blkoff));
 		len += hmfs_print(1, "cur_data_segno: %u\n",
-						le32_to_cpu(cp->cur_data_segno));
+				  le32_to_cpu(cp->cur_data_segno));
 		len += hmfs_print(1, "cur_data_blkoff: %u\n",
-						le16_to_cpu(cp->cur_data_blkoff));
+				  le16_to_cpu(cp->cur_data_blkoff));
 		len += hmfs_print(1, "prev_cp_addr: %x\n",
-						le64_to_cpu(cp->prev_cp_addr));
+				  le64_to_cpu(cp->prev_cp_addr));
 		len += hmfs_print(1, "next_cp_addr: %x\n",
-						le64_to_cpu(cp->checkpoint_ver));
+				  le64_to_cpu(cp->checkpoint_ver));
 		len += hmfs_print(1, "valid_inode_count: %u\n",
-						le32_to_cpu(cp->valid_inode_count));
+				  le32_to_cpu(cp->valid_inode_count));
 		len += hmfs_print(1, "valid_node_count: %u\n",
-						le32_to_cpu(cp->valid_node_count));
-		len += hmfs_print(1, "nat_addr: %x\n", le64_to_cpu(cp->nat_addr));
-		len += hmfs_print(1, "orphan_addr: %x\n",
-						le64_to_cpu(cp->orphan_addr));
-		len += hmfs_print(1, "next_scan_nid: %u\n",
-						le32_to_cpu(cp->next_scan_nid));
-		len += hmfs_print(1, "elapsed_time: %u\n",
-						le32_to_cpu(cp->elapsed_time));
+				  le32_to_cpu(cp->valid_node_count));
+		len +=
+		    hmfs_print(1, "nat_addr: %x\n", le64_to_cpu(cp->nat_addr));
+		len +=
+		    hmfs_print(1, "orphan_addr: %x\n",
+			       le64_to_cpu(cp->orphan_addr));
+		len +=
+		    hmfs_print(1, "next_scan_nid: %u\n",
+			       le32_to_cpu(cp->next_scan_nid));
+		len +=
+		    hmfs_print(1, "elapsed_time: %u\n",
+			       le32_to_cpu(cp->elapsed_time));
 		len += hmfs_print(1, "\n\n");
 	}
 	return len;
@@ -380,15 +384,15 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 	size_t len = 0;
 	struct hmfs_summary *sum_entry;
 
-	if (blk_addr < sbi->main_addr_start || 
-	    blk_addr >= sbi->main_addr_end){
+	if (blk_addr < sbi->main_addr_start || blk_addr >= sbi->main_addr_end) {
 		//invalid block addr
-		return -1;		
+		return -1;
 	}
-	
+
 	sum_entry = get_summary_by_addr(sbi, blk_addr);
 
-	len += hmfs_print(1, "-- [%016x] --\n", blk_addr>>HMFS_PAGE_SIZE_BITS);
+	len +=
+	    hmfs_print(1, "-- [%016x] --\n", blk_addr >> HMFS_PAGE_SIZE_BITS);
 	len += hmfs_print(1, "  nid: %u\n", le32_to_cpu(sum_entry->nid));
 	len += hmfs_print(1, "  start_version: %u\n",
 			   le32_to_cpu(sum_entry->start_version));
@@ -400,25 +404,28 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 	return len;
 }
 
-static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from, block_t idx_to)
+static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from,
+			   block_t idx_to)
 {
-	int len = 0, i = 0, res=-1;
+	int len = 0, i = 0, res = -1;
 
 	//struct hmfs_summary_block* sum_blk = get_summary_block(sbi, blkidx);
-	for (i = idx_from; i <= idx_to ; i++) {
+	for (i = idx_from; i <= idx_to; i++) {
 		res = print_ssa_one(sbi, i << HMFS_PAGE_SIZE_BITS);
-		if(res == -1){
+		if (res == -1) {
 			return -1;
 		}
-		len +=res;
+		len += res;
 	}
 	return len;
 }
 
-static size_t print_ssa_per_seg(struct hmfs_sb_info *sbi, block_t segno){
+static size_t print_ssa_per_seg(struct hmfs_sb_info *sbi, block_t segno)
+{
 	block_t idx_from = segno << HMFS_PAGE_PER_SEG_BITS;
 	return print_ssa_range(sbi, idx_from, idx_from + HMFS_PAGE_PER_SEG - 1);
 }
+
 /*
   Usage:
       ssa <idx1> <idx2>	-- dump summary of [idx1, idx2]th block 
@@ -426,7 +433,7 @@ static size_t print_ssa_per_seg(struct hmfs_sb_info *sbi, block_t segno){
  */
 static int hmfs_print_ssa(int args, char argv[][MAX_ARG_LEN + 1])
 {
-	int len = 0, cnt=-1;
+	int len = 0, cnt = -1;
 	block_t idx_from = 0, idx_to = 0;
 	struct hmfs_sb_info *sbi = info_buffer.sbi;
 
@@ -439,41 +446,59 @@ static int hmfs_print_ssa(int args, char argv[][MAX_ARG_LEN + 1])
 		idx_to = (block_t) simple_strtoull(argv[2], NULL, 0);
 		cnt = print_ssa_range(sbi, idx_from, idx_to);
 	}
-	if(cnt < 0){
-		hmfs_print(0, " **error** invalid index: %llu\n", idx_from);  
+	if (cnt < 0) {
+		hmfs_print(0, " **error** invalid index: %llu\n", idx_from);
 		return 0;
 	}
-		len += cnt;
+	len += cnt;
 	return len;
 }
 
-static size_t print_sit_i(struct hmfs_sb_info *sbi)
+static inline int get_vblocks_from_sit(struct hmfs_sb_info *sbi, seg_t segno)
 {
-	size_t len = 0;
-/*
-	len += hmfs_print(1, "sit_blocks: %u\n", sit_i->sit_blocks);
-	len +=
-	    hmfs_print(1, "written_valid_blocks: %u\n",
-			sit_i->written_valid_blocks);
-	len += hmfs_print(1, "bitmap_size: %llu\n", sit_i->bitmap_size);
+	return __le16_to_cpu(get_sit_entry(sbi, segno)->vblocks);
+}
 
-	len += hmfs_print(1, "dirty_sentries: %u\n", sit_i->dirty_sentries);
-	len += hmfs_print(1, "sents_per_block: %u\n", sit_i->sents_per_block);
-	len += hmfs_print(1, "elapsed_time: %llu\n", sit_i->elapsed_time);
-	len += hmfs_print(1, "mounted_time: %llu\n", sit_i->mounted_time);
-	len += hmfs_print(1, "min_mtime: %llu\n", sit_i->min_mtime);
-	len += hmfs_print(1, "max_mtime: %llu\n", sit_i->max_mtime);
-	*/
-
-	return len;
+static inline int print_error_segment(seg_t segno, int sit_blk_cnt,
+				       int ssa_blk_cnt)
+{
+	return hmfs_print(1, "segment #%d *ERROR*, cnt in SIT: %d\
+			  cnt in SSA: %d\n", segno, sit_blk_cnt, ssa_blk_cnt);
 }
 
 static int hmfs_print_sit(int args, char argv[][MAX_ARG_LEN + 1])
 {
 	struct hmfs_sb_info *sbi = info_buffer.sbi;
-	// /struct sit_info* sit_i = SIT_I(sbi);
+	int sit_blk_cnt, len=0;
+	int ssa_blk_cnt;
+	int blk_id = 0;
+	seg_t segno = 0;
 
-	return print_sit_i(sbi);
+	struct hmfs_summary_block *ssa_blk;
+	struct hmfs_summary *ssa_entry;
+
+
+	for (segno = 0; segno < TOTAL_SEGS(sbi); ++segno) {
+		ssa_blk = get_summary_block(sbi, segno);
+		ssa_entry = ssa_blk->entries;
+		ssa_blk_cnt = 0;
+		for (blk_id = 0; blk_id < HMFS_PAGE_PER_SEG; ++blk_id) {
+			if (get_summary_valid_bit(ssa_entry))//seems that le16 is ok
+				++ssa_blk_cnt;
+			ssa_entry++;
+		}
+
+		sit_blk_cnt = get_vblocks_from_sit(sbi, segno);
+		if (ssa_blk_cnt != sit_blk_cnt){
+			len = print_error_segment(segno, sit_blk_cnt, ssa_blk_cnt);
+			break;
+		}
+	}
+	if (segno == TOTAL_SEGS(sbi)){
+		len = hmfs_print(1, "no error found in SIT check!\n");
+	}
+
+	return len;
 }
 
 static int hmfs_print_nat(int args, char argv[][MAX_ARG_LEN + 1])
@@ -486,46 +511,52 @@ static int hmfs_print_data(int args, char argv[][MAX_ARG_LEN + 1])
 	return 0;
 }
 
-static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr, 
-			  block_t blk_addr, size_t h, size_t offset, block_t nid)
+static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr,
+			  block_t blk_addr, size_t h, size_t offset,
+			  block_t nid)
 {
 	struct hmfs_checkpoint* cp;
 	struct hmfs_summary* summary;
 	block_t raw_nid, raw_height;
 	int ret_val = 0;
 
-	cp = (struct hmfs_checkpoint*)ADDR(sbi, cp_addr);
+	cp = (struct hmfs_checkpoint *)ADDR(sbi, cp_addr);
 	summary = get_summary_by_addr(sbi, blk_addr);
 
 	//check summary type
-	if ( (0 != h && SUM_TYPE_NATN != get_summary_type(summary))
-		|| (0 == h && SUM_TYPE_NATD != get_summary_type(summary)) ) {
+	if ((0 != h && SUM_TYPE_NATN != get_summary_type(summary))
+	    || (0 == h && SUM_TYPE_NATD != get_summary_type(summary))) {
 		hmfs_print(1, "**error** summary type error: ");
-		hmfs_print(1, "type of nat node at %#x should be %d, but get %d \n", 
-			blk_addr, h ? SUM_TYPE_NATN : SUM_TYPE_NATD, get_summary_type(summary));
+		hmfs_print(1,
+			   "type of nat node at %#x should be %d, but get %d \n",
+			   blk_addr, h ? SUM_TYPE_NATN : SUM_TYPE_NATD,
+			   get_summary_type(summary));
 		ret_val = -1;
 	}
-
 	//check offset && nid
-	if (h!= sbi->nat_height){
-		raw_height = get_summary_nid(summary) >> 27; 
-		raw_nid = (get_summary_nid(summary) & 0x7ffffff); 
+	if (h != sbi->nat_height) {
+		raw_height = get_summary_nid(summary) >> 27;
+		raw_nid = (get_summary_nid(summary) & 0x7ffffff);
 		if (offset != get_summary_offset(summary)) {
 			hmfs_print(1, "**error** summary offset error: ");
-			hmfs_print(1, "offset nat node at %#x should be %d, but get %d \n", 
-				blk_addr, offset, get_summary_offset(summary));
+			hmfs_print(1,
+				   "offset nat node at %#x should be %d, but get %d \n",
+				   blk_addr, offset,
+				   get_summary_offset(summary));
 			ret_val = -1;
 		}
-		if (h+1 != raw_height){
+		if (h + 1 != raw_height) {
 			hmfs_print(1, "**error** summary height error: ");
-			hmfs_print(1, "offset nat node at %#x should be %d, but get %llu \n", 
-				blk_addr, h+1, raw_height);
+			hmfs_print(1,
+				   "offset nat node at %#x should be %d, but get %llu \n",
+				   blk_addr, h + 1, raw_height);
 			ret_val = -1;
 		}
-		if (nid != raw_nid){
+		if (nid != raw_nid) {
 			hmfs_print(1, "**error** summary block order error: ");
-			hmfs_print(1, "offset nat node at %#x should be %d, but get %llu \n", 
-				blk_addr, h, raw_nid);
+			hmfs_print(1,
+				   "offset nat node at %#x should be %d, but get %llu \n",
+				   blk_addr, h, raw_nid);
 			ret_val = -1;
 		}
 	}
@@ -533,41 +564,42 @@ static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr,
 	return ret_val;
 }
 
-static int traverse_nat(struct hmfs_sb_info *sbi, block_t cp_addr, 
+static int traverse_nat(struct hmfs_sb_info *sbi, block_t cp_addr,
 			block_t root_addr, size_t h, block_t nid)
 {
 	int err = 0;
 	size_t i;
-	struct hmfs_nat_node* root;
+	struct hmfs_nat_node *root;
 	size_t offset = nid >> (h * LOG2_NAT_ADDRS_PER_NODE);
 
 	if (!root_addr)
 		return 0;
-	hmfs_print(1, "sbi->nat_height: %d\n", sbi->nat_height);
-	hmfs_print(1, "nat root address: %p, height: %d, offset: %d\n", root_addr, h, offset);
 
 	err = hmfs_check_ssa(sbi, cp_addr, root_addr, h, offset, nid);
-	if (0 != err){
+	if (0 != err) {
 		hmfs_print(1, "\n----- ERROR BLK INFO -----\n");
 		print_ssa_one(sbi, root_addr);
 		hmfs_print(1, "--------------------------\n");
 		return err;
 	}
 
-	if (0 == h) { //get the nat entry
+	if (0 == h) {		//get the nat entry
 		//TODO: make node summary check
 		return err;
 	}
 
-	root = (struct hmfs_nat_node*)ADDR(sbi, root_addr);
+	root = (struct hmfs_nat_node *)ADDR(sbi, root_addr);
 	for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
 		block_t child_addr = le64_to_cpu(root->addr[i]);
-		if(child_addr == NULL_ADDR){
+		if (child_addr == NULL_ADDR) {
 			continue;
 		}
-		hmfs_print(1, ">>>>>>>>>>> %p -> %p, height is %d\n", root_addr, child_addr, h);
-		err = traverse_nat(sbi, cp_addr, child_addr, h - 1, 
-				   nid + (i << ((h-1) * LOG2_NAT_ADDRS_PER_NODE)));
+		hmfs_print(1, ">>>>>>>>>>> %p -> %p, height is %d\n", root_addr,
+			   child_addr, h);
+		err =
+		    traverse_nat(sbi, cp_addr, child_addr, h - 1,
+				 nid +
+				 (i << ((h - 1) * LOG2_NAT_ADDRS_PER_NODE)));
 		if (0 != err)	//stop if found error
 			break;
 	}
@@ -585,24 +617,31 @@ static int hmfs_consis(void)
 	struct hmfs_sb_info *sbi = info_buffer.sbi;
 	block_t cp_head_addr, cp_addr;
 	struct hmfs_super_block *sb = HMFS_RAW_SUPER(sbi);
-	struct hmfs_cm_info* cmi = sbi->cm_info;
+	struct hmfs_cm_info *cmi = sbi->cm_info;
 	hmfs_print(1, "cmi->valid_inode: %d\n", cmi->valid_inode_count);
-
 
 	//check summary
 	hmfs_print(1, "======= check summary ======\n");
 	cp_head_addr = le64_to_cpu(sb->cp_page_addr);
-	cp_head_addr = le64_to_cpu(((struct hmfs_checkpoint*)ADDR(sbi, cp_head_addr))->prev_cp_addr);
-	for (cp_addr = cp_head_addr; ;) {
-		struct hmfs_checkpoint* cp;
-		cp = (struct hmfs_checkpoint*)ADDR(sbi, cp_addr);
+	cp_head_addr =
+	    le64_to_cpu(((struct hmfs_checkpoint *)ADDR(sbi, cp_head_addr))->
+			prev_cp_addr);
+	for (cp_addr = cp_head_addr;;) {
+		struct hmfs_checkpoint *cp;
+		cp = (struct hmfs_checkpoint *)ADDR(sbi, cp_addr);
 		hmfs_print(1, "checkpoint address: %#x\n", cp_addr);
-		hmfs_print(1, "valid inode count: %d\n", le32_to_cpu(cp->valid_inode_count));
-		hmfs_print(1, "valid node count: %d\n", le32_to_cpu(cp->valid_node_count));
-		err = traverse_nat(sbi, cp_addr, le64_to_cpu(cp->nat_addr), sbi->nat_height, 0);
+		hmfs_print(1, "valid inode count: %d\n",
+			   le32_to_cpu(cp->valid_inode_count));
+		hmfs_print(1, "valid node count: %d\n",
+			   le32_to_cpu(cp->valid_node_count));
+		err =
+		    traverse_nat(sbi, cp_addr, le64_to_cpu(cp->nat_addr),
+				 sbi->nat_height, 0);
 		//if (0 != err)
-		//	return err;
-		cp_addr = le64_to_cpu(((struct hmfs_checkpoint*)ADDR(sbi, cp_addr))->prev_cp_addr);
+		//      return err;
+		cp_addr =
+		    le64_to_cpu(((struct hmfs_checkpoint *)ADDR(sbi, cp_addr))->
+				prev_cp_addr);
 		if (cp_addr == cp_head_addr)
 			break;
 	}
@@ -624,7 +663,7 @@ static int hmfs_parse_cmd(const char *cmd, size_t len,
 	for (i = 0, j = 0, args = 0; i < len;) {
 		if (args >= MAX_ARG_NUM)
 			return args;
-		while (i < len && IS_BLANK(cmd[i])){
+		while (i < len && IS_BLANK(cmd[i])) {
 			++i;
 		}
 		j = i;
@@ -686,9 +725,9 @@ static int hmfs_dispatch_cmd(const char *cmd, int len)
 	} else if (0 == strncasecmp(argv[0], "sit", 3)) {
 		if (args == 1) {
 			hmfs_print(0, USAGE_SIT);
-			return 0;
+			res = hmfs_print_sit(args, argv);
 		}
-		res = hmfs_print_sit(args, argv);
+		//res = hmfs_print_sit(args, argv);
 	} else if (0 == strncasecmp(argv[0], "nat", 3)) {
 		if (args == 1) {
 			hmfs_print(0, USAGE_NAT);
@@ -701,7 +740,7 @@ static int hmfs_dispatch_cmd(const char *cmd, int len)
 			return 0;
 		}
 		res = hmfs_print_data(args, argv);
-	} else if(0 == strncasecmp(argv[0], "consis", 6)) {
+	} else if (0 == strncasecmp(argv[0], "consis", 6)) {
 		res = hmfs_consis();
 	} else {
 		hmfs_print(0, USAGE);
@@ -721,4 +760,3 @@ inline void hmfs_call_trace(void)
 	tprint("<%s> Caller2 is %pS\n", __FUNCTION__,
 	       __builtin_return_address(2));
 }
-#endif

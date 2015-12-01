@@ -10,6 +10,7 @@
 #include <linux/crc16.h>
 #include <linux/sched.h>
 #include <linux/cred.h>
+#include <asm/io.h>
 
 #include "hmfs_fs.h"
 #include "gc.h"
@@ -791,9 +792,13 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		goto free_root_inode;
 
 	/* create debugfs */
-	hmfs_build_stats(sbi);
+	retval = hmfs_build_stats(sbi);
+	if (retval)
+		goto free_zero_page;
 
 	return 0;
+free_zero_page:
+	destroy_map_zero_page(sbi);
 free_root_inode:
 	iput(root);
 	sb->s_root = NULL;

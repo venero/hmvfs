@@ -14,7 +14,9 @@
 #include "hmfs.h"
 #include "util.h"
 
+#ifdef CONFIG_HMFS_FAST_READ
 static struct kmem_cache *ro_file_address_cachep;
+#endif
 
 static unsigned int start_block(unsigned int i, int level)
 {
@@ -129,6 +131,85 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
+static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	/* from do_XIP_mapping_read */
+	struct inode *inode = filp->f_inode;
+	pgoff_t index, end_index;
+	unsigned long offset;
+	loff_t isize, pos;
+	size_t copied = 0, error = 0;
+
+	pos = *ppos;
+	index = pos >> HMFS_PAGE_SIZE_BITS;	
+	offset = pos & ~HMFS_PAGE_MASK;
+
+	isize = i_size_read(inode);
+	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
+	/*
+	 * nr : read length for this loop
+	 * offset : start inner-blk offset this loop
+	 * index : start inner-file blk number this loop
+	 * copied : read length so far
+	 * FIXME: pending for write_lock? anything like access_ok()
+	 */
+
+	do {
+		unsigned long nr, left;
+		void *xip_mem[1];
+		int zero = 0;
+		int size;
+
+		/* nr is the maximum number of bytes to copy from this page */
+		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
+		if (index >= end_index) {
+			if (index > end_index)
+				goto out;
+			nr = ((isize - 1) & ~HMFS_PAGE_MASK) + 1;
+			if (nr <= offset) {
+				goto out;
+			}
+		}
+		nr = nr - offset;
+		if (nr > len - copied)
+			nr = len - copied;
+		hmfs_bug_on(HMFS_I_SB(inode), nr > HMFS_PAGE_SIZE);
+		error = get_data_blocks(inode, index, index + 1, xip_mem, 
+						&size, RA_END);
+
+		if (unlikely(error || size != 1)) {
+			if (error == -ENODATA) {
+				/* sparse */
+				zero = 1;
+			} else
+				goto out;
+		}
+
+		/* copy to user space */
+		if (!zero)
+			left = __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
+		else
+			left = __clear_user(buf + copied, nr);
+
+		if (left) {
+			error = -EFAULT;
+			goto out;
+		}
+		copied += (nr - left);
+		offset += (nr - left);
+		index += offset >> HMFS_PAGE_SIZE_BITS;
+		offset &= ~HMFS_PAGE_MASK;
+	} while (copied < len);
+
+out:
+	*ppos = pos + copied;
+	if (filp)
+		file_accessed(filp);
+
+	return (copied ? copied : error);
+}
+
 #ifdef CONFIG_HMFS_FAST_READ
 static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
 {
@@ -184,7 +265,7 @@ static int remap_pte_file_range(struct inode *inode, pmd_t *pmd,
 			pfn = pfn_from_vaddr(sbi, blocks[*index]);
 		else
 			pfn = sbi->map_zero_page_number;
-		set_pte_at(&hmfs_init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
+		set_pte_at(hmfs_init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
 		(*index) += 1;
 	} while(pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
@@ -197,7 +278,7 @@ static int remap_pmd_file_range(struct inode *inode, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	pmd = hmfs_pmd_alloc(&hmfs_init_mm, pud, addr);
+	pmd = hmfs_pmd_alloc(hmfs_init_mm, pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	do {
@@ -216,7 +297,7 @@ static int remap_pud_file_range(struct inode *inode, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	pud = hmfs_pud_alloc(&hmfs_init_mm, pgd, addr);
+	pud = hmfs_pud_alloc(hmfs_init_mm, pgd, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {
@@ -247,7 +328,8 @@ static int remap_ro_file_range(struct inode *inode, unsigned long addr,
 	block_size = 0;
 	index = 0;
 	start = addr;
-	pgd = pgd_offset(addr);
+	pgd = pgd_offset(hmfs_init_mm, (addr));
+
 	
 	do {
 		next = pgd_addr_end(addr, end);
@@ -344,8 +426,79 @@ check_mmap:
 	return ret;
 }
 
+static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	loff_t isize = i_size_read(filp->f_inode);
+	size_t copied = len;
+	unsigned long left;
+	struct ro_file_address *addr_struct = filp->private_data;
+	int err = 0;
+
+	if (*ppos + len > isize)
+		copied = isize - *ppos;
+	
+	left = __copy_to_user(buf, addr_struct->start_addr, copied);
+
+	if (left)
+		err = -EFAULT;
+
+	return err ? err : copied;
+}
+
+static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	int ret = 0;
+
+	mutex_lock(&filp->f_inode->i_mutex);
+
+	if (!i_size_read(filp->f_inode))
+		goto out;
+
+	if (likely(!is_fast_read_file((struct ro_file_address *)
+									filp->private_data)))
+		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
+	else
+		ret = hmfs_file_fast_read(filp, buf, len, ppos);
+
+out:
+	mutex_unlock(&filp->f_inode->i_mutex);
+	return ret;
+}
+
+int init_ro_file_address_cache(void)
+{
+	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
+					sizeof(struct ro_file_address), NULL)	;
+	if (!ro_file_address_cachep)
+		return -ENOMEM;
+	return 0;
+}
+
+void destroy_ro_file_address_cache(void)
+{
+	kmem_cache_destroy(ro_file_address_cachep);
+}
 
 #else
+
+static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
+				size_t len, loff_t *ppos)
+{
+	int ret = 0;
+
+	mutex_lock(&filp->f_inode->i_mutex);
+	if (!i_size_read(filp->f_inode))
+		goto out;
+
+	ret = __hmfs_xip_file_read(filp, buf, len, ppos);
+
+out:
+	mutex_unlock(&filp->f_inode->i_mutex);
+	return ret;
+}
+
 int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	return generic_file_open(inode, filp);
@@ -428,125 +581,6 @@ out:
 	return ret;
 }
 
-static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
-				size_t len, loff_t *ppos)
-{
-	/* from do_XIP_mapping_read */
-	struct inode *inode = filp->f_inode;
-	pgoff_t index, end_index;
-	unsigned long offset;
-	loff_t isize, pos;
-	size_t copied = 0, error = 0;
-
-	pos = *ppos;
-	index = pos >> HMFS_PAGE_SIZE_BITS;	
-	offset = pos & ~HMFS_PAGE_MASK;
-
-	isize = i_size_read(inode);
-	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
-	/*
-	 * nr : read length for this loop
-	 * offset : start inner-blk offset this loop
-	 * index : start inner-file blk number this loop
-	 * copied : read length so far
-	 * FIXME: pending for write_lock? anything like access_ok()
-	 */
-
-	do {
-		unsigned long nr, left;
-		void *xip_mem[1];
-		int zero = 0;
-		int size;
-
-		/* nr is the maximum number of bytes to copy from this page */
-		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
-		if (index >= end_index) {
-			if (index > end_index)
-				goto out;
-			nr = ((isize - 1) & ~HMFS_PAGE_MASK) + 1;
-			if (nr <= offset) {
-				goto out;
-			}
-		}
-		nr = nr - offset;
-		if (nr > len - copied)
-			nr = len - copied;
-		hmfs_bug_on(HMFS_I_SB(inode), nr > HMFS_PAGE_SIZE);
-		error = get_data_blocks(inode, index, index + 1, xip_mem, 
-						&size, RA_END);
-
-		if (unlikely(error || size != 1)) {
-			if (error == -ENODATA) {
-				/* sparse */
-				zero = 1;
-			} else
-				goto out;
-		}
-
-		/* copy to user space */
-		if (!zero)
-			left = __copy_to_user(buf + copied, xip_mem[0] + offset, nr);
-		else
-			left = __clear_user(buf + copied, nr);
-
-		if (left) {
-			error = -EFAULT;
-			goto out;
-		}
-		copied += (nr - left);
-		offset += (nr - left);
-		index += offset >> HMFS_PAGE_SIZE_BITS;
-		offset &= ~HMFS_PAGE_MASK;
-	} while (copied < len);
-
-out:
-	*ppos = pos + copied;
-	if (filp)
-		file_accessed(filp);
-
-	return (copied ? copied : error);
-}
-
-static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
-				size_t len, loff_t *ppos)
-{
-	loff_t isize = i_size_read(filp->f_inode);
-	size_t copied = len;
-	unsigned long left;
-	struct ro_file_address *addr_struct = filp->private_data;
-	int err = 0;
-
-	if (*ppos + len > isize)
-		copied = isize - *ppos;
-	
-	left = __copy_to_user(buf, addr_struct->start_addr, copied);
-
-	if (left)
-		err = -EFAULT;
-
-	return err ? err : copied;
-}
-
-static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
-				size_t len, loff_t *ppos)
-{
-	int ret = 0;
-
-	mutex_lock(&filp->f_inode->i_mutex);
-
-	if (!i_size_read(filp->f_inode))
-		goto out;
-
-	if (likely(!is_fast_read_file((struct ro_file_address *)
-									filp->private_data)))
-		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
-	else
-		ret = hmfs_file_fast_read(filp, buf, len, ppos);
-
-out:
-	mutex_unlock(&filp->f_inode->i_mutex);
-	return ret;
-}
 static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 				     size_t count, loff_t pos, loff_t *ppos)
 {
@@ -1065,17 +1099,3 @@ const struct inode_operations hmfs_file_inode_operations = {
 	.removexattr = generic_removexattr,
 #endif 
 };
-
-int init_ro_file_address_cache(void)
-{
-	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
-					sizeof(struct ro_file_address), NULL)	;
-	if (!ro_file_address_cachep)
-		return -ENOMEM;
-	return 0;
-}
-
-void destroy_ro_file_address_cache(void)
-{
-	kmem_cache_destroy(ro_file_address_cachep);
-}

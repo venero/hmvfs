@@ -1017,6 +1017,7 @@ void recursive_mark_nat_valid(struct hmfs_sb_info *sbi,
 			}
 		} else if (SUM_TYPE_INODE == blk_type){
 			//normal blk in inode
+			in = (struct hmfs_inode*) cur_nat_node;
 			for(j = 0; j < NORMAL_ADDRS_PER_INODE; j++){
 				child_node_addr = le64_to_cpu(in->i_addr[j]);
 				if(child_node_addr){//FIXME: unzeroed but meaningless data?
