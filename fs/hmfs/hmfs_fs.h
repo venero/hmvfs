@@ -257,7 +257,7 @@ struct hmfs_sit_entry {
 } __attribute__ ((packed));
 
 struct hmfs_sit_journal {
-	__le64 segno;//XXX 64?
+	__le32 segno;
 	struct hmfs_sit_entry entry;
 } __attribute__ ((packed));
 

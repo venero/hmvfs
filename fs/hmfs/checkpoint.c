@@ -515,6 +515,10 @@ static block_t flush_orphan_inodes(struct hmfs_sb_info *sbi)
 
 static int do_checkpoint(struct hmfs_sb_info *sbi)
 {
+	/*
+	 * FIXME:
+	 *  1. tainted super
+	 */
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
@@ -587,7 +591,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	//6. connect to super
 	hmfs_memcpy_atomic(&prev_checkpoint->next_cp_addr, &store_cp_addr, 8);
 	hmfs_memcpy_atomic(&next_checkpoint->prev_cp_addr, &store_cp_addr, 8);
-	hmfs_memcpy_atomic(&raw_super->cp_page_addr, &store_cp_addr, 8);
+	hmfs_memcpy_atomic(&raw_super->cp_page_addr, &store_cp_addr, 8);//FIXME:tainting sb
 	length = (char *)(&raw_super->checksum) - (char *)raw_super;
 	sb_checksum = crc16(~0, (char *)raw_super, length);
 	set_struct(raw_super, checksum, sb_checksum);
@@ -616,6 +620,57 @@ int write_checkpoint(struct hmfs_sb_info *sbi)
 	unblock_operations(sbi);
 	mutex_unlock(&cm_i->cp_mutex);
 	return ret;
+}
+
+static int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
+{
+	//XXX:after sbi initilization?
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
+	struct hmfs_summary *summary;
+	unsigned int sb_checksum;
+	ver_t store_version;
+	int length;
+	block_t store_checkpoint_addr = 0;
+	block_t nat_root_addr;
+	struct hmfs_nat_node *nat_root;
+	struct hmfs_checkpoint *next_cp;
+	struct hmfs_checkpoint *store_cp;
+	__le64 store_cp_addr;
+
+/* do */
+	/* 1. restore addr */
+	store_checkpoint_addr = le64_to_cpu(prev_cp->state_arg);
+	store_cp = ADDR(sbi, store_checkpoint_addr);
+
+	hmfs_bug_on(sbi, L_ADDR(sbi, prev_cp)!=le64_to_cpu(store_cp->prev_cp_addr));
+
+	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
+	set_summary_valid_bit(summary);
+
+	/* 2. flush cp-inlined SIT journal */
+	flush_sit_entries_from_cp(sbi, prev_cp);
+	
+	/* 3. mark valid */
+	store_version = le32_to_cpu(store_cp->checkpoint_ver);
+	nat_root = ADDR(sbi, le64_to_cpu(store_cp->nat_addr));
+	recursive_mark_nat_valid(sbi, nat_root, 0, store_version, sbi->nat_height);//XXX:height
+
+	/* 4. connect to super */
+	next_cp = ADDR(sbi, le64_to_cpu(store_cp->next_cp_addr));
+	hmfs_memcpy_atomic(&prev_cp->next_cp_addr, &store_cp_addr, 8);
+	hmfs_memcpy_atomic(&next_cp->prev_cp_addr, &store_cp_addr, 8);
+	hmfs_memcpy_atomic(&raw_super->cp_page_addr, &store_cp_addr, 8);
+	length = (char *)(&raw_super->checksum) - (char *)raw_super;
+	sb_checksum = crc16(~0, (char *)raw_super, length);
+	set_struct(raw_super, checksum, sb_checksum);
+	
+	//TODO: memory barrier?
+	raw_super = next_super_block(raw_super);
+	hmfs_memcpy(raw_super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
+
+	move_to_next_checkpoint(sbi, store_cp);
+
+	return 0;
 }
 
 //      Step1: delete all valid counter
@@ -649,3 +704,4 @@ int delete_checkpoint(struct hmfs_sb_info *sbi, unsigned int version)
 	dc_checkpoint(sbi, L_ADDR(sbi, checkpoint));
 	return 0;
 }
+

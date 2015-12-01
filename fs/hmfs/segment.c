@@ -237,12 +237,32 @@ void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *r
 			seg_entry = get_seg_entry(sbi, offset);
 			offset = offset + 1;
 			seg_info_to_raw_sit(seg_entry, sit_entry);
-			hmfs_memcpy_atomic(&raw_cp->sit_journals[journal_ofs].segno, &offset, 8);
+			hmfs_memcpy_atomic(&raw_cp->sit_journals[journal_ofs].segno, &offset, 4);
 			journal_ofs++;
 		} else
 			break;
 	}
 	mutex_unlock(&sit_i->sentry_lock);
+}
+
+void flush_sit_entries_from_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_sit_entry *sit_entry;
+	struct hmfs_sit_journal *sit_journal;
+	unsigned int i;
+	seg_t segno;
+
+	for(i=0; i<NUM_SIT_JOURNALS_IN_CP; i++){
+		sit_journal = &raw_cp->sit_journals[i];
+		segno = le32_to_cpu(sit_journal->segno);
+		if(!segno) {
+			//not valid journal
+			break;
+		}
+		sit_entry = get_sit_entry(sbi, segno);
+		seg_info_to_raw_sit(&sit_journal->entry, sit_entry);
+	}
 }
 
 void flush_sit_entries(struct hmfs_sb_info *sbi)

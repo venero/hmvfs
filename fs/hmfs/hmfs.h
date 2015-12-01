@@ -718,6 +718,7 @@ struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
 
 /* segment.c*/
+void flush_sit_entries_from_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp);
 void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp);
 void flush_sit_entries(struct hmfs_sb_info *sbi);
 int build_segment_manager(struct hmfs_sb_info *);
