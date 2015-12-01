@@ -21,6 +21,20 @@ enum FILE_TYPE {
 	HMFS_FT_MAX,
 };
 
+enum FS_STATE {
+	HMFS_NONE,		/* Normal state */
+	HMFS_GC_DATA,	/* Collect data garbage */
+	HMFS_GC_NODE,	/* Collect node garbage */
+	HMFS_CP_GC,		/* Do checkpoint for GC */
+	HMFS_RM_CP,		/* Delete a checkpoint */
+	HMFS_ADD_CP,	/* Do normal checkpoint */
+};
+
+enum {
+	CP_NORMAL,		/* Normal checkpoint */
+	CP_GC,			/* Checkpoint for GC */
+};
+
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
@@ -66,6 +80,9 @@ enum FILE_TYPE {
 #define align_segment_right(addr) (((addr) + HMFS_SEGMENT_SIZE - 1) & HMFS_SEGMENT_MASK)
 #define align_segment_left(addr) ((addr) & HMFS_SEGMENT_MASK)
 
+#define hmfs_make_checksum(obj)	crc16(~0, (void *)obj, (char *)(&obj->checksum) - \
+				(char *)obj)
+
 /* For directory operations */
 #define HMFS_DOT_HASH		0
 #define HMFS_DDOT_HASH		HMFS_DOT_HASH
@@ -98,6 +115,7 @@ enum FILE_TYPE {
 
 
 #define NUM_NAT_JOURNALS_IN_CP	8
+#define NUM_SIT_LOGS_IN_CP		10
 
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
@@ -129,13 +147,14 @@ enum FILE_TYPE {
 /* SSA */
 #define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
 #define SUM_ENTRY_PER_BLOCK (HMFS_SUMMARY_BLOCK_SIZE / sizeof(struct hmfs_summary))
-#define SUM_TYPE_DATA		(0)	//      data block
-#define SUM_TYPE_INODE		(1)	//      inode block
-#define SUM_TYPE_DN			(2)	//      direct block
-#define SUM_TYPE_NATN		(3)	//      nat node block
-#define SUM_TYPE_NATD		(4)	//      nat data block
-#define SUM_TYPE_IDN		(5)	//      indirect block
-#define SUM_TYPE_CP			(6)	//      checkpoint block
+#define SUM_TYPE_DATA		(0)		/* data block */
+#define SUM_TYPE_INODE		(1)		/* inode block */
+#define SUM_TYPE_DN			(2)		/* direct block */
+#define SUM_TYPE_NATN		(3)		/* nat node block */
+#define SUM_TYPE_NATD		(4)		/* nat data block */
+#define SUM_TYPE_IDN		(5)		/* indirect block */
+#define SUM_TYPE_CP			(6)		/* checkpoint block */
+#define SUM_TYPE_XDATA		(7) 	/* extended data block */
 
 
 
@@ -157,8 +176,8 @@ struct hmfs_super_block {
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
 
-	__le16 checksum;
 	u8 nat_height;
+	__le16 checksum;
 
 } __attribute__ ((packed));
 
@@ -186,7 +205,7 @@ struct hmfs_inode {
 	__le64 i_mtime;		/* modification time */
 	__le32 i_generation;	/* file version (for NFS) */
 	__le32 i_current_depth;	/* only for directory depth */
-	__le32 i_xattr_nid;	/* nid to save xattr */
+	__le64 i_xattr_addr;	/* address to save xattr */
 	__le32 i_flags;		/* file attributes */
 	__le32 i_pino;		/* parent inode number */
 	__le32 i_namelen;	/* file name length */
@@ -245,6 +264,12 @@ struct hmfs_sit_entry {
 	__le16 waste;
 } __attribute__ ((packed));
 
+struct hmfs_sit_log_entry {
+	__le32 segno;
+	__le32 mtime;
+	__le16 vblocks;
+} __attribute__ ((packed));
+
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
@@ -290,10 +315,25 @@ struct hmfs_checkpoint {
 
 	__le32 elapsed_time;
 
+	__u8 type;			/* CP_NORMAL or CP_GC */
+
 	/* NAT */
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
 	__le16 checksum;
+
+	__u8 state;				/* fs state, use set_fs_state */
+	/*
+	 * HMFS_GC_DATA: it represent (segno + 1) of current segment,
+	 * because segment 0 is a valid segment, and we use state_arg 0
+	 * to represent free state, thus we need add 1 to split segment 0 
+	 * ans state
+	 */
+	__le64 state_arg;		/* fs state arguments, for recovery */
+	__le64 state_arg_2;
+	struct hmfs_sit_log_entry sit_logs[NUM_SIT_LOGS_IN_CP];
+	__le16 nr_logs;
+
 } __attribute__ ((packed));
 
 
@@ -322,10 +362,10 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
 	__le32 nid;		/* parent node id */
-	__le32 dead_version;	/* version of checkpoint delete this block */
 	__le32 start_version;
-	__le16 count;		/*  */
-	__le16 ont;		/* ofs_in_node and type */
+	__le16 ofs_in_node;		/* offset in parent node */
+	__le16 bt;				/* valid bit and type */
+	__le32 waste_1;
 } __attribute__ ((packed));
 
 /* 8KB-sized summary block structure */
@@ -367,6 +407,56 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 		      "movnti %%eax,(%%rdi)\n"
 		      "12:\n":"=D" (dummy1), "=d"(dummy2):"D"(dest), "a"(qword),
 		      "d"(length):"memory", "rcx");
+}
+
+//FIXME: is this mov atomically
+/* use CPU instructions to atomically write up to 8 bytes */
+static inline void hmfs_memcpy_atomic(void *dest, const void *src, u8 size)
+{
+	switch (size) {
+	case 1: { 
+		volatile u8 *daddr = dest;
+		const u8 *saddr = src;
+		*daddr = *saddr;
+		break;
+	}
+	case 2: {
+		volatile __le16 *daddr = dest;
+		const u16 *saddr = src;
+		*daddr = cpu_to_le16(*saddr);
+		break;
+	}
+	case 4: {
+		volatile __le32 *daddr = dest;
+		const u32 *saddr = src;
+		*daddr = cpu_to_le32(*saddr);
+		break;
+	}
+	case 8: {
+		volatile __le64 *daddr = dest;
+		const u64 *saddr = src;
+		*daddr = cpu_to_le64(*saddr);
+		break;
+	}
+	default:
+		BUG();
+	}
+}
+
+static inline void set_fs_state_arg(struct hmfs_checkpoint *hmfs_cp, u64 value)
+{
+	hmfs_memcpy_atomic(&hmfs_cp->state_arg, &value, 8);
+}
+
+static inline void set_fs_state_arg_2(struct hmfs_checkpoint *hmfs_cp, u64 value)
+{
+	hmfs_memcpy_atomic(&hmfs_cp->state_arg_2, &value, 8);
+}
+
+static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)
+{
+	set_fs_state_arg(hmfs_cp, 0);
+	hmfs_memcpy_atomic(&hmfs_cp->state, &state, 1);
 }
 
 static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block

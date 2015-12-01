@@ -44,9 +44,20 @@
 					BUG();								\
 				}										\
 			} while(0)
+#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
+							__FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define hmfs_bug_on(sbi, condition)
+#define hmfs_dbg(fmt, ...)
 #endif
+
+/* Mount option */
+#define HMFS_MOUNT_BG_GC			0x00000001
+#define HMFS_MOUNT_XATTR_USER		0x00000002
+
+#define clear_opt(sbi, option)	(sbi->s_mount_opt &= ~HMFS_MOUNT_##option)
+#define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
+#define test_opt(sbi, option)	(sbi->s_mount_opt & HMFS_MOUNT_##option)
 
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
@@ -183,7 +194,6 @@ struct hmfs_sb_info {
 	unsigned int mnt_cp_version;	/* version of checkpoint for RO-Mount */
 	kuid_t uid;						/* user id */
 	kgid_t gid;						/* group id */
-	char support_bg_gc;				/* Support bg gc or not */
 	char deep_fmt;				/* whether set 0 of whole area of NVM */
 
 	/* FS statisic */
@@ -216,14 +226,17 @@ struct hmfs_sb_info {
 	/* Other */
 	struct list_head dirty_map_inodes;			/* Inodes which contains dirty DRAM page */
 	spinlock_t dirty_map_inodes_lock;			/* Lock of dirty map inodes list */
+	struct page *map_zero_page;					/* Empty page for hole in file */
+	u64 map_zero_page_number; 					/* pfn of above empty page */
 
-	int por_doing;								/* recovery is doing or not */
+	int recovery_doing;								/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
 };
 
 struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
+	unsigned char i_advise;				/* use to give file attribute hints */
 	hmfs_hash_t chash;					/* hash value of given file name */
 	unsigned int i_current_depth;		/* use only in directory structure */
 	unsigned int clevel;				/* maximum level of given file name */
@@ -233,11 +246,15 @@ struct hmfs_inode_info {
 	atomic_t nr_dirty_map_pages;
 	struct list_head list;
 	struct rw_semaphore i_sem;
+	void *read_addr;					/* Start address of read-only file */
 };
 
 struct hmfs_stat_info {
 	struct list_head stat_list;
 	struct hmfs_sb_info *sbi;
+
+	int nr_gc_try;			/* Time of call hmfs_gc */
+	int nr_gc_real;			/* Time of doing GC */
 };
 
 /*
@@ -254,7 +271,16 @@ struct dnode_of_data {
 	int level;						/* depth of data block */
 };
 
-
+/* 
+ * This structure is used to describe start address
+ * of an read-only file that has been remap into VMALLOC
+ * area. Because we save the struct pointer in struct file,
+ * we need some magic number to verify the identity of this struct
+ */
+struct ro_file_address {
+	unsigned long magic;
+	void *start_addr;
+};
 
 extern const struct file_operations hmfs_file_operations;
 extern const struct file_operations hmfs_dir_operations;
@@ -360,6 +386,11 @@ static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
 
 	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
 		mutex_lock(&sbi->fs_lock[i]);
+}
+
+static inline u64 pfn_from_vaddr(struct hmfs_sb_info *sbi, void *vaddr)
+{
+	return (sbi->phys_addr + L_ADDR(sbi, vaddr)) >> PAGE_SHIFT;
 }
 
 static inline void mutex_unlock_all(struct hmfs_sb_info *sbi)
@@ -477,8 +508,7 @@ static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	}
 	if (inode)
 		inode->i_blocks += count;
-	if (inode && inode->i_ino == HMFS_ROOT_INO) 
-		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,(int)inode->i_blocks);
+
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
 	cm_i->left_blocks_count[CURSEG_DATA] -= count;
@@ -596,15 +626,13 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
 static inline void make_summary_entry(struct hmfs_summary *summary,
 				      nid_t nid,
 				      ver_t start_version,
-				      unsigned int count,
 				      unsigned int ofs_in_node,
 				      unsigned char type)
 {
 	summary->nid = cpu_to_le32(nid);
 	summary->start_version = cpu_to_le32(start_version);
-	summary->count = cpu_to_le16(count);
-	summary->dead_version = HMFS_DEF_DEAD_VER;
-	summary->ont = cpu_to_le16((ofs_in_node << 7) | (type & 0x7f));
+	summary->ofs_in_node = cpu_to_le16(ofs_in_node);
+	summary->bt = cpu_to_le16(type);
 }
 
 static inline nid_t get_summary_nid(struct hmfs_summary *summary)
@@ -612,14 +640,9 @@ static inline nid_t get_summary_nid(struct hmfs_summary *summary)
 	return le32_to_cpu(summary->nid);
 }
 
-static inline unsigned int get_summary_count(struct hmfs_summary *summary)
-{
-	return le16_to_cpu(summary->count);
-}
-
 static inline unsigned int get_summary_offset(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->ont) >> 7;
+	return le16_to_cpu(summary->ofs_in_node);
 }
 
 static inline ver_t get_summary_start_version(struct hmfs_summary
@@ -630,41 +653,37 @@ static inline ver_t get_summary_start_version(struct hmfs_summary
 
 static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->ont) & 0x7f;
+	return le16_to_cpu(summary->bt) & 0x7f;
 }
 
-static inline ver_t get_summary_dead_version(struct hmfs_summary
-						    *summary)
+static inline int get_summary_valid_bit(struct hmfs_summary *summary)
 {
-	return le32_to_cpu(summary->dead_version);
+	return le16_to_cpu(summary->bt) & (~0x7f);
 }
 
-static inline void set_summary_count(struct hmfs_summary *summary, int count)
+static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 {
-	summary->count = cpu_to_le16(count);
+	int bt = le16_to_cpu(summary->bt);
+
+	bt |= 0x80;
+	summary->bt = cpu_to_le16(bt);
 }
 
-static inline void inc_summary_count(struct hmfs_summary *summary)
+static inline void set_summary_type(struct hmfs_summary *summary, int type)
 {
-	int count = get_summary_count(summary);
-	count++;
-	set_summary_count(summary, count);
+	int t = le16_to_cpu(summary->bt);
+	t &= ~0x7f;
+	t |= type & 0x7f;
+	summary->bt = cpu_to_le16(t);
 }
 
-static inline void dec_summary_count(struct hmfs_summary *summary)
+static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 {
-	int count = get_summary_count(summary);
-	BUG_ON(count - 1 < 0);
-	set_summary_count(summary, count - 1);
+	int bt = le16_to_cpu(summary->bt);
+
+	bt &= 0x7f;
+	summary->bt = cpu_to_le16(bt);
 }
-
-static inline void set_summary_dead_version(struct hmfs_summary *summary,
-					    unsigned int version)
-{
-	summary->dead_version = cpu_to_le32(version);
-}
-
-
 
 
 /* define prototype function */
@@ -686,13 +705,26 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+#ifdef CONFIG_HMFS_FAST_READ
+int init_ro_file_address_cache(void);
+void destroy_ro_file_address_cache(void);
+#else
+#define init_ro_file_address_cache()	(0)
+#define destroy_ro_file_address_cache()
+#endif
 
 /* debug.c */
+#ifdef CONFIG_HMFS_DEBUG
 void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
-
+#else
+#define hmfs_destroy_stats(sbi)
+#define hmfs_destroy_root_stat()
+#define hmfs_build_stats(sbi) 	0
+#define hmfs_create_root_stat()
+#endif
 struct node_info;
 
 /* node.c */
@@ -722,13 +754,13 @@ struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, ver_t version,
 				     nid_t nid);
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
-void setup_summary_of_delete_node(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* segment.c*/
-void flush_sit_entries(struct hmfs_sb_info *sbi);
+void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp);
+void recovery_sit_entries(struct hmfs_sb_info *sbi,
+				struct hmfs_checkpoint *hmfs_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
-void allocate_new_segments(struct hmfs_sb_info *sbi);
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 					     seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
@@ -737,6 +769,8 @@ block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
 block_t alloc_free_node_block(struct hmfs_sb_info *sbi);
 unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
 				   seg_t segno, int blkoff);
+void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
+				int *segoff, int seg_type);
 void dc_nat_root(struct hmfs_sb_info *sbi, block_t nat_root_addr);
 void dc_checkpoint(struct hmfs_sb_info *sbi, block_t cp_addr);
 void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr);
@@ -763,11 +797,15 @@ void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-int write_checkpoint(struct hmfs_sb_info *sbi);
+int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
-					    unsigned int version);
+					    unsigned int version, bool no_fail);
+struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
+				struct checkpoint_info *cp_i);
+void check_checkpoint_state(struct hmfs_sb_info *sbi);
 
 /* data.c */
+void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    int *size, int mode);
 void *alloc_new_data_block(struct inode *inode, int block);
@@ -804,10 +842,19 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
+void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);
 
+/* xattr.c */
+ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 
+/* util.c */
+#ifdef CONFIG_HMFS_FAST_READ
+int init_util_function(void);
+#else
+#define init_util_function()	(0)
+#endif
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {

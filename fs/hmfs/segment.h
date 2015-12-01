@@ -1,5 +1,5 @@
-#ifndef SEGMENT_H
-#define SEGMENT_H
+#ifndef HMFS_SEGMENT_H
+#define HMFS_SEGMENT_H
 
 #include "hmfs.h"
 
@@ -57,6 +57,7 @@ struct curseg_info {
 	seg_t segno;				/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
 	seg_t next_segno;			/* preallocated segment */
+	bool use_next_segno;		/* For GC crash recovery */
 };
 
 struct hmfs_sm_info {
