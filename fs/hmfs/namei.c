@@ -1,4 +1,5 @@
 #include <linux/fs.h>
+#include <linux/xattr.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
@@ -406,9 +407,21 @@ const struct inode_operations hmfs_dir_inode_operations = {
 	.setattr = hmfs_setattr,
 	.rmdir = hmfs_rmdir,
 	.rename = hmfs_rename,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif
 };
 
 const struct inode_operations hmfs_special_inode_operations = {
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif
 };

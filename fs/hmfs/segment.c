@@ -69,14 +69,19 @@ static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
  * @newseg returns the found segment
  * must be success (otherwise cause error)
  */
-static void get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
+static void get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg,
+				seg_t hint, bool use_hint)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	seg_t segno;
 	bool retry = false;
 
 	write_lock(&free_i->segmap_lock);
-
+	if (use_hint) {
+		hmfs_bug_on(sbi, !sbi->recovery_doing);
+		segno = hint;
+		goto found;
+	}
 retry:
 	segno = find_next_zero_bit(free_i->free_segmap,
 				   TOTAL_SEGS(sbi), *newseg);
@@ -89,6 +94,7 @@ retry:
 		hmfs_bug_on(sbi, 1);
 	}
 
+found:
 	hmfs_bug_on(sbi, test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
 	*newseg = segno;
@@ -100,7 +106,8 @@ static void move_to_new_segment(struct hmfs_sb_info *sbi,
 {
 	seg_t segno = seg_i->segno;
 
-	get_new_segment(sbi, &segno);
+	get_new_segment(sbi, &segno, seg_i->next_segno,
+					seg_i->use_next_segno);
 	seg_i->next_segno = segno;
 	reset_curseg(seg_i);
 }
@@ -167,6 +174,7 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	node_next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
 	node_seg_i->next_blkoff = node_next_blkoff;
 	node_seg_i->next_segno = 0;
+	node_seg_i->use_next_segno = false;
 	mutex_unlock(&node_seg_i->curseg_mutex);
 
 	data_seg_i = &seg_i[CURSEG_DATA];
@@ -175,6 +183,7 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	data_next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
 	data_seg_i->next_blkoff = data_next_blkoff;
 	data_seg_i->next_segno = 0;
+	data_seg_i->use_next_segno = false;
 	mutex_unlock(&data_seg_i->curseg_mutex);
 
 	spin_lock(&cm_i->stat_lock);
@@ -186,27 +195,52 @@ static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
-/* 
- * new_curseg -- Allocate a current working segment.
- * XXX : use this instead of s_op 
- *
- */
-static void new_curseg(struct hmfs_sb_info *sbi)
+static void flush_ssa_valid_bits(struct hmfs_sb_info *sbi, seg_t segno,
+				int end_blk, int set_bit)
 {
-	struct curseg_info *curseg = CURSEG_I(sbi);
-	seg_t segno = curseg->segno;
+	struct hmfs_summary_block *sum_blk = get_summary_block(sbi, segno);
+	struct hmfs_summary *sum = (struct hmfs_summary *)sum_blk;
+	int i = 0;
 
-	get_new_segment(sbi, &segno);
-	curseg->next_segno = segno;
+	for (; i < end_blk; i++, sum++) {
+		if (set_bit)
+			set_summary_valid_bit(sum);
+		else
+			clear_summary_valid_bit(sum);
+	}
+}
+
+void recovery_sit_entries(struct hmfs_sb_info *sbi,
+				struct hmfs_checkpoint *hmfs_cp)
+{
+	int nr_logs, i;
+	struct hmfs_sit_log_entry *sit_log;
+	struct hmfs_sit_entry *sit_entry;
+	int vblocks;
+	seg_t segno;
+
+	nr_logs = le16_to_cpu(hmfs_cp->nr_logs);
+	for (i = 0, sit_log = hmfs_cp->sit_logs; i < nr_logs; i++, sit_log++) {
+		segno = le32_to_cpu(sit_log->segno);
+		sit_entry = get_sit_entry(sbi, segno);
+		sit_entry->mtime = sit_log->mtime;
+		sit_entry->vblocks = sit_log->vblocks;
+		vblocks = le16_to_cpu(sit_log->vblocks);
+
+		if (vblocks) {
+			flush_ssa_valid_bits(sbi, segno, vblocks, 1);
+		} else {
+			flush_ssa_valid_bits(sbi, segno, HMFS_PAGE_PER_SEG, 0);
+		}
+	}
 }
 
 void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	unsigned long offset = 0, journal_ofs;
+	unsigned long offset = 0, i;
 	pgc_t total_segs = TOTAL_SEGS(sbi);
-	struct hmfs_sit_entry *sit_entry;
-	struct seg_entry *seg_entry;
+	struct seg_entry *se;
 	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
 #ifdef CONFIG_HMFS_DEBUG
 	pgc_t nrdirty = 0;
@@ -224,21 +258,20 @@ void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *r
 	hmfs_bug_on(sbi, nrdirty != sit_i->dirty_sentries);
 	mutex_unlock(&sit_i->sentry_lock);
 #endif
-	hmfs_bug_on(sbi, sit_i->dirty_sentries > NUM_SIT_JOURNALS_IN_CP);
+	hmfs_bug_on(sbi, sit_i->dirty_sentries > NUM_SIT_LOGS_IN_CP);
 
 	mutex_lock(&sit_i->sentry_lock);
 
-	memset_nt(raw_cp->sit_journals, 0, sizeof(struct hmfs_sit_journal)*NUM_SIT_JOURNALS_IN_CP);
-	journal_ofs = 0;
-	while (journal_ofs < sit_i->dirty_sentries) {
+	memset_nt(raw_cp->sit_logs, 0, sizeof(struct hmfs_sit_log_entry)*NUM_SIT_LOGS_IN_CP);
+
+	for(i=0; i< sit_i->dirty_sentries; i++){
 		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs) {
-			sit_entry = &raw_cp->sit_journals[journal_ofs].entry;
-			seg_entry = get_seg_entry(sbi, offset);
+			se = get_seg_entry(sbi, offset);
+			hmfs_memcpy_atomic(&raw_cp->sit_logs[i].segno, &offset, 4);
+			raw_cp->sit_logs[i].mtime = cpu_to_le32(se->mtime);
+			raw_cp->sit_logs[i].vblocks = cpu_to_le16(se->valid_blocks);
 			offset = offset + 1;
-			seg_info_to_raw_sit(seg_entry, sit_entry);
-			hmfs_memcpy_atomic(&raw_cp->sit_journals[journal_ofs].segno, &offset, 4);
-			journal_ofs++;
 		} else
 			break;
 	}
@@ -247,25 +280,25 @@ void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *r
 
 void flush_sit_entries_from_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
 {
-	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_sit_entry *sit_entry;
-	struct hmfs_sit_journal *sit_journal;
+	struct hmfs_sit_log_entry *sit_log;
 	unsigned int i;
 	seg_t segno;
 
-	for(i=0; i<NUM_SIT_JOURNALS_IN_CP; i++){
-		sit_journal = &raw_cp->sit_journals[i];
-		segno = le32_to_cpu(sit_journal->segno);
+	for(i=0; i<NUM_SIT_LOGS_IN_CP; i++){
+		sit_log = &raw_cp->sit_logs[i];
+		segno = le32_to_cpu(sit_log->segno);
 		if(!segno) {
 			//not valid journal
 			break;
 		}
 		sit_entry = get_sit_entry(sbi, segno);
-		seg_info_to_raw_sit(&sit_journal->entry, sit_entry);
+		sit_entry->mtime = sit_log->mtime;
+		sit_entry->vblocks = sit_log->vblocks;
 	}
 }
 
-void flush_sit_entries(struct hmfs_sb_info *sbi)
+void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long offset = 0;
@@ -273,6 +306,9 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 	struct hmfs_sit_entry *sit_entry;
 	struct seg_entry *seg_entry;
 	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
+	int nr_logs = 0;
+	struct hmfs_sit_log_entry *sit_log;
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
 #ifdef CONFIG_HMFS_DEBUG
 	pgc_t nrdirty = 0;
 
@@ -291,6 +327,29 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 #endif
 	mutex_lock(&sit_i->sentry_lock);
 
+	/* First, copy all dirty seg_entry to cp */
+	sit_log = hmfs_cp->sit_logs;
+	while (1) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs) {
+			seg_entry = get_seg_entry(sbi, offset);
+			sit_log->segno = cpu_to_le32(offset);
+			sit_log->mtime = cpu_to_le32(seg_entry->mtime);
+			sit_log->vblocks = cpu_to_le32(seg_entry->valid_blocks);
+			sit_log++;
+			nr_logs++;
+			offset = offset + 1;
+		} else
+			break;
+	}
+	offset = 0;
+	hmfs_cp->nr_logs = cpu_to_le16(nr_logs);
+	hmfs_bug_on(sbi, gc_cp && nr_logs > 2);
+
+	if (gc_cp)
+		set_fs_state(hmfs_cp, HMFS_CP_GC);
+
+	/* Then, copy all dirty seg_entry to SIT area */
 	while (1) {
 		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs) {
@@ -301,19 +360,36 @@ void flush_sit_entries(struct hmfs_sb_info *sbi)
 		} else
 			break;
 	}
+
+	/* Finally, set valid bit in SSA */
+	offset = 0;
+	nr_logs = 0;
+	while (1) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs) {
+			seg_entry = get_seg_entry(sbi, offset);
+			if (gc_cp) {
+				if (seg_entry->valid_blocks) {
+					flush_ssa_valid_bits(sbi, offset, 
+									seg_entry->valid_blocks, 1);
+				} else {
+					flush_ssa_valid_bits(sbi, offset, HMFS_PAGE_PER_SEG, 0);
+				}
+			} else {
+				flush_ssa_valid_bits(sbi, offset, seg_entry->valid_blocks, 1);
+				hmfs_bug_on(sbi, !seg_entry->valid_blocks);
+			}
+#ifdef CONFIG_HMFS_DEBUG
+			if (seg_entry->valid_blocks < HMFS_PAGE_PER_SEG)
+				nr_logs++;
+#endif
+		} else
+			break;
+	}
+	hmfs_bug_on(sbi, nr_logs > 1 && gc_cp);
 	sit_i->dirty_sentries = 0;
 	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
 	mutex_unlock(&sit_i->sentry_lock);
-}
-
-void allocate_new_segments(struct hmfs_sb_info *sbi)
-{
-	struct curseg_info *curseg;
-	seg_t old_curseg;
-
-	curseg = CURSEG_I(sbi);
-	old_curseg = curseg->segno;
-	new_curseg(sbi);
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,

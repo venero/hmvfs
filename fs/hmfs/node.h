@@ -1,5 +1,5 @@
-#ifndef NODE_H
-#define NODE_H
+#ifndef HMFS_NODE_H
+#define HMFS_NODE_H
 
 #include "hmfs.h"
 #include "hmfs_fs.h"
