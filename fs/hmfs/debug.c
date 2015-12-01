@@ -1,5 +1,3 @@
-#ifdef CONFIG_HMFS_DEBUG
-
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -721,4 +719,3 @@ inline void hmfs_call_trace(void)
 	tprint("<%s> Caller2 is %pS\n", __FUNCTION__,
 	       __builtin_return_address(2));
 }
-#endif

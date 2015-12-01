@@ -307,7 +307,7 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 {
 	block_t rs_cp_addr, nx_cp_addr;	
 	struct hmfs_checkpoint *rs_cp, *nx_cp;
-	struct hmfs_super_block *raw_super;
+	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	int checksum;
 
 	/* If HMFS_CP_GC set, we have taken store_checkpoint_addr */
@@ -332,7 +332,6 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 	checksum = hmfs_make_checksum(rs_cp);
 	set_struct(rs_cp, checksum, checksum);
 
-	raw_super = HMFS_RAW_SUPER(sbi);
 	checksum = hmfs_make_checksum(raw_super);
 	set_struct(raw_super, checksum, checksum);
 

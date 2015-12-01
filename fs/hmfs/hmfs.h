@@ -708,16 +708,22 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
 int init_ro_file_address_cache(void);
 void destroy_ro_file_address_cache(void);
 #else
-#define init_ro_file_address_cache
-#define destroy_ro_file_address_cache
+#define init_ro_file_address_cache()	(0)
+#define destroy_ro_file_address_cache()
 #endif
 
 /* debug.c */
+#ifdef CONFIG_HMFS_DEBUG
 void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
-
+#else
+#define hmfs_destroy_stats(sbi)
+#define hmfs_destroy_root_stat()
+#define hmfs_build_stats(sbi) 	0
+#define hmfs_create_root_stat()
+#endif
 struct node_info;
 
 /* node.c */
@@ -846,7 +852,7 @@ ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 #ifdef CONFIG_HMFS_FAST_READ
 int init_util_function(void);
 #else
-#define init_util_function
+#define init_util_function()	(0)
 #endif
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)

@@ -14,7 +14,9 @@
 #include "hmfs.h"
 #include "util.h"
 
+#ifdef CONFIG_HMFS_FAST_READ
 static struct kmem_cache *ro_file_address_cachep;
+#endif
 
 static unsigned int start_block(unsigned int i, int level)
 {
@@ -463,6 +465,20 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 out:
 	mutex_unlock(&filp->f_inode->i_mutex);
 	return ret;
+}
+
+int init_ro_file_address_cache(void)
+{
+	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
+					sizeof(struct ro_file_address), NULL)	;
+	if (!ro_file_address_cachep)
+		return -ENOMEM;
+	return 0;
+}
+
+void destroy_ro_file_address_cache(void)
+{
+	kmem_cache_destroy(ro_file_address_cachep);
 }
 
 #else
@@ -1084,16 +1100,4 @@ const struct inode_operations hmfs_file_inode_operations = {
 #endif 
 };
 
-int init_ro_file_address_cache(void)
-{
-	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
-					sizeof(struct ro_file_address), NULL)	;
-	if (!ro_file_address_cachep)
-		return -ENOMEM;
-	return 0;
-}
 
-void destroy_ro_file_address_cache(void)
-{
-	kmem_cache_destroy(ro_file_address_cachep);
-}
