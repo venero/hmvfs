@@ -236,70 +236,8 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 	}
 }
 
-void flush_sit_entries_to_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
-{
-	struct sit_info *sit_i = SIT_I(sbi);
-	unsigned long offset = 0, i;
-	pgc_t total_segs = TOTAL_SEGS(sbi);
-	struct seg_entry *se;
-	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
-#ifdef CONFIG_HMFS_DEBUG
-	pgc_t nrdirty = 0;
-
-	mutex_lock(&sit_i->sentry_lock);
-	while (1) {
-		offset = find_next_bit(bitmap, total_segs, offset);
-		if (offset < total_segs)
-			nrdirty++;
-		else
-			break;
-		offset++;
-	}
-	offset = 0;
-	hmfs_bug_on(sbi, nrdirty != sit_i->dirty_sentries);
-	mutex_unlock(&sit_i->sentry_lock);
-#endif
-	hmfs_bug_on(sbi, sit_i->dirty_sentries > NUM_SIT_LOGS_IN_CP);
-
-	mutex_lock(&sit_i->sentry_lock);
-
-	memset_nt(raw_cp->sit_logs, 0, sizeof(struct hmfs_sit_log_entry)*NUM_SIT_LOGS_IN_CP);
-
-	for(i=0; i< sit_i->dirty_sentries; i++){
-		offset = find_next_bit(bitmap, total_segs, offset);
-		if (offset < total_segs) {
-			se = get_seg_entry(sbi, offset);
-			hmfs_memcpy_atomic(&raw_cp->sit_logs[i].segno, &offset, 4);
-			raw_cp->sit_logs[i].mtime = cpu_to_le32(se->mtime);
-			raw_cp->sit_logs[i].vblocks = cpu_to_le16(se->valid_blocks);
-			offset = offset + 1;
-		} else
-			break;
-	}
-	mutex_unlock(&sit_i->sentry_lock);
-}
-
-void flush_sit_entries_from_cp(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *raw_cp)
-{
-	struct hmfs_sit_entry *sit_entry;
-	struct hmfs_sit_log_entry *sit_log;
-	unsigned int i;
-	seg_t segno;
-
-	for(i=0; i<NUM_SIT_LOGS_IN_CP; i++){
-		sit_log = &raw_cp->sit_logs[i];
-		segno = le32_to_cpu(sit_log->segno);
-		if(!segno) {
-			//not valid journal
-			break;
-		}
-		sit_entry = get_sit_entry(sbi, segno);
-		sit_entry->mtime = sit_log->mtime;
-		sit_entry->vblocks = sit_log->vblocks;
-	}
-}
-
-void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp)
+void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
+				bool gc_cp)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long offset = 0;
@@ -310,6 +248,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp)
 	int nr_logs = 0;
 	struct hmfs_sit_log_entry *sit_log;
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+
 #ifdef CONFIG_HMFS_DEBUG
 	pgc_t nrdirty = 0;
 
@@ -347,8 +286,12 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, bool gc_cp)
 	hmfs_cp->nr_logs = cpu_to_le16(nr_logs);
 	hmfs_bug_on(sbi, gc_cp && nr_logs > 2);
 
+	set_fs_state_arg_2(hmfs_cp, new_cp_addr);
 	if (gc_cp)
 		set_fs_state(hmfs_cp, HMFS_CP_GC);
+	else {
+		set_fs_state(hmfs_cp, HMFS_ADD_CP);
+	}
 
 	/* Then, copy all dirty seg_entry to SIT area */
 	while (1) {

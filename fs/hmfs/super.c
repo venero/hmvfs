@@ -180,7 +180,6 @@ static int hmfs_format(struct super_block *sb)
 	block_t sit_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
-	int length;
 	struct hmfs_super_block *super;
 	struct hmfs_sb_info *sbi;
 	struct hmfs_checkpoint *cp;
@@ -360,8 +359,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, next_scan_nid, 4);
 	set_struct(cp, elapsed_time, 0);
 
-	length = (char *)(&cp->checksum) - (char *)cp;
-	cp_checksum = crc16(~0, (void *)cp, length);
+	cp_checksum = hmfs_make_checksum(cp);
 	cp->checksum = cpu_to_le16(cp_checksum);
 
 /* setup super block */
@@ -379,8 +377,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(super, main_blkaddr, main_addr);
 	set_struct(super, cp_page_addr, cp_addr);
 
-	length = (char *)(&super->checksum) - (char *)super;
-	sb_checksum = crc16(~0, (char *)super, length);
+	sb_checksum = hmfs_make_checksum(super);
 	set_struct(super, checksum, sb_checksum);
 
 /* copy another super block */
@@ -391,21 +388,18 @@ static int hmfs_format(struct super_block *sb)
 
 static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 {
-	int length;
 	struct hmfs_super_block *super_1, *super_2;
 	u16 checksum, real_checksum;
 
 	super_1 = start_addr;
-	//TODO: write checksum function
-	length = (void *)(&super_1->checksum) - (void *)super_1;
-	checksum = crc16(~0, (void *)super_1, length);
+	checksum = hmfs_make_checksum(super_1);
 	real_checksum = le16_to_cpu(super_1->checksum);
 	if (real_checksum == checksum && super_1->magic == HMFS_SUPER_MAGIC) {
 		return super_1;
 	}
 
 	super_2 = start_addr + align_page_right(sizeof(struct hmfs_super_block));
-	checksum = crc16(~0, (void *)super_2, length);
+	checksum = hmfs_make_checksum(super_2);
 	real_checksum = le16_to_cpu(super_2->checksum);
 	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
 		hmfs_memcpy(super_1, super_2, sizeof(struct hmfs_super_block));

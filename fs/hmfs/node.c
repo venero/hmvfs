@@ -980,69 +980,6 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 	return cur_stored_addr;
 }
 
-void recursive_mark_nat_valid(struct hmfs_sb_info *sbi,
-					 struct hmfs_nat_node *cur_nat_node,
-					 unsigned int blk_order, unsigned int version, u8 height)
-{
-	//FIXME : cannot handle no NVM space for nat tree
-	struct hmfs_nat_node *cur_child_node = NULL;
-	struct direct_node *dn;
-	struct hmfs_inode *in;
-	struct hmfs_summary *raw_summary;
-	block_t cur_node_addr, child_node_addr;
-	unsigned int i, j, new_blk_order, _ofs;
-	unsigned short blk_type;
-
-	BUG_ON(!cur_nat_node);
-	cur_node_addr = L_ADDR(sbi, cur_nat_node);
-	raw_summary = get_summary_by_addr(sbi, cur_node_addr);
-	if(get_summary_start_version(raw_summary) != version){
-		//not this version created
-		return;
-	}
-	set_summary_valid_bit(raw_summary);
-
-	//leaf, alloc & copy nat entry block 
-	if (!height) {
-		blk_type = get_summary_type(raw_summary);
-		if(SUM_TYPE_DN == blk_type){
-			//direct node
-			dn = (struct direct_node*) cur_nat_node;
-			for(j = 0; j < ADDRS_PER_BLOCK; j++){
-				child_node_addr = le64_to_cpu(dn->addr[j]);
-				if(child_node_addr){//FIXME: unzeroed but meaningless data?
-					raw_summary = get_summary_by_addr(sbi, cur_node_addr);
-					set_summary_valid_bit(raw_summary);
-				}
-			}
-		} else if (SUM_TYPE_INODE == blk_type){
-			//normal blk in inode
-			in = (struct hmfs_inode*) cur_nat_node;
-			for(j = 0; j < NORMAL_ADDRS_PER_INODE; j++){
-				child_node_addr = le64_to_cpu(in->i_addr[j]);
-				if(child_node_addr){//FIXME: unzeroed but meaningless data?
-					raw_summary = get_summary_by_addr(sbi, cur_node_addr);
-					set_summary_valid_bit(raw_summary);
-				}
-			}
-		}
-		return;
-	}
-	//go to child
-	new_blk_order = blk_order & ((1 << ((height - 1) * LOG2_NAT_ADDRS_PER_NODE)) - 1);
-
-	for(i=0; i<NAT_ADDR_PER_NODE; i++){
-		child_node_addr = le64_to_cpu(cur_nat_node->addr[i]);
-		if(child_node_addr){
-			_ofs = (i << ((height-1) * LOG2_NAT_ADDRS_PER_NODE)) + new_blk_order;
-			cur_child_node = ADDR(sbi, child_node_addr);
-			recursive_mark_nat_valid(sbi, cur_child_node, _ofs, version ,height-1); 
-		}
-	}
-	return;
-}
-
-
 static inline void clean_dirty_nat_entries(struct hmfs_sb_info *sbi) 
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
