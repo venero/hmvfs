@@ -598,8 +598,12 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	struct sit_info *sit_i = SIT_I(sbi);
 	int ret = 0;
 
-	if (!sit_i->dirty_sentries)
+	mutex_lock(&sit_i->sentry_lock);
+	if (!sit_i->dirty_sentries) {
+		mutex_unlock(&sit_i->sentry_lock);
 		return 0;
+	}
+
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
 		ret = write_checkpoint(sbi, false);
@@ -610,6 +614,7 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 			ret = hmfs_gc(sbi, FG_GC);
 		}
 	}
+	mutex_unlock(&sit_i->sentry_lock);
 	return ret;
 }
 

@@ -113,7 +113,7 @@ static void move_to_new_segment(struct hmfs_sb_info *sbi,
 	reset_curseg(seg_i);
 }
 
-static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
+static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_lock)
 {
 	block_t page_addr = 0;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -123,9 +123,12 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type)
 	mutex_lock(&seg_i->curseg_mutex);
 	page_addr = cal_page_addr(sbi, seg_i);
 
-	mutex_lock(&sit_i->sentry_lock);
+	if (sit_lock)
+		mutex_lock(&sit_i->sentry_lock);
 	update_sit_entry(sbi, seg_i->segno, 1);
-	mutex_unlock(&sit_i->sentry_lock);
+	
+	if (sit_lock)
+		mutex_unlock(&sit_i->sentry_lock);
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
@@ -154,12 +157,12 @@ void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 
 block_t alloc_free_data_block(struct hmfs_sb_info * sbi)
 {
-	return get_free_block(sbi, CURSEG_DATA);
+	return get_free_block(sbi, CURSEG_DATA, true);
 }
 
-block_t alloc_free_node_block(struct hmfs_sb_info * sbi)
+block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
 {
-	return get_free_block(sbi, CURSEG_NODE);
+	return get_free_block(sbi, CURSEG_NODE, sit_lock);
 }
 
 static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
@@ -252,7 +255,6 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 #ifdef CONFIG_HMFS_DEBUG
 	pgc_t nrdirty = 0;
 
-	mutex_lock(&sit_i->sentry_lock);
 	while (1) {
 		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs)
@@ -263,9 +265,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 	}
 	offset = 0;
 	hmfs_bug_on(sbi, nrdirty != sit_i->dirty_sentries);
-	mutex_unlock(&sit_i->sentry_lock);
 #endif
-	mutex_lock(&sit_i->sentry_lock);
 
 	/* First, copy all dirty seg_entry to cp */
 	sit_log = hmfs_cp->sit_logs;
@@ -333,7 +333,6 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 	hmfs_bug_on(sbi, nr_logs > 1 && gc_cp);
 	sit_i->dirty_sentries = 0;
 	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
-	mutex_unlock(&sit_i->sentry_lock);
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,

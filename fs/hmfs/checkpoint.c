@@ -157,6 +157,49 @@ static void sync_checkpoint_info(struct hmfs_sb_info *sbi,
 	cp->cp = hmfs_cp;
 }
 
+/*
+ * Before doing checkpoint, we need to write all seg_entry in DRAM to
+ * last valid checkpoint block. And We have only NUM_SIT_LOGS_NORMAL 
+ * slots. Thus we should check whether # of dirty sit entries is exceed
+ * the amount.
+ */
+int hmfs_to_do_checkpoint(struct hmfs_sb_info *sbi, int nr_node_block,
+				int nr_data_block)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned long nr_dirty_sit;
+	bool do_checkpoint = false;
+	int ret = 0;
+
+	mutex_lock(&sit_i->sentry_lock);
+	spin_lock(&cm_i->stat_lock);
+	nr_dirty_sit = sit_i->dirty_sentries;
+	
+	hmfs_bug_on(sbi, nr_dirty_sit > NUM_SIT_LOGS_NORMAL);
+
+	if (cm_i->left_blocks_count[CURSEG_DATA] < nr_data_block)
+		nr_dirty_sit++;
+
+	if (cm_i->left_blocks_count[CURSEG_NODE] < nr_node_block)
+		nr_dirty_sit++;
+
+	
+	if (nr_dirty_sit > NUM_SIT_LOGS_NORMAL) {
+		hmfs_dbg("Dirty sit entries exceed\n");
+		do_checkpoint = true;
+	}
+	
+	spin_unlock(&cm_i->stat_lock);
+	mutex_unlock(&sit_i->sentry_lock);
+	
+	if (unlikely(do_checkpoint)) {
+		ret = hmfs_sync_fs(sbi->sb, true);	
+	}
+
+	return ret;
+}
+
 static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 				    struct hmfs_checkpoint *prev_checkpoint)
 {

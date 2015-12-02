@@ -590,7 +590,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return ERR_PTR(-EPERM);
 
-	blk_addr = alloc_free_node_block(sbi);
+	blk_addr = alloc_free_node_block(sbi, true);
 	dest = ADDR(sbi, blk_addr);
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
@@ -617,14 +617,14 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 	if (sum_type == SUM_TYPE_NATD || sum_type == SUM_TYPE_NATN) {
 		if (!inc_valid_node_count(sbi, NULL, 1))
 			return ERR_PTR(-ENOSPC);
-		addr = alloc_free_node_block(sbi);
+		addr = alloc_free_node_block(sbi, false);
 		return ADDR(sbi, addr);
 	}
 
 	if (sum_type == SUM_TYPE_CP) {
 		if (!inc_valid_node_count(sbi, NULL, 1))
 			return ERR_PTR(-ENOSPC);
-		addr = alloc_free_node_block(sbi);
+		addr = alloc_free_node_block(sbi, false);
 		memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
 		return ADDR(sbi, addr);
 	}
@@ -632,7 +632,7 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 	if (!inc_gc_block_count(sbi, CURSEG_NODE))
 		return ERR_PTR(-ENOSPC);
 	sbi = HMFS_I_SB(inode);
-	addr = alloc_free_node_block(sbi);
+	addr = alloc_free_node_block(sbi, true);
 	return ADDR(sbi, addr);
 }
 

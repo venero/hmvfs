@@ -113,10 +113,14 @@ enum {
 				HMFS_SLOT_LEN) * \
 				NR_DENTRY_IN_BLOCK + SIZE_OF_DENTRY_BITMAP))
 
-
+//TODO
 #define NUM_NAT_JOURNALS_IN_CP	8
 //?(sizeof(struct hmfs_checkpoint))-(void*)(((struct hmfs_checkpoint*)(0))->sit_journals)
-#define NUM_SIT_LOGS_IN_CP		10
+//TODO
+/* number of all sit logs in checkpoint */
+#define NUM_SIT_LOGS_IN_CP		10	
+/* number of sit logs used except flushing nat entries(2) and (1) for reserved */
+#define NUM_SIT_LOGS_NORMAL		(NUM_SIT_LOGS_IN_CP - 3)
 
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */

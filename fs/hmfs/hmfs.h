@@ -689,6 +689,7 @@ static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 /* define prototype function */
 /* super.c */
 int __hmfs_write_inode(struct inode *inode);
+int hmfs_sync_fs(struct super_block *sb, int sync);
 
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
@@ -767,7 +768,7 @@ struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 					 block_t blk_addr);
 block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
-block_t alloc_free_node_block(struct hmfs_sb_info *sbi);
+block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
 				   seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
@@ -805,6 +806,8 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i);
 void check_checkpoint_state(struct hmfs_sb_info *sbi);
+int hmfs_to_do_checkpoint(struct hmfs_sb_info *sbi, int nr_node_block,
+				int nr_data_block);
 
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
