@@ -755,12 +755,18 @@ struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, ver_t version,
 				     nid_t nid);
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				   ver_t version, unsigned int index);
+void __mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *,
+				unsigned int, unsigned int, u8);
+void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
+				bool gc_cp);
 
 /* segment.c*/
+void flush_ssa_valid_bits(struct hmfs_sb_info *sbi, seg_t segno,
+				int end_blk, int set_bit);
 void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
-				bool gc_cp);
+				void *new_nat_root, bool gc_cp);
 void recovery_sit_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp);
+				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
@@ -806,8 +812,6 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i);
 void check_checkpoint_state(struct hmfs_sb_info *sbi);
-int hmfs_to_do_checkpoint(struct hmfs_sb_info *sbi, int nr_node_block,
-				int nr_data_block);
 
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);

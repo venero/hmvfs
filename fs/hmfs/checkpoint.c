@@ -157,49 +157,6 @@ static void sync_checkpoint_info(struct hmfs_sb_info *sbi,
 	cp->cp = hmfs_cp;
 }
 
-/*
- * Before doing checkpoint, we need to write all seg_entry in DRAM to
- * last valid checkpoint block. And We have only NUM_SIT_LOGS_NORMAL 
- * slots. Thus we should check whether # of dirty sit entries is exceed
- * the amount.
- */
-int hmfs_to_do_checkpoint(struct hmfs_sb_info *sbi, int nr_node_block,
-				int nr_data_block)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct sit_info *sit_i = SIT_I(sbi);
-	unsigned long nr_dirty_sit;
-	bool do_checkpoint = false;
-	int ret = 0;
-
-	mutex_lock(&sit_i->sentry_lock);
-	spin_lock(&cm_i->stat_lock);
-	nr_dirty_sit = sit_i->dirty_sentries;
-	
-	hmfs_bug_on(sbi, nr_dirty_sit > NUM_SIT_LOGS_NORMAL);
-
-	if (cm_i->left_blocks_count[CURSEG_DATA] < nr_data_block)
-		nr_dirty_sit++;
-
-	if (cm_i->left_blocks_count[CURSEG_NODE] < nr_node_block)
-		nr_dirty_sit++;
-
-	
-	if (nr_dirty_sit > NUM_SIT_LOGS_NORMAL) {
-		hmfs_dbg("Dirty sit entries exceed\n");
-		do_checkpoint = true;
-	}
-	
-	spin_unlock(&cm_i->stat_lock);
-	mutex_unlock(&sit_i->sentry_lock);
-	
-	if (unlikely(do_checkpoint)) {
-		ret = hmfs_sync_fs(sbi->sb, true);	
-	}
-
-	return ret;
-}
-
 static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 				    struct hmfs_checkpoint *prev_checkpoint)
 {
@@ -366,7 +323,7 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 					le32_to_cpu(hmfs_cp->checkpoint_ver));
 
 	/* Flush SIT and SSA in checkpoint log area */
-	recovery_sit_entries(sbi, hmfs_cp);
+	recovery_sit_entries(sbi, hmfs_cp, true);
 
 	hmfs_cp->next_cp_addr = cpu_to_le64(rs_cp_addr);
 	nx_cp->prev_cp_addr = cpu_to_le64(rs_cp_addr);
@@ -668,6 +625,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 		nat_root_addr = L_ADDR(sbi, nat_root);
 	} else {
 		nat_root_addr = le64_to_cpu(prev_checkpoint->nat_addr);
+		nat_root = ADDR(sbi, nat_root_addr);
 	}
 
 	/* 1. set new cp block */
@@ -685,7 +643,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
 	store_checkpoint->prev_cp_addr = next_checkpoint->prev_cp_addr;
-	nat_root_addr = L_ADDR(sbi, nat_root);
 	set_struct(store_checkpoint, nat_addr, nat_root_addr);
 
 	set_struct(store_checkpoint, checkpoint_ver, store_version);
@@ -710,7 +667,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	set_struct(store_checkpoint, checksum, cp_checksum);
 
 	/* 2. flush SIT to cp */
-	flush_sit_entries(sbi, store_checkpoint_addr, gc_cp);
+	flush_sit_entries(sbi, store_checkpoint_addr, nat_root, gc_cp);
+	set_summary_valid_bit(summary);
 
 	/* 6. connect to super */
 	hmfs_memcpy_atomic(&prev_checkpoint->next_cp_addr, 
@@ -759,6 +717,8 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	block_t store_cp_addr = 0;
 	struct hmfs_checkpoint *next_cp;
 	struct hmfs_checkpoint *store_cp;
+	ver_t store_version;
+	void *nat_root;
 
 	/* 1. restore addr */
 	store_cp_addr = le64_to_cpu(prev_cp->state_arg_2);
@@ -771,8 +731,12 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	set_summary_valid_bit(summary);
 
 	/* 2. flush cp-inlined SIT journal */
+	recovery_sit_entries(sbi, prev_cp, false);
+
 	/* 3. mark valid */
-	recovery_sit_entries(sbi, prev_cp);
+	store_version = le32_to_cpu(store_cp->checkpoint_ver);
+	nat_root = ADDR(sbi, le32_to_cpu(store_cp->nat_addr));
+	__mark_block_valid(sbi, nat_root, 0, store_version, sbi->nat_height);
 
 	/* 4. connect to super */
 	next_cp = ADDR(sbi, le64_to_cpu(store_cp->next_cp_addr));

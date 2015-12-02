@@ -3,6 +3,7 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 #include "node.h"
+#include "segment.h"
 
 static struct kmem_cache *nat_entry_slab;
 
@@ -205,9 +206,6 @@ void truncate_node(struct dnode_of_data *dn)
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino, NULL_ADDR,
 			 CM_I(sbi)->new_version, true);
 
-	/*
-	 * ????
-	 */
 	if (dn->nid == dn->inode->i_ino) {
 		remove_orphan_inode(sbi, dn->nid);
 		dec_valid_inode_count(sbi);
@@ -238,6 +236,10 @@ static int truncate_dnode(struct dnode_of_data *dn)
 	return 1;
 }
 
+/*
+ * We're about to truncate the whole nodes. Therefore, we don't need to COW
+ * the old node. We just mark the its nid slot in parent node to be 0
+ */
 static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 			  int depth)
 {
@@ -253,7 +255,8 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 	if (dn->nid == 0)
 		return NIDS_PER_BLOCK + 1;
 
-	hn = alloc_new_node(sbi, dn->nid, dn->inode, SUM_TYPE_IDN);
+	/* hn is read-only, but it's ok here */
+	hn = get_node(sbi, dn->nid);
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
 
@@ -262,14 +265,10 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 			child_nid = le32_to_cpu(hn->in.nid[i]);
 			if (child_nid == 0)
 				continue;
+			/* We don't mark hn->in.nid[i] to be 0 */
 			rdn.nid = child_nid;
 			rdn.inode = dn->inode;
 
-			/* 
-			 * Now we just decrease count of child, and count of this node
-			 * would be decreased by its father node. And we should call
-			 * this function before another truncate_xxx()
-			 */
 			ret = get_node_info(sbi, rdn.nid, &ni);
 			if (ret)
 				continue;
@@ -277,7 +276,6 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 			ret = truncate_dnode(&rdn);
 			if (ret < 0)
 				goto out_err;
-			set_nid(hn, i, 0, false);
 		}
 	} else {
 		child_nofs = nofs + ofs * (NIDS_PER_BLOCK + 1) + 1;
@@ -290,18 +288,12 @@ static int truncate_nodes(struct dnode_of_data *dn, unsigned int nofs, int ofs,
 			rdn.nid = child_nid;
 			rdn.inode = dn->inode;
 
-			/* 
-			 * Now we just decrease count of child, and count of this node
-			 * would be decreased by its father node. And we should call
-			 * this function before another truncate_xxx()
-			 */
 			ret = get_node_info(sbi, rdn.nid, &ni);
 			if (ret)
 				continue;
 
 			ret = truncate_nodes(&rdn, child_nofs, 0, depth - 1);
 			if (ret == (NIDS_PER_BLOCK + 1)) {
-				set_nid(hn, i, 0, false);
 				child_nofs += ret;
 			} else if (ret && ret != -ENODATA)
 				goto out_err;
@@ -1128,4 +1120,101 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi)
 	kunmap(empty_page);
 	__free_page(empty_page);
 	return new_root_node;
+}
+
+void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
+				bool gc_cp)
+{
+	int offset = 0;
+	struct sit_info *sit_i = SIT_I(sbi);
+	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
+	struct seg_entry *seg_entry;
+	pgc_t total_segs = TOTAL_SEGS(sbi);
+
+	if (!gc_cp) {
+		__mark_block_valid(sbi, nat_root, 0, CM_I(sbi)->new_version, 
+						sbi->nat_height);
+		return;
+	}
+	
+	while (1) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs) {
+			seg_entry = get_seg_entry(sbi, offset);
+			/* Segments that save blocks being moved */
+			if (seg_entry->valid_blocks)
+				flush_ssa_valid_bits(sbi, offset, seg_entry->valid_blocks, 1);
+			else {
+				/* Segments that is to be clean */
+				flush_ssa_valid_bits(sbi, offset, HMFS_PAGE_PER_SEG, 0);
+			}
+			offset++;
+		} else
+			break;
+	}
+}
+
+void __mark_block_valid(struct hmfs_sb_info *sbi,	 
+				struct hmfs_nat_node *cur_nat_node, unsigned int blk_order,
+				unsigned int version, u8 height)
+{
+	//FIXME : cannot handle no NVM space for nat tree
+	struct hmfs_nat_node *cur_child_node = NULL;
+	struct direct_node *dn;
+	struct hmfs_inode *in;
+	struct hmfs_summary *raw_summary;
+	block_t cur_node_addr, child_node_addr;
+	unsigned int i, j, new_blk_order, _ofs;
+	unsigned short blk_type;
+
+	BUG_ON(!cur_nat_node);
+	cur_node_addr = L_ADDR(sbi, cur_nat_node);
+	raw_summary = get_summary_by_addr(sbi, cur_node_addr);
+	if(get_summary_start_version(raw_summary) != version){
+		//not this version created
+		return;
+	}
+	set_summary_valid_bit(raw_summary);
+
+	//leaf, alloc & copy nat entry block 
+	if (!height) {
+		blk_type = get_summary_type(raw_summary);
+		if(SUM_TYPE_DN == blk_type){
+			//direct node
+			dn = (struct direct_node*) cur_nat_node;
+			for(j = 0; j < ADDRS_PER_BLOCK; j++){
+				child_node_addr = le64_to_cpu(dn->addr[j]);
+				if(child_node_addr){//FIXME: unzeroed but meaningless data?
+					raw_summary = get_summary_by_addr(sbi, cur_node_addr);
+					set_summary_valid_bit(raw_summary);
+				}
+			}
+		} else if (SUM_TYPE_INODE == blk_type){
+			//normal blk in inode
+			in = (struct hmfs_inode*) cur_nat_node;
+			for(j = 0; j < NORMAL_ADDRS_PER_INODE; j++){
+				child_node_addr = le64_to_cpu(in->i_addr[j]);
+				if(child_node_addr){//FIXME: unzeroed but meaningless data?
+					raw_summary = get_summary_by_addr(sbi, cur_node_addr);
+					set_summary_valid_bit(raw_summary);
+				}
+			}
+		}
+		return;
+	}
+	//go to child
+	new_blk_order = blk_order & ((1 << ((height - 1) *
+									LOG2_NAT_ADDRS_PER_NODE)) - 1);
+
+	for(i = 0; i < NAT_ADDR_PER_NODE; i++){
+		child_node_addr = le64_to_cpu(cur_nat_node->addr[i]);
+		if(child_node_addr){
+			_ofs = (i << ((height-1) * LOG2_NAT_ADDRS_PER_NODE)) +
+					new_blk_order;
+			cur_child_node = ADDR(sbi, child_node_addr);
+			__mark_block_valid(sbi, cur_child_node, _ofs, version ,
+							height-1); 
+		}
+	}
+	return;
 }

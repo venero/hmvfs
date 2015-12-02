@@ -104,18 +104,9 @@ static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 		      dev_t rdev)
 {
 	struct inode *inode;
-	int ret = 0;
 
 	if (!new_valid_dev(rdev))
 		return -EINVAL;
-
-	/*
-	 * 2 node: direct_node of dir and inode of new nod file
-	 * 1 data: data block of direct_node
-	 */
-	ret = hmfs_to_do_checkpoint(HMFS_I_SB(dir), 2, 1);
-	if (ret)
-		return ret;
 
 	inode = hmfs_make_dentry(dir, dentry, mode);
 	if (IS_ERR(inode))
@@ -134,15 +125,6 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		       bool excl)
 {
 	struct inode *inode;
-	int ret = 0;
-
-	/*
-	 * 2 node: direct_node of dir and inode of new file
-	 * 1 data: data block of direct_node
-	 */
-	ret = hmfs_to_do_checkpoint(HMFS_I_SB(dir), 2, 1);
-	if (ret)
-		return ret;
 
 	inode = hmfs_make_dentry(dir, dentry, mode);
 	if (IS_ERR(inode))
@@ -160,16 +142,6 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct inode *inode;
-	int ret = 0;
-
-	/*
-	 * 2 node: direct_node of parent dir and inode of new dir
-	 * 2 data: data block of direct_node and init data block of new dir
-	 */
-	ret = hmfs_to_do_checkpoint(HMFS_I_SB(dir), 2, 2);
-	if (ret)
-		return ret;
-
 
 	inode = hmfs_make_dentry(dir, dentry, S_IFDIR | mode);
 	if (IS_ERR(inode))
@@ -192,15 +164,6 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int err, ilock;
 	
-	/*
-	 * 1 node: direct_node of parent dir 
-	 * 1 data: data block of direct_node 
-	 */
-	err = hmfs_to_do_checkpoint(HMFS_I_SB(inode), 1, 1);
-	if (err)
-		return err;
-
-
 	inode->i_ctime = CURRENT_TIME;
 	ihold(inode);
 
@@ -235,15 +198,6 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 	err = check_orphan_space(sbi);
 	if (err)
 		goto fail;
-
-	/*
-	 * 1 node: direct_node of parent dir 
-	 * 1 data: data block of direct_node 
-	 */
-	err = hmfs_to_do_checkpoint(HMFS_I_SB(dir), 1, 1);
-	if (err)
-		return err;
-
 
 	ilock = mutex_lock_op(sbi);
 	res_blk = alloc_new_data_block(dir, bidx);
@@ -287,15 +241,6 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				    &old_ofs);
 	if (!old_entry)
 		goto out;
-
-	/*
-	 * 2 node: direct_node of new and old parent dir
-	 * 2 data: data block of new and old direct_node
-	 */
-	err = hmfs_to_do_checkpoint(sbi, 2, 2);
-	if (err)
-		return err;
-
 
 	ilock = mutex_lock_op(sbi);
 
@@ -422,6 +367,7 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 
 	if ((attr->ia_valid & ATTR_SIZE) && attr->ia_size != i_size_read(inode)) {
 		truncate_setsize(inode, attr->ia_size);
+
 		hmfs_truncate(inode);
 	}
 

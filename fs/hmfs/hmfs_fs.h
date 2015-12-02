@@ -118,9 +118,6 @@ enum {
 //?(sizeof(struct hmfs_checkpoint))-(void*)(((struct hmfs_checkpoint*)(0))->sit_journals)
 //TODO
 /* number of all sit logs in checkpoint */
-#define NUM_SIT_LOGS_IN_CP		10	
-/* number of sit logs used except flushing nat entries(2) and (1) for reserved */
-#define NUM_SIT_LOGS_NORMAL		(NUM_SIT_LOGS_IN_CP - 3)
 
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
@@ -275,6 +272,13 @@ struct hmfs_sit_log_entry {
 	__le16 vblocks;
 } __attribute__ ((packed));
 
+#define LOGS_ENTRY_PER_SEG		(HMFS_SEGMENT_SIZE / \
+				sizeof(struct hmfs_sit_log_entry))
+
+struct hmfs_sit_log_segment {
+	struct hmfs_sit_log_entry entries[LOGS_ENTRY_PER_SEG];
+} __attribute__ ((packed));
+
 /* One directory entry slot representing HMFS_SLOT_LEN-sized file name */
 struct hmfs_dir_entry {
 	__le32 hash_code;	/* hash code of file name */
@@ -292,6 +296,7 @@ struct hmfs_dentry_block {
 	__u8 filename[NR_DENTRY_IN_BLOCK][HMFS_SLOT_LEN];
 } __attribute__ ((packed));
 
+#define NUM_SIT_LOGS_SEG		10
 /* checkpoint */
 struct hmfs_checkpoint {
 	__le32 checkpoint_ver;	/* checkpoint block version number */
@@ -337,8 +342,10 @@ struct hmfs_checkpoint {
 	 */
 	__le64 state_arg;		/* fs state arguments, for recovery */
 	__le64 state_arg_2;
-	struct hmfs_sit_log_entry sit_logs[NUM_SIT_LOGS_IN_CP];
+
+	__u8 nr_segs;
 	__le16 nr_logs;
+	__le32 sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
 
 } __attribute__ ((packed));
 

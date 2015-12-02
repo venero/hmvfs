@@ -674,11 +674,12 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 
 	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
 
+	mark_inode_dirty(inode);
+
 	ilock = mutex_lock_op(sbi);
 	ret = __hmfs_xip_file_write(filp, buf, count, pos, ppos);
 	mutex_unlock_op(sbi, ilock);
 
-	mark_inode_dirty(inode);
 out_backing:
 	current->backing_dev_info = NULL;
 out_up:
@@ -731,9 +732,27 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	return nr_free;
 }
 
+/*
+ * Because we truncate whole direct node, we don't mark the
+ * addr in direct node. Instead, we set the address of direct node
+ * in its parent indirect node to be NULL_ADDR
+ */
 void truncate_data_blocks(struct dnode_of_data *dn)
 {
-	truncate_data_blocks_range(dn, ADDRS_PER_BLOCK);
+	struct direct_node *node_block = dn->node_block;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
+	int count = ADDRS_PER_BLOCK;
+	int nr_free = 0, ofs = 0;
+	__le64 *entry = node_block->addr;
+
+	for (; ofs < ADDRS_PER_BLOCK ; ofs++, count--, entry++) {
+		if (*entry != NULL_ADDR)
+			nr_free++;
+	}
+	if (nr_free) {
+		dec_valid_block_count(sbi, dn->inode, nr_free);
+		mark_inode_dirty(dn->inode);
+	}
 }
 
 static void truncate_partial_data_page(struct inode *inode, block_t from)
