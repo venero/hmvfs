@@ -1,5 +1,6 @@
 #include <linux/fs.h>
 #include <linux/xattr.h>
+#include <linux/posix_acl.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
@@ -331,6 +332,7 @@ int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	return 0;
 }
 
+#ifdef CONFIG_HMFS_ACL
 static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
@@ -352,13 +354,18 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 		umode_t mode = attr->ia_mode;
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
 			mode &= ~S_ISGID;
-		inode->i_mode = mode;
+		set_acl_inode(HMFS_I(inode), mode);
 	}
 }
+#else
+#define __setattr_copy setattr_copy
+#endif
 
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	struct inode *inode = dentry->d_inode;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct posix_acl *acl;
 	int err = 0;
 
 	err = inode_change_ok(inode, attr);
@@ -373,6 +380,21 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 
 	__setattr_copy(inode, attr);
 
+	if (attr->ia_valid & ATTR_MODE) {
+		acl = hmfs_get_acl(inode, ACL_TYPE_ACCESS);
+		if (!acl || IS_ERR(acl)) {
+			err = PTR_ERR(acl);
+			goto out;
+		}
+		err = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
+		err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
+		if (err || is_inode_flag_set(fi, FI_ACL_MODE)) {
+			inode->i_mode = fi->i_acl_mode;
+			clear_inode_flag(fi, FI_ACL_MODE);
+		}
+	}
+
+out:
 	mark_inode_dirty(inode);
 	return err;
 }
@@ -408,6 +430,7 @@ const struct inode_operations hmfs_dir_inode_operations = {
 	.setattr = hmfs_setattr,
 	.rmdir = hmfs_rmdir,
 	.rename = hmfs_rename,
+	.get_acl = hmfs_get_acl,
 #ifdef CONFIG_HMFS_XATTR
 	.setxattr = generic_setxattr,
 	.getxattr = generic_getxattr,
@@ -419,6 +442,7 @@ const struct inode_operations hmfs_dir_inode_operations = {
 const struct inode_operations hmfs_special_inode_operations = {
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+	.get_acl = hmfs_get_acl,
 #ifdef CONFIG_HMFS_XATTR
 	.setxattr = generic_setxattr,
 	.getxattr = generic_getxattr,

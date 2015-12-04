@@ -54,6 +54,7 @@
 /* Mount option */
 #define HMFS_MOUNT_BG_GC			0x00000001
 #define HMFS_MOUNT_XATTR_USER		0x00000002
+#define HMFS_MOUNT_POSIX_ACL		0x00000004
 
 #define clear_opt(sbi, option)	(sbi->s_mount_opt &= ~HMFS_MOUNT_##option)
 #define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
@@ -92,6 +93,7 @@ enum {
 	FI_INC_LINK,		/* need to increment i_nlink */
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
+	FI_ACL_MODE,		/* ACL */
 };
 
 
@@ -243,6 +245,7 @@ struct hmfs_inode_info {
 	/* Use below internally in hmfs */
 	unsigned long flags;				/* use to pass per-file flags */
 	nid_t i_pino;						/* parent inode number */
+	umode_t i_acl_mode;					/* For ACL mode */
 	atomic_t nr_dirty_map_pages;
 	struct list_head list;
 	struct rw_semaphore i_sem;
@@ -378,6 +381,12 @@ static inline void clear_inode_flag(struct hmfs_inode_info *fi, int flag)
 {
 	if (test_bit(flag, &fi->flags))
 		clear_bit(flag, &fi->flags);
+}
+
+static inline void set_acl_inode(struct hmfs_inode_info *fi, umode_t mode)
+{
+	fi->i_acl_mode = mode;
+	set_inode_flag(fi, FI_ACL_MODE);
 }
 
 static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
@@ -863,6 +872,29 @@ ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 int init_util_function(void);
 #else
 #define init_util_function()	(0)
+#endif
+
+/* acl.c */
+#ifdef CONFIG_HMFS_ACL
+struct posix_acl *hmfs_get_acl(struct inode *inode, int type);
+int hmfs_init_acl(struct inode *inode, struct inode *dir);
+int hmfs_acl_xattr_set(struct dentry *, const char *, const void *,
+				size_t, int, int);
+int hmfs_acl_xattr_get(struct dentry *, const char *name, void *buffer,
+				size_t list_size, int);
+size_t hmfs_acl_access_xattr_list(struct dentry *, char *,
+				size_t, const char *, size_t, int);
+size_t hmfs_acl_default_xattr_list(struct dentry *, char *,
+				size_t, const char *, size_t, int);
+int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type);
+#else
+#define hmfs_get_acl(inode, type) 	NULL
+#define hmfs_init_acl(inode, dir) 	0
+#define hmfs_acl_xattr_set(dentry, name, buffer, size, flags, type) 0
+#define hmfs_acl_xattr_get(dentry, name, buffer, size, type)	0
+#define hmfs_acl_access_xattr_list(dentry, list, size, name, len, type)	0
+#define hmfs_acl_default_xattr_list(dentry, list, size, name, len, type)	0
+#define hmfs_set_acl(inode, acl, type)	0
 #endif
 
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)

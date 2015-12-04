@@ -6,10 +6,12 @@
 
 /* Name Indexes */
 #define HMFS_SYSTEM_ADVISE_PREFIX	"system.advise"
-#define HMFS_XATTR_INDEX_USER		1
-#define HMFS_XATTR_INDEX_TRUSTED	2
-#define HMFS_XATTR_INDEX_SECURITY	3
-#define HMFS_XATTR_INDEX_ADVISE		4
+#define HMFS_XATTR_INDEX_USER				1
+#define HMFS_XATTR_INDEX_POSIX_ACL_ACCESS	2
+#define HMFS_XATTR_INDEX_POSIX_ACL_DEFAULT	3
+#define HMFS_XATTR_INDEX_TRUSTED			4
+#define HMFS_XATTR_INDEX_SECURITY			5
+#define HMFS_XATTR_INDEX_ADVISE				6
 #define HMFS_XATTR_INDEX_END		10
 
 #define HMFS_X_BLOCK_TAG_XATTR		((unsigned long)\
@@ -48,6 +50,8 @@ struct hmfs_xattr_header {
 } __attribute__ ((packed));
 
 #ifdef CONFIG_HMFS_XATTR
+extern const struct xattr_handler hmfs_acl_access_handler;
+extern const struct xattr_handler hmfs_acl_default_handler;
 extern const struct xattr_handler *hmfs_xattr_handlers[];
 #else
 #define hmfs_xattr_handlers NULL

@@ -208,6 +208,7 @@ struct hmfs_inode {
 	__le32 i_generation;	/* file version (for NFS) */
 	__le32 i_current_depth;	/* only for directory depth */
 	__le64 i_xattr_addr;	/* address to save xattr */
+	__le64 i_acl_addr;	/* address to save acl */
 	__le32 i_flags;		/* file attributes */
 	__le32 i_pino;		/* parent inode number */
 	__le32 i_namelen;	/* file name length */

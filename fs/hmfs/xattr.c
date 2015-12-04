@@ -185,7 +185,7 @@ static int __hmfs_setxattr(struct inode *inode, int index,
 	if (name_len > HMFS_NAME_LEN)
 		return -ERANGE;
 
-	if (size > HMFS_XATTR_VALUE_LEN)
+	if (name_len + size > HMFS_XATTR_VALUE_LEN)
 		return -E2BIG;
 
 	base_addr = get_xattr_block(inode);
@@ -411,6 +411,10 @@ const struct xattr_handler hmfs_xattr_user_handler = {
 
 static const struct xattr_handler *hmfs_xattr_handler_map[] = {
 	[HMFS_XATTR_INDEX_USER] = &hmfs_xattr_user_handler,
+#ifdef CONFIG_HMFS_ACL
+	[HMFS_XATTR_INDEX_POSIX_ACL_ACCESS] = &hmfs_acl_access_handler,
+	[HMFS_XATTR_INDEX_POSIX_ACL_DEFAULT] = &hmfs_acl_default_handler,
+#endif
 	[HMFS_XATTR_INDEX_TRUSTED] = &hmfs_xattr_trusted_handler,
 	[HMFS_XATTR_INDEX_SECURITY] = &hmfs_xattr_security_handler,
 	[HMFS_XATTR_INDEX_ADVISE] = &hmfs_xattr_advise_handler,
@@ -421,6 +425,8 @@ const struct xattr_handler *hmfs_xattr_handlers[] = {
 	&hmfs_xattr_trusted_handler,
 	&hmfs_xattr_advise_handler,
 	&hmfs_xattr_security_handler,
+	&hmfs_acl_access_handler,
+	&hmfs_acl_default_handler,
 	NULL,
 };
 

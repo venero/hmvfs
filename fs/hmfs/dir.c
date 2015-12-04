@@ -348,6 +348,10 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 			if (err)
 				goto error;
 		}
+
+		err = hmfs_init_acl(inode, dir);
+		if (dir)
+			goto error;
 	}
 
 	if (name)

@@ -604,6 +604,7 @@ void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp
 	sbi->recovery_doing = 0;
 }
 
+// FIXME: When to do GC
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 {
 	int ret = -1;

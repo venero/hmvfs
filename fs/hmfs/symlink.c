@@ -71,6 +71,7 @@ const struct inode_operations hmfs_symlink_inode_operations = {
 	.follow_link = hmfs_follow_link,
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+	.get_acl = hmfs_get_acl,
 #ifdef CONFIG_HMFS_XATTR
 	.setxattr = generic_setxattr,
 	.getxattr = generic_getxattr,
