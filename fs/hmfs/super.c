@@ -34,6 +34,7 @@ enum {
 	Opt_mnt_cp,
 	Opt_deep_fmt,
 	Opt_user_xattr,
+	Opt_acl,
 };
 
 static const match_table_t tokens = {
@@ -46,7 +47,8 @@ static const match_table_t tokens = {
 	{Opt_bg_gc, "bg_gc=%u"},
 	{Opt_mnt_cp, "mnt_cp=%u"},
 	{Opt_deep_fmt, "deep_fmt=%u"},
-	{Opt_user_xattr, "user_xattr"},
+	{Opt_user_xattr, "user_xattr=%u"},
+	{Opt_acl, "acl=%u"},
 };
 
 /*
@@ -135,11 +137,28 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (option)
 				set_opt(sbi, BG_GC);
 			break;
+#ifdef CONFIG_HMFS_XATTR
 		case Opt_user_xattr:
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			if (option)
 				set_opt(sbi, XATTR_USER);
+			break;
+#else
+		case Opt_user_xattr:
+			break;
+#endif
+#ifdef CONFIG_HMFS_ACL
+		case Opt_acl:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if (option)
+				set_opt(sbi, POSIX_ACL);
+			break;
+#else
+		case Opt_acl:
+			break;
+#endif
 		case Opt_mnt_cp:
 			if (match_int(&args[0], &option))
 				goto bad_val;
