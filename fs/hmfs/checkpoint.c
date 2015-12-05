@@ -590,8 +590,108 @@ static void unblock_operations(struct hmfs_sb_info *sbi)
 	mutex_unlock_all(sbi);
 }
 
-static block_t flush_orphan_inodes(struct hmfs_sb_info *sbi)
+/*
+ * We need to flush orphan inodes before allocating the checkpoint block of
+ * this orphan inodes. In GC, we would collect block by order. If we allocate
+ * checkpoint block before orphan blocks adn they are in the same segment,
+ * we would move the checkpoint to the new segment first, and then if we move the
+ * orphan blocks, we would write address to older checkpoint instead 
+ * of new checkpoint
+ */
+static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 {
+	struct list_head *head, *this;
+	struct orphan_inode_entry *entry;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_summary *summary;
+	block_t orphan_addr = 0;
+	__le32 *orphan_block = NULL;
+	__le32 *end = NULL;
+	int i = 0;
+	int ret = 0;
+
+	mutex_lock(&cm_i->orphan_inode_mutex);
+
+	head = &cm_i->orphan_inode_list;
+	list_for_each(this, head) {
+		entry = list_entry(this, struct orphan_inode_entry, list);
+		if (!orphan_addr) {
+			orphan_block = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
+			if (IS_ERR(orphan_block)) {
+				ret = -ENOMEM;
+				goto out;
+			}
+			orphan_addr = L_ADDR(sbi, orphan_block);
+			summary = get_summary_by_addr(sbi, orphan_addr);
+			make_summary_entry(summary, 0, cm_i->new_version, i,
+							SUM_TYPE_ORPHAN);
+			orphan_addrs[i++] = orphan_addr;
+			orphan_block = ADDR(sbi, orphan_addr);
+			/* Reseverd for checkpoint address */
+			orphan_block = (__le32 *)((char *)orphan_block + sizeof(__le64));
+			end = (__le32 *)((char *)orphan_block + HMFS_PAGE_SIZE);
+		}
+		*orphan_block = cpu_to_le32(entry->ino);
+		orphan_block++;
+		if (orphan_block == end) {
+			orphan_addr = 0;
+		}
+	}
+	hmfs_bug_on(sbi, i > NUM_ORPHAN_BLOCKS);
+out:
+	mutex_unlock(&cm_i->orphan_inode_mutex);
+	return ret;
+}
+
+static void flush_orphan_inodes_finish(struct hmfs_sb_info *sbi, 
+				block_t *orphan_addrs, block_t cp_addr) {
+	int i;
+	__le64 *orphan_block;
+	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_addr);
+
+	for (i = 0; i < NUM_ORPHAN_BLOCKS; ++i, orphan_addrs++) {
+		if (*orphan_addrs) {
+			orphan_block = ADDR(sbi, *orphan_addrs);
+			*orphan_block = cpu_to_le64(cp_addr);
+			hmfs_cp->orphan_addrs[i] = cpu_to_le64(*orphan_addrs);
+		} else
+			break;
+	}
+}
+
+static void recover_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
+{
+	struct inode *inode = hmfs_iget(sbi->sb, ino);
+	hmfs_bug_on(sbi, IS_ERR(inode));
+	clear_nlink(inode);
+
+	iput(inode);
+}
+
+/* Now we delete the orphan inodes */
+int recover_orphan_inodes(struct hmfs_sb_info *sbi)
+{
+	int i;
+	__le32 *orphan_block;
+	__le32 *end;
+	block_t orphan_addr;
+	nid_t ino;
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+
+	for (i = 0; i < NUM_ORPHAN_BLOCKS; ++i) {
+		orphan_addr = le64_to_cpu(hmfs_cp->orphan_addrs[i]);
+		if (!orphan_addr)
+			return 0;
+		orphan_block = ADDR(sbi, orphan_addr);
+		end = (__le32 *)((char *)orphan_block + HMFS_PAGE_SIZE);
+		orphan_block = (__le32 *)((char *)orphan_block + sizeof(__le64));
+		while (orphan_block != end) {
+			ino = le32_to_cpu(*orphan_block);
+			recover_orphan_inode(sbi, ino);
+			orphan_block++;
+		}
+	}
+
 	return 0;
 }
 
@@ -605,11 +705,12 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	unsigned int cp_checksum, sb_checksum;
 	ver_t store_version;
 	block_t store_checkpoint_addr = 0;
-	block_t nat_root_addr, orphan_blocks_addr;
+	block_t nat_root_addr, orphan_addrs[2] = {0, 0};
 	struct hmfs_nat_node *nat_root = NULL;
 	struct hmfs_checkpoint *prev_checkpoint, *next_checkpoint;
 	struct hmfs_checkpoint *store_checkpoint;
 	struct curseg_info *curseg_i = SM_I(sbi)->curseg_array;
+	int ret;
 
 	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
@@ -630,15 +731,15 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 
 	/* 1. set new cp block */
 	if (!gc_cp)
-		orphan_blocks_addr = flush_orphan_inodes(sbi);
-	else
-		orphan_blocks_addr = 0;
+		ret = flush_orphan_inodes(sbi, orphan_addrs);
 
 	store_version = cm_i->new_version;
 	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
 	store_checkpoint_addr = L_ADDR(sbi, store_checkpoint);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
+
+	flush_orphan_inodes_finish(sbi, orphan_addrs, store_checkpoint_addr);
 
 	store_checkpoint = ADDR(sbi, store_checkpoint_addr);
 	store_checkpoint->next_cp_addr = prev_checkpoint->next_cp_addr;
@@ -658,7 +759,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 		   curseg_i[CURSEG_DATA].segno);
 	set_struct(store_checkpoint, cur_data_blkoff,
 		   curseg_i[CURSEG_DATA].next_blkoff);
-	set_struct(store_checkpoint, orphan_addr, orphan_blocks_addr);
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
 	set_struct(store_checkpoint, type, gc_cp ? CP_GC : CP_NORMAL);

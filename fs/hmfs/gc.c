@@ -478,6 +478,24 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
+static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno, 
+				int src_off, struct hmfs_summary *src_sum)
+{
+	struct gc_move_arg args;
+	struct hmfs_checkpoint *hmfs_cp;
+	block_t cp_addr;
+
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
+					TYPE_NODE);
+	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
+	cp_addr = le64_to_cpu(*((__le64 *)args.src));
+	hmfs_cp = ADDR(sbi, cp_addr);
+	hmfs_cp->orphan_addrs[get_summary_offset(src_sum)] = 
+			cpu_to_le64(args.dest_addr);
+
+	update_dest_summary(src_sum, args.dest_sum);
+}
+
 static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 				  int src_off, struct hmfs_summary *src_sum)
 {
@@ -531,6 +549,9 @@ static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
 			break;
 		case SUM_TYPE_NATD:
 			move_nat_block(sbi, segno, off, sum);
+			break;
+		case SUM_TYPE_ORPHAN:
+			move_orphan_block(sbi, segno, off, sum);
 			break;
 		case SUM_TYPE_CP:
 			move_checkpoint_block(sbi, segno, off, sum);

@@ -260,6 +260,7 @@ int hmfs_print(int mode, const char *fmt, ...)
 static int print_cp_one(struct hmfs_checkpoint *cp, int detail)
 {
 	size_t len = 0;
+	int i;
 
 	if (!cp)
 		return 0;
@@ -291,16 +292,19 @@ static int print_cp_one(struct hmfs_checkpoint *cp, int detail)
 				  le32_to_cpu(cp->valid_inode_count));
 		len += hmfs_print(1, "valid_node_count: %u\n",
 				  le32_to_cpu(cp->valid_node_count));
-		len +=
-		    hmfs_print(1, "nat_addr: %x\n", le64_to_cpu(cp->nat_addr));
-		len +=
-		    hmfs_print(1, "orphan_addr: %x\n",
-			       le64_to_cpu(cp->orphan_addr));
-		len +=
-		    hmfs_print(1, "next_scan_nid: %u\n",
+		len += hmfs_print(1, "nat_addr: %x\n", 
+						le64_to_cpu(cp->nat_addr));
+
+		for (i = 0; i < NUM_ORPHAN_BLOCKS; ++i) {
+			if (cp->orphan_addrs[i]) {
+				len += hmfs_print(1, "orphan_addr[%d]: %lu\n", i,
+								le64_to_cpu(cp->orphan_addrs[i]));
+			} else
+				break;
+		}
+		len += hmfs_print(1, "next_scan_nid: %u\n",
 			       le32_to_cpu(cp->next_scan_nid));
-		len +=
-		    hmfs_print(1, "elapsed_time: %u\n",
+		len += hmfs_print(1, "elapsed_time: %u\n",
 			       le32_to_cpu(cp->elapsed_time));
 		len += hmfs_print(1, "\n\n");
 	}

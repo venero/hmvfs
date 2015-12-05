@@ -786,6 +786,10 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		if (retval)
 			goto free_segment_mgr;
 	}
+	
+	retval = -EINVAL;
+	if (recover_orphan_inodes(sbi))
+		goto free_segment_mgr;
 
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
 

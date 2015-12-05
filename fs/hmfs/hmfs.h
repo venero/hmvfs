@@ -804,13 +804,13 @@ int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr);
 void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
 
 /* checkpoint.c */
+int recover_orphan_inodes(struct hmfs_sb_info *sbi);
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
 void add_dirty_map_inode(struct inode *inode);
 void remove_dirty_map_inode(struct inode *inode);
 void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
-void recover_orphan_inode(struct hmfs_sb_info *sbi);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);

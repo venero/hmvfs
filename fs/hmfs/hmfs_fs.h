@@ -55,7 +55,9 @@ enum {
 
 #define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_PAGE_SIZE
 
-#define HMFS_MAX_ORPHAN_NUM		(HMFS_PAGE_SIZE / 8)
+/* Write orphan inodes in two block */
+#define NUM_ORPHAN_BLOCKS		2
+#define HMFS_MAX_ORPHAN_NUM		(HMFS_PAGE_SIZE * NUM_ORPHAN_BLOCKS / 4)
 
 /* This flag is used by sit and nat inode */
 #define GFP_HMFS_ZERO	(GFP_NOFS | __GFP_ZERO)
@@ -157,6 +159,7 @@ enum {
 #define SUM_TYPE_IDN		(5)		/* indirect block */
 #define SUM_TYPE_CP			(6)		/* checkpoint block */
 #define SUM_TYPE_XDATA		(7) 	/* extended data block */
+#define SUM_TYPE_ORPHAN		(8)		/* orphan block */
 
 
 
@@ -320,7 +323,7 @@ struct hmfs_checkpoint {
 
 	__le64 nat_addr;	/* nat file physical address bias */
 
-	__le64 orphan_addr;
+	__le64 orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
 
 	__le32 next_scan_nid;
 
