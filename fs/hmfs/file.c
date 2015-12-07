@@ -35,6 +35,8 @@ unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk)
 	block_t addr;
 	unsigned start_blk;
 
+	hmfs_bug_on(HMFS_I_SB(dir), is_inode_flag_set(HMFS_I(dir), 
+							FI_INLINE_DATA));
 	set_new_dnode(&dn, dir, NULL, NULL, 0);
 	while (end_blk >= 0) {
 		dn.node_block = NULL;
@@ -140,12 +142,34 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
+	struct hmfs_inode *inode_block;
 
 	pos = *ppos;
+	isize = i_size_read(inode);
+
+	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		inode_block = get_node(HMFS_I_SB(inode), inode->i_ino);
+		if (IS_ERR(inode_block)) {
+			error = PTR_ERR(inode_block);
+			goto out;
+		}
+
+		if (pos + len > isize)
+			copied = isize - pos;
+		else
+			copied = len;
+
+		if (__copy_to_user(buf, (__u8 *)inode_block->inline_content + pos,
+								copied)) {
+			copied = 0;
+			error = -EFAULT;
+		}
+		goto out;
+	}
+
 	index = pos >> HMFS_PAGE_SIZE_BITS;	
 	offset = pos & ~HMFS_PAGE_MASK;
 
-	isize = i_size_read(inode);
 	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
 	/*
 	 * nr : read length for this loop
@@ -354,12 +378,13 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 	unsigned long size;
-	struct hmfs_inode_info *fi;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct vm_struct *area;
 	unsigned vaddr;
 
 	ret = generic_file_open(inode, filp);
-	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY)
+	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY ||
+					is_inode_flag_set(fi, FI_INLINE_DATA))
 		return ret;;
 
 	if (filp->private_data)
@@ -367,7 +392,6 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	/* Do not map an empty file */
 	size = i_size_read(inode);
-	fi = HMFS_I(inode);
 	if (!size || fi->read_addr)
 		goto out;
 
@@ -558,6 +582,10 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			ret = -ENXIO;
 			goto out;
 		}
+		if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+			offset = 0;
+			break;
+		}
 		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_DATA);
 		offset = pg_index << HMFS_PAGE_SIZE_BITS;
 		break;
@@ -569,6 +597,10 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 		if (offset >= eof) {
 			ret = -ENXIO;
 			goto out;
+		}
+		if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+			offset = eof;
+			break;
 		}
 		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_HOLE);
 		offset = pg_index << HMFS_PAGE_SIZE_BITS;
@@ -588,7 +620,34 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	long status = 0;
 	size_t bytes;
 	ssize_t written = 0;
+	struct hmfs_inode *inode_block;
 
+	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		if (pos + count > HMFS_INLINE_SIZE) {
+			status = hmfs_convert_inline_inode(inode);
+			if (status) {
+				goto out;
+			}
+			goto normal_write;
+		}
+		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
+						SUM_TYPE_INODE);
+		if (IS_ERR(inode_block)) {
+			status = PTR_ERR(inode_block);
+			goto out;
+		}
+		written = __copy_from_user_nocache((__u8 *)inode_block->inline_content 
+						+ pos, buf, count);
+		if (unlikely(written != count)) {
+			status = -EFAULT;
+			written = 0;
+		} else {
+			pos += count;
+		}
+		goto out;
+	}
+
+normal_write:
 	//FIXME: file inode lock
 	do {
 		unsigned long index;
@@ -625,13 +684,13 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 		if (status < 0)
 			break;
 	} while (count);
+out:
 	*ppos = pos;
 
 	if (pos > inode->i_size) {
 		mark_size_dirty(inode, pos);
 	}
 	return written ? written : status;
-
 }
 
 ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
@@ -766,7 +825,7 @@ static void truncate_partial_data_page(struct inode *inode, block_t from)
 	return;
 }
 
-static int truncate_blocks(struct inode *inode, block_t from)
+static int __truncate_blocks(struct inode *inode, block_t from)
 {
 	struct dnode_of_data dn;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -803,6 +862,22 @@ free_next:
 
 	mutex_unlock_op(sbi, ilock);
 	return err;
+}
+
+static int truncate_blocks(struct inode *inode, block_t from)
+{
+	struct hmfs_inode *inode_block;
+
+	if (is_inline_inode(inode)) {
+		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino,
+						inode, SUM_TYPE_INODE);
+		if (IS_ERR(inode_block))
+			return PTR_ERR(inode_block);
+		memset_nt((__u8 *)inode_block->inline_content, 0,
+						HMFS_INLINE_SIZE - from);
+		return 0;
+	}
+	return __truncate_blocks(inode, from);
 }
 
 void hmfs_truncate(struct inode *inode)
@@ -855,14 +930,28 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	pgoff_t pg_start, pg_end;
 	loff_t off_start, off_end;
 	loff_t blk_start, blk_end;
-	int ret = 0, ilock;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	int ret = 0;
 
 	pg_start = ((unsigned long long) offset) >> HMFS_PAGE_SIZE_BITS;
 	pg_end = ((unsigned long long) offset + len) >> HMFS_PAGE_SIZE_BITS;
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
 
+	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		if (offset + len > HMFS_INLINE_SIZE) {
+			ret = hmfs_convert_inline_inode(inode);
+			if (ret)
+				return ret;
+			goto punch;
+		}
+		/* 
+		 * We don't need to memset 0 of inode->inline_content. Because 
+		 * it has been initialized when creating
+		 */
+		goto out;
+	}
+
+punch:
 	if (pg_start == pg_end) {
 		fill_zero(inode, pg_start, off_start, off_end - off_start);
 	} else {
@@ -878,12 +967,11 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 			//FIXME: need this in mmap?
 			//truncate_inode_pages_range(inode,blk_start,blk_end);
 
-			ilock = mutex_lock_op(sbi);
 			ret = truncate_hole(inode, pg_start, pg_end);
-			mutex_unlock_op(sbi, ilock);
 		}
 	}
 
+out:
 	if (!(mode & FALLOC_FL_KEEP_SIZE)
 	    && i_size_read(inode) <= (offset + len)) {
 		mark_size_dirty(inode, offset + len);
@@ -899,8 +987,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	loff_t new_size = i_size_read(inode);
 	loff_t off_start, off_end;
 	struct dnode_of_data dn;
-	int ret, ilock;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	int ret;
 
 	ret = inode_newsize_ok(inode, (len + offset));
 	if (ret)
@@ -912,12 +999,22 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
 
+	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		if (offset + len > HMFS_INLINE_SIZE) {
+			ret = hmfs_convert_inline_inode(inode);
+			if (ret)
+				return ret;
+			goto expand;
+		}
+		/* If it's inline inode, we don;t need to memset 0 */
+		goto out;
+	}
+
+expand:
 	for (index = pg_start; index <= pg_end; index++) {
-		ilock = mutex_lock_op(sbi);
 		set_new_dnode(&dn, inode, NULL, NULL, 0);
 
 		ret = get_dnode_of_data(&dn, index, ALLOC_NODE);
-		mutex_unlock_op(sbi, ilock);
 		if (ret) {
 			break;
 		}
@@ -932,6 +1029,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 			new_size += HMFS_PAGE_SIZE;
 	}
 
+out:
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && i_size_read(inode) < new_size) {
 		mark_size_dirty(inode, new_size);
 	}
@@ -981,17 +1079,22 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 			   loff_t len)
 {
 	struct inode *inode = file_inode(file);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	long ret = 0;
+	int ilock;
 
 	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE))
 		return -EOPNOTSUPP;
 
 	if (S_ISDIR(inode->i_mode))
 		return -ENODEV;
+
+	ilock = mutex_lock_op(sbi);
 	if (mode & FALLOC_FL_PUNCH_HOLE)
 		ret = punch_hole(inode, offset, len, mode);
 	else
 		ret = expand_inode_data(inode, offset, len, mode);
+	mutex_unlock_op(sbi, ilock);
 
 	if (!ret) {
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME;

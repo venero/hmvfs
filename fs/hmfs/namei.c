@@ -4,6 +4,12 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
+//TODO:when to set inline data
+static bool hmfs_may_set_inline_data(struct inode *dir)
+{
+	return test_opt(HMFS_I_SB(dir), INLINE_DATA);
+}
+
 static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
@@ -55,6 +61,10 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	}
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
+	if (hmfs_may_set_inline_data(dir)) {
+		set_inode_flag(i_info, FI_INLINE_DATA);
+	}
+
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);
 	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
@@ -201,12 +211,14 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	ilock = mutex_lock_op(sbi);
-	res_blk = alloc_new_data_block(dir, bidx);
+
+	res_blk = get_dentry_block_for_write(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		mutex_unlock_op(sbi, ilock);
 		goto fail;
 	}
+
 	de = &res_blk->dentry[ofs_in_blk];
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
 
@@ -244,14 +256,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto out;
 
 	ilock = mutex_lock_op(sbi);
-
-	old_dentry_blk = alloc_new_data_block(old_dir, old_bidx);
-	if (IS_ERR(old_dentry_blk)) {
-		err = PTR_ERR(old_dentry_blk);
-		goto out_k;
-	}
-	old_entry = &old_dentry_blk->dentry[old_ofs];
-
+	
 	if (S_ISDIR(old_inode->i_mode)) {
 		err = -EIO;
 		// .. in hmfs_dentry_block of old_inode
@@ -266,13 +271,12 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out_k;
 
 		err = -ENOENT;
-		new_entry =
-		 hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
+		new_entry = hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
 				 &new_ofs);
 		if (!new_entry)
 			goto out_k;
 
-		new_dentry_blk = alloc_new_data_block(new_dir, new_bidx);
+		new_dentry_blk = get_dentry_block_for_write(new_dir, new_bidx);
 		if (IS_ERR(new_dentry_blk)) {
 			err = PTR_ERR(new_dentry_blk);
 			goto out_k;
@@ -306,6 +310,13 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
+	
+	old_dentry_blk = get_dentry_block_for_write(old_dir, old_bidx);
+	if (IS_ERR(old_dentry_blk)) {
+		err = PTR_ERR(old_dentry_blk);
+		goto out_k;
+	}
+	old_entry = &old_dentry_blk->dentry[old_ofs];
 
 	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
 			  old_bidx);
@@ -343,13 +354,13 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 		inode->i_gid = attr->ia_gid;
 	if (ia_valid & ATTR_ATIME)
 		inode->i_atime = timespec_trunc(attr->ia_atime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MTIME)
 		inode->i_mtime = timespec_trunc(attr->ia_mtime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_CTIME)
 		inode->i_ctime = timespec_trunc(attr->ia_ctime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))

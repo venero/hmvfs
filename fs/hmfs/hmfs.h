@@ -55,6 +55,7 @@
 #define HMFS_MOUNT_BG_GC			0x00000001
 #define HMFS_MOUNT_XATTR_USER		0x00000002
 #define HMFS_MOUNT_POSIX_ACL		0x00000004
+#define HMFS_MOUNT_INLINE_DATA		0x00000008
 
 #define clear_opt(sbi, option)	(sbi->s_mount_opt &= ~HMFS_MOUNT_##option)
 #define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
@@ -94,6 +95,7 @@ enum {
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
 	FI_ACL_MODE,		/* ACL */
+	FI_INLINE_DATA,		/* inline data of inode */
 };
 
 
@@ -360,8 +362,7 @@ static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)
 }
 
 static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
-							size_t size,
-							void (*ctor) (void *))
+				size_t size, void (*ctor) (void *))
 {
 	return kmem_cache_create(name, size, 0, SLAB_RECLAIM_ACCOUNT, ctor);
 }
@@ -381,6 +382,11 @@ static inline void clear_inode_flag(struct hmfs_inode_info *fi, int flag)
 {
 	if (test_bit(flag, &fi->flags))
 		clear_bit(flag, &fi->flags);
+}
+
+static inline bool is_inline_inode(struct inode *inode)
+{
+	return is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA);
 }
 
 static inline void set_acl_inode(struct hmfs_inode_info *fi, umode_t mode)
@@ -622,11 +628,11 @@ static inline int hmfs_readonly(struct super_block *sb)
 }
 
 static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
-				   int type)
+				   int normal_inode)
 {
 	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
 
-	d->max = NR_DENTRY_IN_BLOCK;
+	d->max = normal_inode ? NR_DENTRY_IN_BLOCK : NR_DENTRY_IN_INLINE_INODE;
 	d->bitmap = t->dentry_bitmap;
 	d->dentry = t->dentry;
 	d->filename = t->filename;
@@ -706,6 +712,7 @@ int sync_hmfs_inode(struct inode *inode);
 void mark_size_dirty(struct inode *inode, loff_t size);
 int sync_hmfs_inode_size(struct inode *inode);
 void hmfs_set_inode_flags(struct inode *inode);
+int hmfs_convert_inline_inode(struct inode *inode);
 
 /* file.c */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count);
@@ -844,6 +851,8 @@ void hmfs_delete_entry(struct hmfs_dir_entry *, struct hmfs_dentry_block *,
 		       struct inode *, struct inode *, int bidx);
 int hmfs_make_empty(struct inode *, struct inode *);
 bool hmfs_empty_dir(struct inode *);
+struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
+				int old_bidx);
 
 /* symlink.c */
 int hmfs_symlink(struct inode *inode, struct dentry *, const char *symname);

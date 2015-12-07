@@ -98,9 +98,7 @@ enum {
 #define GET_DENTRY_SLOTS(x)	((x + HMFS_SLOT_LEN - 1) >> HMFS_SLOT_LEN_BITS)
 #define DEF_DIR_LEVEL		0
 
-/* the number of dentry in a block */
-/* [4096 - 214 * (11 + 8)] / 8 > 214 */
-#define NR_DENTRY_IN_BLOCK	214
+#define DENTRY_BLOCK(ptr)	((struct hmfs_dentry_block *)ptr)
 
 /* MAX level for dir lookup */
 #define MAX_DIR_HASH_DEPTH	63
@@ -130,6 +128,12 @@ enum {
 #define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
 #endif
+#define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) +\
+		5 * sizeof(__le32))
+
+/* the number of dentry in a block */
+/* [4096 - 214 * (11 + 8)] / 8 > 214 */
+#define NR_DENTRY_IN_BLOCK			214
 
 #define HMFS_NAME_LEN		255
 #define NAT_ADDR_PER_NODE		512		/* # of nat node address stored in nat node */
@@ -218,10 +222,15 @@ struct hmfs_inode {
 	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
 	__u8 i_dir_level;	/* dentry_level for large dir */
 
-	__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
+	union {
+		struct {
+			__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
-	/* direct(2), indirect(2), double_indirect(1) node id */
-	__le32 i_nid[5];
+			/* direct(2), indirect(2), double_indirect(1) node id */
+			__le32 i_nid[5];
+		};
+		__u8 inline_content[HMFS_INLINE_SIZE];
+	};
 } __attribute__ ((packed));
 
 /* hmfs node */
@@ -299,6 +308,10 @@ struct hmfs_dentry_block {
 	struct hmfs_dir_entry dentry[NR_DENTRY_IN_BLOCK];
 	__u8 filename[NR_DENTRY_IN_BLOCK][HMFS_SLOT_LEN];
 } __attribute__ ((packed));
+
+#define NR_DENTRY_IN_INLINE_INODE	((HMFS_INLINE_SIZE - SIZE_OF_DENTRY_BITMAP -\
+				SIZE_OF_RESERVED) / (sizeof(struct hmfs_dir_entry) + \
+						HMFS_SLOT_LEN))
 
 #define NUM_SIT_LOGS_SEG		10
 /* checkpoint */

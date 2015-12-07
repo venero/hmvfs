@@ -35,6 +35,7 @@ enum {
 	Opt_deep_fmt,
 	Opt_user_xattr,
 	Opt_acl,
+	Opt_inline_data,
 };
 
 static const match_table_t tokens = {
@@ -49,6 +50,7 @@ static const match_table_t tokens = {
 	{Opt_deep_fmt, "deep_fmt=%u"},
 	{Opt_user_xattr, "user_xattr=%u"},
 	{Opt_acl, "acl=%u"},
+	{Opt_inline_data, "inline=%u"},
 };
 
 /*
@@ -130,6 +132,12 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			sbi->gid = make_kgid(current_user_ns(), option);
+			break;
+		case Opt_inline_data:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if (option)
+				set_opt(sbi, INLINE_DATA);
 			break;
 		case Opt_bg_gc:
 			if (match_int(&args[0], &option))

@@ -25,6 +25,28 @@ void hmfs_set_inode_flags(struct inode *inode)
 		inode->i_flags |= S_DIRSYNC;
 }
 
+int hmfs_convert_inline_inode(struct inode *inode)
+{
+	struct hmfs_inode *old_inode_block, *new_inode_block;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	void *data_block;
+
+	hmfs_bug_on(sbi, !is_inline_inode(inode));
+	old_inode_block = get_node(sbi, inode->i_ino);
+	if (IS_ERR(old_inode_block))
+		return PTR_ERR(old_inode_block);
+	
+	new_inode_block = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	/* Reinitialize i_addrs */
+	memset_nt(new_inode_block->i_addr, 0, sizeof(__le64) * 
+			NORMAL_ADDRS_PER_INODE + sizeof(__le32) * 5);
+	data_block = alloc_new_data_block(inode, 0);
+	hmfs_memcpy(data_block, old_inode_block->inline_content, 
+					i_size_read(inode));
+	clear_inode_flag(HMFS_I(inode), FI_INLINE_DATA);
+	return 0;
+}
+
 static int do_read_inode(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
