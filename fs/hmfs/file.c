@@ -439,7 +439,6 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	}
 
 check_mmap:
-	filemap_fdatawrite(inode->i_mapping);
 	
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode);
@@ -532,8 +531,6 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
-	filemap_fdatawrite(inode->i_mapping);
-	
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
@@ -1036,8 +1033,68 @@ out:
 	return ret;
 }
 
+static int hmfs_get_mmap_block(struct inode *inode, pgoff_t index, 
+				unsigned long *pfn, int vm_type)
+{
+	int err;
+	void *data_block[1];
+	int nr_blk;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	block_t data_block_addr;
+
+	if (vm_type & VM_WRITE) {
+		data_block[0] = alloc_new_data_block(inode, index);
+		if (IS_ERR(data_block[0]))
+			return PTR_ERR(data_block[0]);
+	} else {
+		hmfs_bug_on(sbi, !(vm_type & VM_READ));
+		err = get_data_blocks(inode, index, index + 1, data_block,
+					&nr_blk, RA_DB_END);
+
+		if (nr_blk < 1)
+			return err;
+
+		/* A hole in file */
+		if (!data_block[0]) {
+			*pfn = sbi->map_zero_page_number;
+			goto out;
+		}
+	}
+	data_block_addr = L_ADDR(sbi, data_block[0]);
+	*pfn = (sbi->phys_addr + data_block_addr) >> PAGE_SHIFT;
+out:
+	return 0;
+}
+
+static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+	struct address_space *mapping = vma->vm_file->f_mapping;
+	struct inode *inode = mapping->host;
+	pgoff_t offset = vmf->pgoff, size;
+	unsigned long pfn = 0;
+	int err = 0;
+
+	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	if (offset >= size)
+		return VM_FAULT_SIGBUS;
+
+	err = hmfs_get_mmap_block(inode, offset, &pfn, vma->vm_flags);
+	if (unlikely(err))
+		return VM_FAULT_SIGBUS;
+
+	err = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address, pfn);
+
+	if (err == -ENOMEM)
+		return VM_FAULT_SIGBUS;
+
+	if (err != -EBUSY)
+		hmfs_bug_on(HMFS_I_SB(inode), err);
+
+	return VM_FAULT_SIGBUS;
+}
+
 static const struct vm_operations_struct hmfs_file_vm_ops = {
-	.fault = filemap_fault,
+	.fault = hmfs_filemap_fault,
 };
 
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
@@ -1056,10 +1113,6 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (hmfs_readonly(inode->i_sb))
 		return 0;
 
-	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
-	if (ret) 
-		return ret;
-	
 	mutex_lock(&inode->i_mutex);
 
 	/* We don't need to sync data pages */

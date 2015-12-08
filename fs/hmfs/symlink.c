@@ -22,7 +22,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 		return PTR_ERR(inode);
 
 	inode->i_op = &hmfs_symlink_inode_operations;
-	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
 	data_blk = alloc_new_data_block(inode, 0);
 	if (IS_ERR(data_blk))

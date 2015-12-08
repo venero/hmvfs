@@ -460,7 +460,6 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_advise = 0;
 	fi->read_addr = NULL;
 	set_inode_flag(fi, FI_NEW_INODE);
-	atomic_set(&fi->nr_dirty_map_pages, 0);
 	INIT_LIST_HEAD(&fi->list);
 	return &(fi->vfs_inode);
 }
@@ -759,10 +758,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	mutex_init(&sbi->gc_mutex);
 	sbi->next_lock_num = 0;
 
-	atomic_set(&sbi->nr_dirty_map_pages, 0);
 	sbi->s_dirty = 0;
-	spin_lock_init(&sbi->dirty_map_inodes_lock);
-	INIT_LIST_HEAD(&sbi->dirty_map_inodes);
 	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;

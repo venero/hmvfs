@@ -207,7 +207,6 @@ struct hmfs_sb_info {
 	pgc_t segment_count;			/* # of all segments */
 	pgc_t segment_count_main;		/* # of segments in main area */
 	pgc_t page_count_main;			/* # of pages in main area */
-	atomic_t nr_dirty_map_pages;				/* # of dirty pages used by mmap */
 	int s_dirty;								/* FS is dirty or not */
 	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
@@ -231,8 +230,6 @@ struct hmfs_sb_info {
 	unsigned int last_victim[2];				/* victims of last gc process */
 
 	/* Other */
-	struct list_head dirty_map_inodes;			/* Inodes which contains dirty DRAM page */
-	spinlock_t dirty_map_inodes_lock;			/* Lock of dirty map inodes list */
 	struct page *map_zero_page;					/* Empty page for hole in file */
 	u64 map_zero_page_number; 					/* pfn of above empty page */
 
@@ -251,7 +248,6 @@ struct hmfs_inode_info {
 	unsigned long flags;				/* use to pass per-file flags */
 	nid_t i_pino;						/* parent inode number */
 	umode_t i_acl_mode;					/* For ACL mode */
-	atomic_t nr_dirty_map_pages;
 	struct list_head list;
 	struct rw_semaphore i_sem;
 	void *read_addr;					/* Start address of read-only file */
@@ -296,7 +292,7 @@ extern const struct inode_operations hmfs_file_inode_operations;
 extern const struct inode_operations hmfs_dir_inode_operations;
 extern const struct inode_operations hmfs_symlink_inode_operations;
 extern const struct inode_operations hmfs_special_inode_operations;
-extern const struct address_space_operations hmfs_dblock_aops;
+extern const struct address_space_operations hmfs_aops_xip;
 
 
 
@@ -599,27 +595,6 @@ static inline int hmfs_clear_bit(unsigned int nr, char *addr)
 	return ret;
 }
 
-static inline void inc_dirty_map_pages_count(struct hmfs_sb_info *sbi)
-{
-	atomic_inc(&sbi->nr_dirty_map_pages);
-	sbi->s_dirty = 1;
-}
-
-static inline void dec_dirty_map_pages_count(struct hmfs_sb_info *sbi)
-{
-	atomic_dec(&sbi->nr_dirty_map_pages);
-}
-
-static inline void inode_inc_dirty_map_pages_count(struct inode *inode)
-{
-	atomic_inc(&HMFS_I(inode)->nr_dirty_map_pages);
-}
-
-static inline void inode_dec_dirty_map_pages_count(struct inode *inode)
-{
-	atomic_dec(&HMFS_I(inode)->nr_dirty_map_pages);
-}
-
 static inline struct inode *get_stat_object(struct inode *inode, bool source)
 {
 	return source ? NULL : inode;
@@ -817,8 +792,6 @@ void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);
 int init_checkpoint_manager(struct hmfs_sb_info *sbi);
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi);
-void add_dirty_map_inode(struct inode *inode);
-void remove_dirty_map_inode(struct inode *inode);
 void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 int check_orphan_space(struct hmfs_sb_info *);
@@ -840,7 +813,6 @@ void *alloc_new_data_block(struct inode *inode, int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
 				   int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
-int hmfs_write_data_page(struct page *page, struct writeback_control *wbc);
 
 /* dir.c */
 int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);

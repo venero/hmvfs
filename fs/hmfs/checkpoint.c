@@ -91,63 +91,6 @@ int check_orphan_space(struct hmfs_sb_info *sbi)
 	return err;
 }
 
-static int __add_dirty_map_inode(struct inode *inode, struct map_inode_entry *new)
-{
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct list_head *head = &sbi->dirty_map_inodes;
-	struct list_head *this;
-	struct map_inode_entry *entry;
-
-	list_for_each(this, head) {
-		entry = list_entry(this, struct map_inode_entry, list);
-		if (entry->inode == inode)
-			return -EEXIST;
-	}
-	list_add_tail(&new->list, head);
-	return 0;
-}
-
-void add_dirty_map_inode(struct inode *inode)
-{
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct map_inode_entry *new;
-retry:
-	new = kmem_cache_alloc(map_inode_entry_slab, GFP_NOFS);
-	if (!new) {
-		cond_resched();
-		goto retry;
-	}
-	new->inode = inode;
-	INIT_LIST_HEAD(&new->list);
-
-	spin_lock(&sbi->dirty_map_inodes_lock);
-	if (__add_dirty_map_inode(inode, new))
-		kmem_cache_free(map_inode_entry_slab, new);
-	spin_unlock(&sbi->dirty_map_inodes_lock);
-}
-
-void remove_dirty_map_inode(struct inode *inode)
-{
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct list_head *head = &sbi->dirty_map_inodes;
-	struct list_head *this;
-	struct map_inode_entry *entry;
-
-	spin_lock(&sbi->dirty_map_inodes_lock);
-
-	list_for_each(this, head) {
-		entry = list_entry(this, struct map_inode_entry, list);
-		if (entry->inode == inode) {
-			list_del(&entry->list);
-			INIT_LIST_HEAD(&entry->list);
-			kmem_cache_free(map_inode_entry_slab, entry);
-			break;
-		}
-	}
-
-	spin_unlock(&sbi->dirty_map_inodes_lock);
-}
-
 static void sync_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct hmfs_checkpoint *hmfs_cp,
 				struct checkpoint_info *cp)
@@ -504,66 +447,17 @@ void destroy_checkpoint_caches(void)
 	kmem_cache_destroy(map_inode_entry_slab);
 }
 
-static void sync_map_data_pages(struct hmfs_sb_info *sbi)
-{
-	struct list_head *head = &sbi->dirty_map_inodes, *this;
-	struct map_inode_entry *entry;
-	struct inode *inode;
-	struct pagevec pvec;
-	pgoff_t index = 0, end = LONG_MAX;
-	int i, nr_pages;
-	struct page *page;
-	struct writeback_control wbc = {
-		.for_reclaim = 0,
-	};
-	struct address_space *mapping = NULL;
-
-	pagevec_init(&pvec, 0);
-
-	list_for_each(this, head) {
-		entry = list_entry(this, struct map_inode_entry, list);
-		inode = igrab(entry->inode);
-		if (!inode)
-			continue;
-		hmfs_bug_on(sbi, atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
-		index = 0;
-		
-		mapping = inode->i_mapping;
-		while (index <= end) {
-			nr_pages = pagevec_lookup_tag(&pvec, mapping, &index,
-							PAGECACHE_TAG_DIRTY, 
-							min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1);
-			if(nr_pages == 0)
-				break;
-
-			for (i = 0; i < nr_pages; i++) {
-				page = pvec.pages[i];
-				lock_page(page);
-				hmfs_bug_on(sbi, page->mapping != mapping);
-				hmfs_bug_on(sbi, !PageDirty(page));
-				clear_page_dirty_for_io(page);
-				
-				if (hmfs_write_data_page(page, &wbc)) {	
-					unlock_page(page);
-					break;
-				}
-			}
-			pagevec_release(&pvec);
-		}
-		hmfs_bug_on(sbi, !atomic_read(&HMFS_I(inode)->nr_dirty_map_pages));
-	}
-}
-
 static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
 {
 	struct list_head *head, *this, *next;
-	struct hmfs_inode_info *inode_i;
+	struct hmfs_inode_info *fi;
 	int ret;
 
 	head = &sbi->dirty_inodes_list;
 	list_for_each_safe(this, next, head) {
-		inode_i = list_entry(this, struct hmfs_inode_info, list);
-		ret = __hmfs_write_inode(&inode_i->vfs_inode);
+		fi = list_entry(this, struct hmfs_inode_info, list);
+		ret = __hmfs_write_inode(&fi->vfs_inode);
+		//TODO: if (ret) ?
 	}
 }
 
@@ -571,13 +465,7 @@ static void block_operations(struct hmfs_sb_info *sbi)
 {
 retry:
 	mutex_lock_all(sbi);
-	
-	if (atomic_read(&sbi->nr_dirty_map_pages)) {
-		mutex_unlock_all(sbi);
-		sync_map_data_pages(sbi);
-		goto retry;
-	}
-	
+		
 	if (!list_empty(&sbi->dirty_inodes_list)) {
 		mutex_unlock_all(sbi);
 		sync_dirty_inodes(sbi);

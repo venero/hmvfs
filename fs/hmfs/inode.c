@@ -179,16 +179,13 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 	case S_IFREG:
 		inode->i_op = &hmfs_file_inode_operations;
 		inode->i_fop = &hmfs_file_operations;
-		inode->i_mapping->a_ops = &hmfs_dblock_aops;
 		break;
 	case S_IFDIR:
 		inode->i_op = &hmfs_dir_inode_operations;
 		inode->i_fop = &hmfs_dir_operations;
-		inode->i_mapping->a_ops = &hmfs_dblock_aops;
 		break;
 	case S_IFLNK:
 		inode->i_op = &hmfs_symlink_inode_operations;
-		inode->i_mapping->a_ops = &hmfs_dblock_aops;
 		break;
 	default:
 		inode->i_op = &hmfs_special_inode_operations;
@@ -200,3 +197,9 @@ bad_inode:
 	iget_failed(inode);
 	return ERR_PTR(ret);
 }
+
+//TODO
+const struct address_space_operations hmfs_aops_xip = {
+	.get_xip_mem = NULL,
+	.direct_IO = NULL,
+};

@@ -142,7 +142,7 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		return PTR_ERR(inode);
 	inode->i_op = &hmfs_file_inode_operations;
 	inode->i_fop = &hmfs_file_operations;
-	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
 	d_instantiate(dentry, inode);
 	unlock_new_inode(inode);
@@ -160,7 +160,7 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 
 	inode->i_op = &hmfs_dir_inode_operations;
 	inode->i_fop = &hmfs_dir_operations;
-	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
 	d_instantiate(dentry, inode);
 	unlock_new_inode(inode);
