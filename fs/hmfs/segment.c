@@ -28,7 +28,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 }
 
 static void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
-			     int del)
+				int del)
 {
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -52,7 +52,7 @@ static void reset_curseg(struct curseg_info *seg_i)
 }
 
 inline block_t __cal_page_addr(struct hmfs_sb_info *sbi,
-					  seg_t segno, int blkoff)
+				seg_t segno, int blkoff)
 {
 	return (segno << HMFS_SEGMENT_SIZE_BITS) +
 	 (blkoff << HMFS_PAGE_SIZE_BITS)
@@ -60,7 +60,7 @@ inline block_t __cal_page_addr(struct hmfs_sb_info *sbi,
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
-					  struct curseg_info *seg_i)
+				struct curseg_info *seg_i)
 {
 	return __cal_page_addr(sbi, seg_i->segno, seg_i->next_blkoff);
 }
@@ -290,7 +290,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 	do {
 retry:
 		sit_segno = find_next_zero_bit(free_i->free_segmap, total_segs,
-						sit_segno);
+							sit_segno);
 		if (sit_segno >= total_segs) {
 			sit_segno = 0;
 			goto retry;
@@ -357,7 +357,7 @@ retry:
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
-					seg_t segno)
+				seg_t segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 
@@ -646,7 +646,7 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 }
 
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
-					     seg_t segno)
+				seg_t segno)
 {
 	struct hmfs_summary_block *summary_blk =
 			(struct hmfs_summary_block *)sbi->ssa_entries;
@@ -655,7 +655,7 @@ struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
 }
 
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-					 block_t blk_addr)
+				block_t blk_addr)
 {
 	seg_t segno;
 	unsigned int blkoff;

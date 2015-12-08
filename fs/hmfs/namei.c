@@ -86,7 +86,7 @@ fail:
 }
 
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
-			       umode_t mode)
+				umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -112,7 +112,7 @@ out:
 }
 
 static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
-		      dev_t rdev)
+				dev_t rdev)
 {
 	struct inode *inode;
 
@@ -133,7 +133,7 @@ static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 }
 
 static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
-		       bool excl)
+				bool excl)
 {
 	struct inode *inode;
 
@@ -169,7 +169,7 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 }
 
 static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
-		     struct dentry *dentry)
+				struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -319,7 +319,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_entry = &old_dentry_blk->dentry[old_ofs];
 
 	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
-			  old_bidx);
+			old_bidx);
 
 	if (old_dir_entry) {
 		if (old_dir != new_dir) {

@@ -6,7 +6,6 @@
 #define HMFS_ACL_VERSION	0x0001
 #define HMFS_X_BLOCK_TAG_ACL		((unsigned long)\
 				(&(((struct hmfs_inode *)NULL)->i_acl_addr)))
-
 struct hmfs_acl_entry {
 	__le16 e_tag;
 	__le16 e_perm;
@@ -26,4 +25,9 @@ struct hmfs_acl_header {
 	__le16 acl_end;
 } __attribute__ ((packed));
 
+#define ACL_HEADER(ptr)			((struct hmfs_acl_header *)(ptr))
+#define ACL_ENTRY(ptr)			((struct hmfs_acl_entry *)(ptr))
+#define ACL_SHORT_ENTRY_SIZE	sizeof(struct hmfs_acl_entry_short)
+#define ACL_ENTRY_SIZE			sizeof(struct hmfs_acl_entry)
+#define ACL_HEADER_SIZE			sizeof(struct hmfs_acl_header)
 #endif

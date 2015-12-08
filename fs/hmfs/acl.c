@@ -6,29 +6,27 @@
 static inline size_t hmfs_acl_size(int count)
 {
 	if (count <= 4) {
-		return sizeof(struct hmfs_acl_header) + count *
-				sizeof(struct hmfs_acl_entry_short);
+		return ACL_HEADER_SIZE + count * ACL_SHORT_ENTRY_SIZE;
 	} else {
-		return sizeof(struct hmfs_acl_header) + 4 *
-				sizeof(struct hmfs_acl_entry_short) + 
-				(count - 4) * sizeof(struct hmfs_acl_entry);
+		return ACL_HEADER_SIZE + 4 * ACL_SHORT_ENTRY_SIZE + 
+					(count - 4) * ACL_ENTRY_SIZE;
 	}
 }
 
 static inline int hmfs_acl_count(size_t size)
 {
 	ssize_t s;
-	size -= sizeof(struct hmfs_acl_header);
-	s = size - 4 * sizeof(struct hmfs_acl_entry_short);
+	size -= ACL_HEADER_SIZE;
+	s = size - 4 * ACL_SHORT_ENTRY_SIZE;
 
 	if (s < 0) {
-		if (size % sizeof(struct hmfs_acl_entry_short))
+		if (size % ACL_SHORT_ENTRY_SIZE)
 			return -1;
-		return size / sizeof(struct hmfs_acl_entry_short);
+		return size / ACL_SHORT_ENTRY_SIZE;
 	} else {
-		if (s % sizeof(struct hmfs_acl_entry))
+		if (s % ACL_ENTRY_SIZE)
 			return -1;
-		return s / sizeof(struct hmfs_acl_entry) + 4;
+		return s / ACL_ENTRY_SIZE + 4;
 	}
 }
 
@@ -52,7 +50,7 @@ static struct posix_acl *hmfs_read_acl(const char *base_addr, size_t size)
 {
 	int i, count;
 	struct posix_acl *acl;
-	struct hmfs_acl_entry *acl_entry = (struct hmfs_acl_entry *)base_addr;
+	struct hmfs_acl_entry *acl_entry = ACL_ENTRY(base_addr);
 	const char *end = base_addr + size;
 
 	count = hmfs_acl_count(size);
@@ -77,22 +75,19 @@ static struct posix_acl *hmfs_read_acl(const char *base_addr, size_t size)
 		case ACL_GROUP_OBJ:
 		case ACL_MASK:
 		case ACL_OTHER:
-			acl_entry = (struct hmfs_acl_entry *)((char *)acl_entry +
-							sizeof(struct hmfs_acl_entry_short));
+			acl_entry = ACL_ENTRY(JUMP(acl_entry, ACL_SHORT_ENTRY_SIZE));
 			break;
 
 		case ACL_USER:
 			acl->a_entries[i].e_uid = make_kuid(&init_user_ns, 
-							le32_to_cpu(acl_entry->e_id));
-			acl_entry = (struct hmfs_acl_entry *)((char *)acl_entry +
-							sizeof(struct hmfs_acl_entry));
+											le32_to_cpu(acl_entry->e_id));
+			acl_entry = ACL_ENTRY(JUMP(acl_entry, ACL_ENTRY_SIZE));
 			break;
 
 		case ACL_GROUP:
 			acl->a_entries[i].e_gid = make_kgid(&init_user_ns,
-							le32_to_cpu(acl_entry->e_id));
-			acl_entry = (struct hmfs_acl_entry *)((char *)acl_entry +
-							sizeof(struct hmfs_acl_entry));
+											le32_to_cpu(acl_entry->e_id));
+			acl_entry = ACL_ENTRY(JUMP(acl_entry, ACL_ENTRY_SIZE));
 			break;
 		default:
 			goto fail;
@@ -126,18 +121,16 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 	ofs_end = le16_to_cpu(acl_header->acl_end);
 	if (type == ACL_TYPE_ACCESS) {
 		if (acl_header->acl_access_ofs) {
-			entry = (char *)acl_header + 
-					le16_to_cpu(acl_header->acl_access_ofs);
+			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_access_ofs));
 			size = ofs_access < ofs_default ? ofs_default - ofs_access :
-					ofs_end - ofs_access;
+						ofs_end - ofs_access;
 		} else
 			return ERR_PTR(-ENODATA);
 	} else if (type == ACL_TYPE_DEFAULT) {
 		if (acl_header->acl_default_ofs) {
-			entry = (char *)acl_header +
-					le16_to_cpu(acl_header->acl_default_ofs);
+			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_default_ofs));
 			size = ofs_access < ofs_default ? ofs_end - ofs_default :
-					ofs_access - ofs_default;
+						ofs_access - ofs_default;
 		} else
 			return ERR_PTR(-ENODATA);
 	} else
@@ -153,8 +146,9 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 
 static void init_acl_block(void *base_addr) 
 {
+	struct hmfs_acl_header *acl_header = ACL_HEADER(base_addr);
 	XATTR_HDR(base_addr)->h_magic = cpu_to_le16(HMFS_X_BLOCK_TAG_ACL);
-	((struct hmfs_acl_header *)base_addr)->a_version = cpu_to_le32(HMFS_ACL_VERSION);
+	acl_header->a_version = cpu_to_le32(HMFS_ACL_VERSION);
 }	
 
 static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl,
@@ -182,31 +176,27 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl,
 	if (type == ACL_TYPE_ACCESS) {
 		if (ofs_default) {
 			cpy_size = ofs_access < ofs_default ? ofs_end - ofs_default :
-					ofs_access - ofs_default;
-			hmfs_memcpy(entry, ((char *)src_header) + ofs_default, cpy_size);
-			acl_header->acl_default_ofs = cpu_to_le16((char *)entry - 
-							(char *)acl_header);
-			entry = (struct hmfs_acl_entry *)((char *)entry + cpy_size);
+							ofs_access - ofs_default;
+			hmfs_memcpy(entry, JUMP(src_header, ofs_default), cpy_size);
+			acl_header->acl_default_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
+			entry = ACL_ENTRY(JUMP(entry, cpy_size));
 		} else {
 			acl_header->acl_default_ofs = 0;
 		}
-		acl_header->acl_access_ofs = le16_to_cpu((char *)entry -
-						(char *)acl_header);
+		acl_header->acl_access_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
 	}
 
 	if (type == ACL_TYPE_DEFAULT) {
 		if (ofs_access) {
 			cpy_size = ofs_access < ofs_default ? ofs_default - ofs_access :
-					ofs_end - ofs_access;
-			hmfs_memcpy(entry, ((char *)src_header) + ofs_access, cpy_size);
-			acl_header->acl_access_ofs = cpu_to_le16((char *)entry - 
-							(char *)acl_header);
-			entry = (struct hmfs_acl_entry *)((char *)entry + cpy_size);
+							ofs_end - ofs_access;
+			hmfs_memcpy(entry, JUMP(src_header, ofs_access), cpy_size);
+			acl_header->acl_access_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
+			entry = ACL_ENTRY(JUMP(entry, cpy_size));
 		} else {
 			acl_header->acl_access_ofs = 0;
 		}
-		acl_header->acl_default_ofs = le16_to_cpu((char *)entry -
-						(char *)acl_header);
+		acl_header->acl_default_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
 	}
 
 write:
@@ -217,28 +207,25 @@ write:
 		switch (acl->a_entries[i].e_tag) {
 		case ACL_USER:
 			entry->e_id = cpu_to_le32(from_kuid(&init_user_ns, 
-									acl->a_entries[i].e_uid));
-			entry = (struct hmfs_acl_entry *)((char *)entry + 
-							sizeof(struct hmfs_acl_entry));
+								acl->a_entries[i].e_uid));
+			entry = ACL_ENTRY(JUMP(entry, ACL_ENTRY_SIZE));
 			break;
 		case ACL_GROUP:
 			entry->e_id = cpu_to_le32(from_kgid(&init_user_ns,
-									acl->a_entries[i].e_gid));
-			entry = (struct hmfs_acl_entry *)((char *)entry + 
-							sizeof(struct hmfs_acl_entry));
+								acl->a_entries[i].e_gid));
+			entry = ACL_ENTRY(JUMP(entry, ACL_ENTRY_SIZE));
 			break;
 		case ACL_USER_OBJ:
 		case ACL_GROUP_OBJ:
 		case ACL_MASK:
 		case ACL_OTHER:
-			entry = (struct hmfs_acl_entry *)((char *)entry + 
-							sizeof(struct hmfs_acl_entry_short));
+			entry = ACL_ENTRY(JUMP(entry, ACL_SHORT_ENTRY_SIZE));
 			break;
 		default:
 			goto fail;
 		}
 	}
-	acl_header->acl_end = le16_to_cpu((char *)entry - (char *)acl_header);
+	acl_header->acl_end = le16_to_cpu(DISTANCE(acl_header, entry));
 	*size = hmfs_acl_size(acl->a_count);
 	return (void *)acl_header;
 fail:
@@ -296,7 +283,7 @@ static struct posix_acl *hmfs_acl_clone(const struct posix_acl *acl,
 
 	if (acl) {
 		size = sizeof(struct posix_acl) + acl->a_count *
-				sizeof(struct posix_acl_entry);
+					sizeof(struct posix_acl_entry);
 		clone = kmemdup(acl, size, flags);
 		if (clone)
 			atomic_set(&clone->a_refcount, 1);

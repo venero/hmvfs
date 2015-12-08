@@ -35,8 +35,7 @@ unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk)
 	block_t addr;
 	unsigned start_blk;
 
-	hmfs_bug_on(HMFS_I_SB(dir), is_inode_flag_set(HMFS_I(dir), 
-							FI_INLINE_DATA));
+	hmfs_bug_on(HMFS_I_SB(dir), is_inline_inode(dir));
 	set_new_dnode(&dn, dir, NULL, NULL, 0);
 	while (end_blk >= 0) {
 		dn.node_block = NULL;
@@ -147,7 +146,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	pos = *ppos;
 	isize = i_size_read(inode);
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+	if (is_inline_inode(inode)) {
 		inode_block = get_node(HMFS_I_SB(inode), inode->i_ino);
 		if (IS_ERR(inode_block)) {
 			error = PTR_ERR(inode_block);
@@ -160,7 +159,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 			copied = len;
 
 		if (__copy_to_user(buf, (__u8 *)inode_block->inline_content + pos,
-								copied)) {
+					copied)) {
 			copied = 0;
 			error = -EFAULT;
 		}
@@ -281,7 +280,7 @@ static int remap_pte_file_range(struct inode *inode, pmd_t *pmd,
 			st_index = addr >> HMFS_PAGE_SIZE_BITS;
 			hmfs_bug_on(sbi, st_index >= INT_MAX / 2);
 			err = get_data_blocks(inode, st_index, INT_MAX / 2, blocks,
-							block_size, RA_DB_END);
+						block_size, RA_DB_END);
 			if (!*block_size)
 				return err;
 		}
@@ -308,7 +307,7 @@ static int remap_pmd_file_range(struct inode *inode, pud_t *pud,
 	do {
 		next = pmd_addr_end(addr, end);
 		if (remap_pte_file_range(inode, pmd, addr, next, blocks, block_size,
-								index))
+					index))
 			return -ENOMEM;
 	} while(pmd++, addr = next, addr != end);
 	return 0;
@@ -384,7 +383,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	ret = generic_file_open(inode, filp);
 	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY ||
-			is_inline_inode(inode))
+				is_inline_inode(inode))
 		return ret;;
 
 	if (filp->private_data)
@@ -481,7 +480,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		goto out;
 
 	if (likely(!is_fast_read_file((struct ro_file_address *)
-									filp->private_data)))
+						filp->private_data)))
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	else
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
@@ -494,7 +493,7 @@ out:
 int init_ro_file_address_cache(void)
 {
 	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
-					sizeof(struct ro_file_address), NULL)	;
+									sizeof(struct ro_file_address), NULL);
 	if (!ro_file_address_cachep)
 		return -ENOMEM;
 	return 0;
@@ -582,7 +581,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			ret = -ENXIO;
 			goto out;
 		}
-		if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		if (is_inline_inode(inode)) {
 			offset = 0;
 			break;
 		}
@@ -598,7 +597,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			ret = -ENXIO;
 			goto out;
 		}
-		if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+		if (is_inline_inode(inode)) {
 			offset = eof;
 			break;
 		}
@@ -622,7 +621,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	ssize_t written = 0;
 	struct hmfs_inode *inode_block;
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+	if (is_inline_inode(inode)) {
 		if (pos + count > HMFS_INLINE_SIZE) {
 			status = hmfs_convert_inline_inode(inode);
 			if (status) {
@@ -666,7 +665,7 @@ normal_write:
 			break;
 
 		copied = bytes - __copy_from_user_nocache(xip_mem + offset, 
-						buf, bytes);
+								buf, bytes);
 
 		if (likely(copied > 0)) {
 			status = copied;
@@ -821,7 +820,7 @@ static void truncate_partial_data_page(struct inode *inode, block_t from)
 	if (!offset)
 		return;
 	alloc_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
-				     HMFS_PAGE_SIZE, true);
+			HMFS_PAGE_SIZE, true);
 	return;
 }
 
@@ -870,11 +869,11 @@ static int truncate_blocks(struct inode *inode, block_t from)
 
 	if (is_inline_inode(inode)) {
 		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino,
-						inode, SUM_TYPE_INODE);
+							inode, SUM_TYPE_INODE);
 		if (IS_ERR(inode_block))
 			return PTR_ERR(inode_block);
 		memset_nt((__u8 *)inode_block->inline_content, 0,
-						HMFS_INLINE_SIZE - from);
+				HMFS_INLINE_SIZE - from);
 		return 0;
 	}
 	return __truncate_blocks(inode, from);
@@ -883,7 +882,7 @@ static int truncate_blocks(struct inode *inode, block_t from)
 void hmfs_truncate(struct inode *inode)
 {
 	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)
-	      || S_ISLNK(inode->i_mode)))
+			|| S_ISLNK(inode->i_mode)))
 		return;
 
 	if (!truncate_blocks(inode, i_size_read(inode))) {
@@ -937,7 +936,7 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+	if (is_inline_inode(inode)) {
 		if (offset + len > HMFS_INLINE_SIZE) {
 			ret = hmfs_convert_inline_inode(inode);
 			if (ret)
@@ -999,7 +998,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	off_start = offset & (HMFS_PAGE_SIZE - 1);
 	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA)) {
+	if (is_inline_inode(inode)) {
 		if (offset + len > HMFS_INLINE_SIZE) {
 			ret = hmfs_convert_inline_inode(inode);
 			if (ret)

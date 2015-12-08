@@ -61,6 +61,9 @@
 #define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
 #define test_opt(sbi, option)	(sbi->s_mount_opt & HMFS_MOUNT_##option)
 
+#define DISTANCE(left, right)	((char *)(right) - (char *)(left))
+#define JUMP(base, gap)			((char *)(base) + gap)
+
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
 typedef unsigned long seg_t;		/* segment number type */

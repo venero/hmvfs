@@ -24,6 +24,8 @@
 #define XATTR_ENTRY(ptr)	((struct hmfs_xattr_entry *)(ptr))
 #define XATTR_FIRST_ENTRY(ptr)	(XATTR_ENTRY(XATTR_HDR(ptr) + 1))
 
+#define XATTR_RAW_SIZE			sizeof(struct hmfs_xattr_entry)
+
 #define XATTR_ENTRY_SIZE(entry)	(sizeof(struct hmfs_xattr_entry) + \
 				entry->e_name_len + entry->e_value_len)
 
@@ -37,6 +39,7 @@
 		for (entry = XATTR_FIRST_ENTRY(addr);\
 				!IS_XATTR_LAST_ENTRY(entry);\
 				entry = XATTR_NEXT_ENTRY(entry))
+
 
 struct hmfs_xattr_entry {
 	__u8 e_name_index;

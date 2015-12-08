@@ -203,25 +203,24 @@ static int __hmfs_setxattr(struct inode *inode, int index,
 	this = __find_xattr(base_addr, index, name_len, name);
 
 	if (this->e_name_index == HMFS_XATTR_INDEX_END &&
-					(flags & XATTR_REPLACE)) {
+				(flags & XATTR_REPLACE)) {
 		error = -ENODATA;
 		goto out;
 	} else if ((flags & XATTR_CREATE) && this->e_name_index !=
-					HMFS_XATTR_INDEX_END) {
+						HMFS_XATTR_INDEX_END) {
 		error = -EEXIST;
 		goto out;
 	}
 	
-	newsize = sizeof(struct hmfs_xattr_entry) + name_len + size;
+	newsize = XATTR_RAW_SIZE + name_len + size;
 
 	/* Check Space */
 	if (value) {
 		/* If value is NULL, it's a remove operation */
 		/* Add another hmfs_xattr_entry for end entry */
-		last = XATTR_ENTRY((char *)this + newsize + 
-						sizeof(struct hmfs_xattr_entry));
+		last = XATTR_ENTRY(JUMP(this, newsize + XATTR_RAW_SIZE));
 
-		if ((char *)last - (char *)base_addr > HMFS_XATTR_BLOCK_SIZE) {
+		if (DISTANCE(base_addr, last) > HMFS_XATTR_BLOCK_SIZE) {
 			error = -ENOSPC;
 			goto out;
 		}
@@ -236,7 +235,7 @@ create:
 	if (base_addr) {
 		/* Copy first part */
 		next = XATTR_FIRST_ENTRY(base_addr);
-		cpy_size = (char *)this - (char *)next;
+		cpy_size = DISTANCE(next, this);
 		hmfs_memcpy(XATTR_FIRST_ENTRY(new_xattr_blk), next, cpy_size);
 
 		/* Get last xattr in source xattr block */
@@ -246,11 +245,10 @@ create:
 
 		/* Copy second part */
 		next = XATTR_NEXT_ENTRY(this);
-		cpy_size = (char *)last - (char *)next;
-		next = XATTR_ENTRY((char *)new_xattr_blk + 
-						((char *)this - (char *)base_addr));
+		cpy_size = DISTANCE(next, last);
+		next = XATTR_ENTRY(JUMP(new_xattr_blk, DISTANCE(base_addr, this)));
 		hmfs_memcpy(next, XATTR_NEXT_ENTRY(this), cpy_size);
-		next = XATTR_ENTRY((char *)next + cpy_size);
+		next = XATTR_ENTRY(JUMP(next, cpy_size));
 	} else {
 		next = XATTR_FIRST_ENTRY(new_xattr_blk);
 	}
@@ -267,9 +265,8 @@ create:
 
 	/* Write End entry */
 	next->e_name_index = HMFS_XATTR_INDEX_END;
-	hmfs_bug_on(HMFS_I_SB(inode), (char *)next + 
-			sizeof(struct hmfs_xattr_entry) - (char *)new_xattr_blk >
-			HMFS_XATTR_BLOCK_SIZE);
+	hmfs_bug_on(HMFS_I_SB(inode), DISTANCE(new_xattr_blk, 
+			JUMP(next, XATTR_RAW_SIZE)) > HMFS_XATTR_BLOCK_SIZE);
 
 	inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(inode);
@@ -362,8 +359,7 @@ static int hmfs_initxattrs(struct inode *inode, const struct xattr *xattr_array,
 
 	for (xattr = xattr_array; xattr->name != NULL; xattr++) {
 		err = hmfs_setxattr(inode, HMFS_XATTR_INDEX_SECURITY,
-						xattr->name, xattr->value, xattr->value_len,
-						0);
+					xattr->name, xattr->value, xattr->value_len, 0);
 		if (err < 0)
 			break;
 	}
@@ -374,7 +370,7 @@ int hmfs_init_security(struct inode *inode ,struct inode *dir,
 				const struct qstr *qstr, struct page *ipage)
 {
 	return security_inode_init_security(inode, dir, qstr,
-					&hmfs_initxattrs, ipage);
+				&hmfs_initxattrs, ipage);
 }
 
 const struct xattr_handler hmfs_xattr_trusted_handler = {
@@ -458,7 +454,7 @@ ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 			continue;
 
 		size = handler->list(dentry, buffer, rest,entry->e_name,
-						entry->e_name_len, handler->flags);
+					entry->e_name_len, handler->flags);
 		if (buffer && size > rest) {
 			error = -ERANGE;
 			goto out;

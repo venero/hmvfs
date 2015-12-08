@@ -16,6 +16,18 @@ static int get_end_blk_index(int block, int level)
 	return NORMAL_ADDRS_PER_INODE - 1;
 }
 
+/*
+ *	Return the direct node of specified data block(index th)
+ *	@offset[i]: is a path to direct node, i.e. the address in @offset[i] slots
+ *			of indirect/dindirect node is next node to find direct node
+ *	@noffset[i]: is the node offset of the node in the path. For example, noffset
+ *			of inode is 0, noffset of hmfs_inode->nid[0] is 1.
+ *	@index: index of data block. In this function, we want to find the direct node
+ *			of this data block.
+ *	@mode: ALLOC_NODE and LOOKUP_NODE.
+ *			-ALLOC_NODE: If node in the path is not exist, create it
+ *			-LOOKUP_NODE: If not exist, stop.
+ */
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
@@ -51,19 +63,17 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			dn->nid = nid[i];
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
-							NEW_ADDR, CM_I(sbi)->new_version, true);
+					NEW_ADDR, CM_I(sbi)->new_version, true);
 			sum_type = i == level ? SUM_TYPE_DN : SUM_TYPE_IDN;
-			blocks[i] =
-			 alloc_new_node(sbi, nid[i], dn->inode, sum_type);
+			blocks[i] = alloc_new_node(sbi, nid[i], dn->inode, sum_type);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
 				goto out;
 			}
 
 			if (i == 1) {
-				blocks[0] =
-				 alloc_new_node(sbi, nid[0], dn->inode,
-						SUM_TYPE_INODE);
+				blocks[0] = alloc_new_node(sbi, nid[0], dn->inode,
+									SUM_TYPE_INODE);
 
 				if (IS_ERR(blocks[i])) {
 					err = PTR_ERR(blocks[i]);
@@ -111,7 +121,7 @@ out:
  * @mode:		read ahead mode
  */
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
-		    int *size, int mode)
+				int *size, int mode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
@@ -162,24 +172,23 @@ fill_null:
 }
 
 static void setup_summary_of_new_data_block(struct hmfs_sb_info *sbi,
-					    block_t new_addr, unsigned int ino,
-					    unsigned int ofs_in_node)
+				block_t new_addr, unsigned int ino, unsigned int ofs_in_node)
 {
 	struct hmfs_summary *dest_sum;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
 	dest_sum = get_summary_by_addr(sbi, new_addr);
 	make_summary_entry(dest_sum, ino, cm_i->new_version, ofs_in_node,
-			   SUM_TYPE_DATA);
+			SUM_TYPE_DATA);
 }
 
-/**
+/*
  * get a writable data block of inode, if specified block exists,
  * copy its data with range [start,start+size) to newly allocated 
  * block
  */
 void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
-				   int right, bool fill_zero)
+				int right, bool fill_zero)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
@@ -218,7 +227,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	}
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
-									src_addr != NULL_ADDR), 1))
+				src_addr != NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
@@ -234,7 +243,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 			hmfs_memcpy(dest, src, left);
 		if (right < HMFS_PAGE_SIZE)
 			hmfs_memcpy(dest + right, src + right,
-				    HMFS_PAGE_SIZE - right);
+					HMFS_PAGE_SIZE - right);
 	} else if (fill_zero) {
 		left = 0;
 		right = HMFS_PAGE_SIZE;
@@ -244,7 +253,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		memset_nt(dest + left, 0, right - left);
 
 	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
-					dn.ofs_in_node);
+			dn.ofs_in_node);
 	return dest;
 }
 
@@ -287,7 +296,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-EPERM);
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-									!= NULL_ADDR), 1))
+				!= NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
@@ -303,7 +312,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	else memset_nt(dest, 0, HMFS_PAGE_SIZE);
 
 	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
-					dn.ofs_in_node);
+			dn.ofs_in_node);
 	return dest;
 }
 
@@ -322,6 +331,10 @@ void *alloc_new_data_block(struct inode *inode, int block)
 	return ADDR(sbi, addr);
 }
 
+/*
+ * Return the extended block of inode
+ * @x_tag: is the member offset base on start address of inode block
+ */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -335,7 +348,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	if (IS_ERR(inode_block))
 		return inode_block;
 
-	tag_value = *((__le64 *)((char *)inode_block + x_tag));
+	tag_value = *((__le64 *)JUMP(inode_block, x_tag));
 	src_addr = le64_to_cpu(tag_value);
 	src = ADDR(sbi, src_addr);
 	if (src_addr != NULL_ADDR) {
@@ -361,7 +374,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 
 	summary = get_summary_by_addr(sbi, dst_addr);
 	make_summary_entry(summary, inode->i_ino, CM_I(sbi)->new_version, 0,
-					SUM_TYPE_XDATA);
+			SUM_TYPE_XDATA);
 
 	return dst;
 }
@@ -377,7 +390,7 @@ static int hmfs_read_data_page(struct file *file, struct page *page)
 
 	hmfs_bug_on(HMFS_I_SB(inode), HMFS_PAGE_SIZE_BITS != PAGE_CACHE_SHIFT);
 	err = get_data_blocks(inode, bidx, bidx + 1, data_blk, &size,
-					RA_DB_END);
+				RA_DB_END);
 	if (size != 1 || (err && err != -ENODATA))
 		return err;
 

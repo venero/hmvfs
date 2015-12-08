@@ -38,7 +38,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 }
 
 static int hmfs_readlink(struct dentry *dentry, char __user * buffer,
-			 int buflen)
+				int buflen)
 {
 	struct inode *inode = dentry->d_inode;
 	void *data_blk[1];
