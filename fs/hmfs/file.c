@@ -327,7 +327,7 @@ static int remap_pud_file_range(struct inode *inode, pgd_t *pgd,
 	do {
 		next = pud_addr_end(addr, end);
 		if (remap_pmd_file_range(inode, pud, addr, next, blocks, block_size, 
-								index))
+					index))
 			return -ENOMEM;
 	} while(pud++, addr = next, addr != end);
 	return 0;
@@ -358,7 +358,7 @@ static int remap_ro_file_range(struct inode *inode, unsigned long addr,
 	do {
 		next = pgd_addr_end(addr, end);
 		err = remap_pud_file_range(inode, pgd, addr, next, (void **)blocks,
-						&block_size, &index);
+					&block_size, &index);
 		if (err)
 			break;
 	} while(pgd++, addr = next, addr != end);
@@ -384,7 +384,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	ret = generic_file_open(inode, filp);
 	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY ||
-					is_inode_flag_set(fi, FI_INLINE_DATA))
+			is_inline_inode(inode))
 		return ret;;
 
 	if (filp->private_data)
@@ -419,7 +419,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	addr_struct = filp->private_data;
 	if (is_fast_read_file(addr_struct)) {
 		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
-						!= O_RDONLY);
+				!= O_RDONLY);
 
 		/* 
 		 * Use the vm area unlocked, assuming the caller unsures there isn't
@@ -614,7 +614,7 @@ out:
 }
 
 static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
-				     size_t count, loff_t pos, loff_t *ppos)
+				size_t count, loff_t pos, loff_t *ppos)
 {
 	struct inode *inode = filp->f_inode;
 	long status = 0;
@@ -631,7 +631,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 			goto normal_write;
 		}
 		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
-						SUM_TYPE_INODE);
+							SUM_TYPE_INODE);
 		if (IS_ERR(inode_block)) {
 			status = PTR_ERR(inode_block);
 			goto out;

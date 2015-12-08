@@ -63,7 +63,7 @@ static unsigned char hmfs_type_by_mode[S_IFMT >> S_SHIFT] = {
 	[S_IFLNK >> S_SHIFT] = HMFS_FT_SYMLINK,
 };
 
-void set_de_type(struct hmfs_dir_entry *de, umode_t mode)
+static void set_de_type(struct hmfs_dir_entry *de, umode_t mode)
 {
 	de->file_type = hmfs_type_by_mode[(mode & S_IFMT) >> S_SHIFT];
 }
@@ -308,19 +308,6 @@ struct hmfs_dir_entry *hmfs_parent_dir(struct inode *dir)
 	return de;
 }
 
-ino_t hmfs_inode_by_name(struct inode * dir, struct qstr * qstr)
-{
-	ino_t res = 0;
-	struct hmfs_dir_entry *de;
-
-	de = hmfs_find_entry(dir, qstr, NULL, NULL);
-	if (de) {
-		res = le32_to_cpu(de->ino);
-	}
-
-	return res;
-}
-
 /*
  * de should be writable
  */
@@ -356,7 +343,7 @@ int update_dent_inode(struct inode *inode, const struct qstr *name)
 	return 0;
 }
 
-void do_make_empty_dir(struct inode *inode, struct inode *parent,
+static void do_make_empty_dir(struct inode *inode, struct inode *parent,
 				struct hmfs_dentry_ptr *d)
 {
 	struct hmfs_dir_entry *de;

@@ -844,7 +844,6 @@ int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);
 struct hmfs_dir_entry *hmfs_find_entry(struct inode *, struct qstr *, int *,
 				       int *);
 struct hmfs_dir_entry *hmfs_parent_dir(struct inode *);
-unsigned long hmfs_inode_by_name(struct inode *inode, struct qstr *name);
 void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry,
 		   struct inode *);
 void hmfs_delete_entry(struct hmfs_dir_entry *, struct hmfs_dentry_block *,
