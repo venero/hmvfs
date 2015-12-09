@@ -802,7 +802,7 @@ retry:
 
 int create_node_manager_caches(void)
 {
-	nat_entry_slab = hmfs_kmem_cache_create("nat_entry",
+	nat_entry_slab = hmfs_kmem_cache_create("hmfs_nat_entry",
 							sizeof(struct nat_entry), NULL);
 	if (!nat_entry_slab)
 		return -ENOMEM;

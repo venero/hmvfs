@@ -105,6 +105,13 @@ enum {
 
 struct free_nid;
 
+struct hmfs_mmap_block {
+	struct mm_struct *mm;
+	unsigned long pgoff;
+	unsigned long vaddr;
+	struct list_head list;
+};
+
 /* for directory operations */
 struct hmfs_dentry_ptr {
 	const void *bitmap;
@@ -123,12 +130,6 @@ struct checkpoint_info {
 struct orphan_inode_entry {
 	struct list_head list;
 	nid_t ino;
-};
-
-/* for the list of dirty fmap inodes */
-struct map_inode_entry {
-	struct list_head list;
-	struct inode *inode;
 };
 
 struct hmfs_nm_info {
@@ -224,6 +225,10 @@ struct hmfs_sb_info {
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];		/* FS lock */
 	unsigned char next_lock_num;				/* hint for get FS lock */
 	struct mutex gc_mutex;						/* GC lock */
+
+	/* mmap */
+	struct list_head mmap_block_list;
+	struct mutex mmap_block_lock;
 
 	/* GC */
 	struct hmfs_gc_kthread *gc_thread;			/* GC thread */
@@ -700,6 +705,8 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+int create_mmap_struct_cache(void);
+void destroy_mmap_struct_cache(void);
 #ifdef CONFIG_HMFS_FAST_READ
 int init_ro_file_address_cache(void);
 void destroy_ro_file_address_cache(void);
@@ -753,6 +760,11 @@ void __mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *,
 				unsigned int, unsigned int, u8);
 void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
 				bool gc_cp);
+int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+				unsigned long vaddr, unsigned long pgoff);
+int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+				unsigned long pgoff);
+int migrate_mmap_block(struct hmfs_sb_info *sbi);
 
 /* segment.c*/
 void flush_ssa_valid_bits(struct hmfs_sb_info *sbi, seg_t segno,

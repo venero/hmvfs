@@ -18,6 +18,8 @@
 static struct kmem_cache *ro_file_address_cachep;
 #endif
 
+static struct kmem_cache *mmap_block_slab;
+
 static unsigned int start_block(unsigned int i, int level)
 {
 	if (level)
@@ -1066,10 +1068,102 @@ out:
 	return 0;
 }
 
+static void hmfs_filemap_close(struct vm_area_struct *vma)
+{
+	struct address_space *mapping = vma->vm_file->f_mapping;
+	struct inode *inode = mapping->host;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	unsigned long pg_start, pg_end;
+	unsigned long vm_start, vm_end;
+
+	vm_start = vma->vm_start & PAGE_MASK;
+	vm_end = vma->vm_end & PAGE_MASK;
+	if (vm_end < vm_start)
+		return;
+	pg_start = vma->vm_pgoff;
+	pg_end = ((vm_end - vm_start) >> PAGE_SHIFT) + pg_start;
+
+
+	while (pg_start <= pg_end) {
+		remove_mmap_block(sbi, vma->vm_mm, pg_start);
+		pg_start++;
+	}
+}
+
+int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+				unsigned long vaddr, unsigned long pgoff)
+{
+	struct hmfs_mmap_block *entry;
+
+	entry = kmem_cache_alloc(mmap_block_slab, GFP_ATOMIC);
+	if (!entry) {
+		return -ENOMEM;
+	}
+
+	entry->mm = mm;
+	entry->vaddr = vaddr;
+	entry->pgoff = pgoff;
+	INIT_LIST_HEAD(&entry->list);
+	/* No check for duplicate */
+	mutex_lock(&sbi->mmap_block_lock);
+	list_add_tail(&entry->list, &sbi->mmap_block_list);
+	mutex_unlock(&sbi->mmap_block_lock);
+	return 0;
+}
+
+int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+				unsigned long pgoff)
+{
+	struct hmfs_mmap_block *entry;
+	struct list_head *head, *this, *next;
+	
+	head = &sbi->mmap_block_list;
+	mutex_lock(&sbi->mmap_block_lock);
+	list_for_each_safe(this, next, head) {
+		entry = list_entry(this, struct hmfs_mmap_block, list);
+		if (entry->mm == mm && entry->pgoff == pgoff) {
+			list_del(&entry->list);
+			kmem_cache_free(mmap_block_slab, entry);
+		}
+	}
+	mutex_unlock(&sbi->mmap_block_lock);
+	return 0;
+}
+
+int migrate_mmap_block(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_mmap_block *entry;
+	struct list_head *head, *this, *next;
+	pte_t *pte;
+	spinlock_t *ptl;
+
+	head = &sbi->mmap_block_list;
+	mutex_lock(&sbi->mmap_block_lock);
+	list_for_each_safe(this, next, head) {
+		entry = list_entry(this, struct hmfs_mmap_block, list);
+
+		__cond_lock(ptl, pte = (*hmfs_get_locked_pte) (entry->mm, entry->vaddr,
+									&ptl));
+
+		if (!pte)
+			goto free;
+		if (pte_none(*pte))
+			goto next;
+		pte->pte = 0;
+next:
+		pte_unmap_unlock(pte, ptl);
+free:
+		list_del(&entry->list);
+	}
+	mutex_unlock(&sbi->mmap_block_lock);
+	return 0;
+}
+
 static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t offset = vmf->pgoff, size;
 	unsigned long pfn = 0;
 	int err = 0;
@@ -1080,6 +1174,11 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 	err = hmfs_get_mmap_block(inode, offset, &pfn, vma->vm_flags);
 	if (unlikely(err))
+		return VM_FAULT_SIGBUS;
+
+	err = add_mmap_block(sbi, vma->vm_mm, (unsigned long)vmf->virtual_address,
+				vmf->pgoff);
+	if (err)
 		return VM_FAULT_SIGBUS;
 
 	err = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address, pfn);
@@ -1094,6 +1193,7 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 }
 
 static const struct vm_operations_struct hmfs_file_vm_ops = {
+	.close = hmfs_filemap_close,
 	.fault = hmfs_filemap_fault,
 };
 
@@ -1273,3 +1373,17 @@ const struct inode_operations hmfs_file_inode_operations = {
 	.removexattr = generic_removexattr,
 #endif 
 };
+
+int create_mmap_struct_cache(void)
+{
+	mmap_block_slab = hmfs_kmem_cache_create("hmfs_mmap_block",
+							sizeof(struct hmfs_mmap_block), NULL);
+	if (!mmap_block_slab)
+		return -ENOMEM;
+	return 0;
+}
+
+void destroy_mmap_struct_cache(void)
+{
+	kmem_cache_destroy(mmap_block_slab);
+}

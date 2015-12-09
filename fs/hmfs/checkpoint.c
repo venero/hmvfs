@@ -8,8 +8,6 @@ static struct kmem_cache *orphan_entry_slab;
 
 static struct kmem_cache *cp_info_entry_slab;
 
-static struct kmem_cache *map_inode_entry_slab;
-
 static ver_t next_checkpoint_ver(ver_t version)
 {
 	//TODO
@@ -426,14 +424,8 @@ int create_checkpoint_caches(void)
 		goto free_orphan;
 	}
 	
-	map_inode_entry_slab = hmfs_kmem_cache_create("hmfs_map_inode_entry",
-								sizeof(struct map_inode_entry), NULL);
-	if(map_inode_entry_slab == NULL)
-		goto free_cp_info;
 	return 0;
 
-free_cp_info:
-	kmem_cache_destroy(cp_info_entry_slab);
 free_orphan:
 	kmem_cache_destroy(orphan_entry_slab);
 	
@@ -444,7 +436,6 @@ void destroy_checkpoint_caches(void)
 {
 	kmem_cache_destroy(orphan_entry_slab);
 	kmem_cache_destroy(cp_info_entry_slab);
-	kmem_cache_destroy(map_inode_entry_slab);
 }
 
 static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
@@ -532,7 +523,8 @@ out:
 }
 
 static void flush_orphan_inodes_finish(struct hmfs_sb_info *sbi, 
-				block_t *orphan_addrs, block_t cp_addr) {
+				block_t *orphan_addrs, block_t cp_addr)
+{
 	int i;
 	__le64 *orphan_block;
 	struct hmfs_checkpoint *hmfs_cp = ADDR(sbi, cp_addr);
@@ -673,6 +665,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
 
 	set_fs_state(prev_checkpoint, HMFS_NONE);
+	//FIXME:
+	migrate_mmap_block(sbi);
 	move_to_next_checkpoint(sbi, store_checkpoint);
 
 	return 0;

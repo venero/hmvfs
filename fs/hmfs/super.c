@@ -749,7 +749,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
 	end_addr = sbi->main_addr_start
-	 + (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
+			+ (sbi->segment_count_main << HMFS_SEGMENT_SIZE_BITS);
 	sbi->main_addr_end = align_segment_left(end_addr);
 	sbi->sb = sb;
 
@@ -760,6 +760,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 
 	sbi->s_dirty = 0;
 	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
+	INIT_LIST_HEAD(&sbi->mmap_block_list);
+	mutex_init(&sbi->mmap_block_lock);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
 	sb->s_xattr = hmfs_xattr_handlers;
@@ -907,12 +909,17 @@ int init_hmfs(void)
 	err = init_ro_file_address_cache();
 	if (err)
 		goto fail_ro_file;
+	err = create_mmap_struct_cache();
+	if (err)
+		goto fail_mmap;
 	err = register_filesystem(&hmfs_fs_type);
 	if (err)
 		goto fail_reg;
 	hmfs_create_root_stat();
 	return 0;
 fail_reg:
+	destroy_mmap_struct_cache();
+fail_mmap:
 	destroy_ro_file_address_cache();
 fail_ro_file:
 	destroy_checkpoint_caches();
@@ -927,6 +934,7 @@ fail:
 
 void exit_hmfs(void)
 {
+	destroy_mmap_struct_cache();
 	destroy_inodecache();
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();

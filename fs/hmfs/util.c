@@ -49,6 +49,12 @@ int init_util_function(void)
 	hmfs_get_vm_area = 
 			(struct vm_struct * (*) (unsigned long, unsigned long))sym_addr;
 
+	sym_addr = kallsyms_lookup_name("__get_locked_pte");
+	if (!sym_addr)
+		goto fail;
+	hmfs_get_locked_pte = 
+			(pte_t * (*) (struct mm_struct *, unsigned long, spinlock_t **))sym_addr;
+
 	return 0;
 fail:
 	printk(KERN_INFO"[HMFS]: Fail to get all needed function\n");

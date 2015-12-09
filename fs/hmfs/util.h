@@ -18,6 +18,9 @@ static struct vm_struct * (*hmfs_find_vm_area) (const void *addr);
 static struct vm_struct * (*hmfs_get_vm_area) (unsigned long size, 
 				unsigned long flags);
 
+static pte_t * (*hmfs_get_locked_pte) (struct mm_struct *, unsigned long, 
+				spinlock_t **);
+
 #define hmfs_pte_alloc_kernel(pmd, address)	\
 	((unlikely(pmd_none(*(pmd))) && __hmfs_pte_alloc_kernel(pmd, address))? \
 		NULL: pte_offset_kernel(pmd, address))
