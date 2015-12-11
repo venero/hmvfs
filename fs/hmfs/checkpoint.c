@@ -8,9 +8,162 @@ static struct kmem_cache *orphan_entry_slab;
 
 static struct kmem_cache *cp_info_entry_slab;
 
+static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
+				ver_t prev_ver, ver_t new_ver)
+{
+	struct hmfs_summary *summary;
+	ver_t cur_ver;
+	block_t block_addr;
+	void *child_block;
+	int i;
+
+	block_addr = L_ADDR(sbi, block);
+	summary = get_summary_by_addr(sbi, block_addr);
+	cur_ver = get_summary_start_version(summary);
+
+	/* This block and its children could be reach from previous checkpoint */
+	if (cur_ver <= prev_ver) {
+		return;
+	}
+
+	set_summary_start_version(summary, new_ver);
+
+	switch (get_summary_type(summary)) {
+	case SUM_TYPE_NATN: {
+		__le64 *child = ((struct hmfs_nat_node *)block)->addr;
+
+		/* Modify version of nat node */
+		for (i = 0; i < NAT_ADDR_PER_NODE; i++, child++) {
+			if (!*child)
+				continue;
+			child_block = ADDR(sbi, le64_to_cpu(*child));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+		break;
+	}
+
+	case SUM_TYPE_NATD: {
+		struct hmfs_nat_entry *entry;
+
+		/* Modify version of all kinds of nodes */
+		entry = ((struct hmfs_nat_block *)block)->entries;
+		for (i = 0; i < NAT_ENTRY_PER_BLOCK; i++, entry++) {
+			if (!entry->ino)
+				continue;
+			child_block = ADDR(sbi, le64_to_cpu(entry->block_addr));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+		break;
+	}
+
+	case SUM_TYPE_INODE: {
+		__le64 *child;
+		struct hmfs_inode *inode_block;
+
+		inode_block = (struct hmfs_inode *)block;
+
+		/* Modify version of extended blocks */
+		if (inode_block->i_xattr_addr) {
+			child_block = ADDR(sbi, le64_to_cpu(inode_block->i_xattr_addr));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+
+		if (inode_block->i_acl_addr) {
+			child_block = ADDR(sbi, le64_to_cpu(inode_block->i_acl_addr));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+
+		/* Modify version of data blocks */
+		child = inode_block->i_addr;
+		for (i = 0; i < NORMAL_ADDRS_PER_INODE; i++, child++) {
+			if (!*child)
+				continue;
+			child_block = ADDR(sbi, le64_to_cpu(*child));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+		break;
+	}
+
+	case SUM_TYPE_DN: {
+		__le64 *child = ((struct direct_node *)block)->addr;
+
+		/* Modify version of data blocks of direct node */
+		for (i = 0; i < ADDRS_PER_BLOCK; i++, child++) {
+			if (!*child)
+				continue;
+			child_block = ADDR(sbi, le64_to_cpu(*child));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+		break;
+	}
+
+	case SUM_TYPE_CP: {
+		struct hmfs_checkpoint *cur_cp;
+
+		/* modify version of orphan blocks */
+		cur_cp = (struct hmfs_checkpoint *)block;
+		for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
+			if (!cur_cp->orphan_addrs[i])
+				break;
+			child_block = ADDR(sbi, le64_to_cpu(cur_cp->orphan_addrs[i]));
+			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		}
+
+		child_block = ADDR(sbi, le64_to_cpu(cur_cp->nat_addr));
+		modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
+		break;
+	}
+
+	case SUM_TYPE_ORPHAN:
+	case SUM_TYPE_DATA:
+	case SUM_TYPE_IDN:
+	case SUM_TYPE_XDATA:
+		break;
+
+	default:
+		hmfs_bug_on(sbi, 1);
+		break;
+	}
+}
+
+//TODO: What if crash in this process
+void recycle_version_number(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_checkpoint *cur_cp, *last_cp;
+	ver_t version = HMFS_DEF_CP_VER, prev_ver;
+
+	last_cp = CM_I(sbi)->last_cp_i->cp;
+	cur_cp = last_cp;
+	prev_ver = HMFS_DEF_DEAD_VER;
+	
+	/*
+	 * We first calculate how many checkpoint there are
+	 */
+	do {
+		cur_cp = ADDR(sbi, le64_to_cpu(cur_cp->next_cp_addr));
+		version++;
+	} while(cur_cp != last_cp);
+
+	/* We have increase additional 1 to version */
+	version--;
+
+	/*
+	 * We modify checkpoint version from newest
+	 * checkpoint to oldest checkpoint. It's ok because we cannot
+	 * reach newer block from older checkpoint block.
+	 */
+	cur_cp = CM_I(sbi)->last_cp_i->cp;
+	while (version >= HMFS_DEF_CP_VER) {
+		last_cp = ADDR(sbi, le64_to_cpu(cur_cp->prev_cp_addr));
+		prev_ver = le32_to_cpu(last_cp->checkpoint_ver);
+		modify_checkpoint_version(sbi, cur_cp, prev_ver, version);
+		version--;
+		cur_cp = last_cp;
+	}
+}
+
 static ver_t next_checkpoint_ver(ver_t version)
 {
-	//TODO
 	return version + 1;
 }
 
@@ -969,7 +1122,7 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 	summary = get_summary_by_addr(sbi, cur_addr);
 	invalidate_block(sbi, cur_addr, summary);
 
-	/* Set valid bit of deleted block */
+	/* Set valid bit of deleted blocks */
 	flush_sit_entries_rmcp(sbi);
 
 	/* Link cp list */
