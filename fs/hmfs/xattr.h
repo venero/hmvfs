@@ -14,8 +14,6 @@
 #define HMFS_XATTR_INDEX_ADVISE				6
 #define HMFS_XATTR_INDEX_END		10
 
-#define HMFS_X_BLOCK_TAG_XATTR		((unsigned long)\
-				(&(((struct hmfs_inode *)NULL)->i_xattr_addr)))
 #define HMFS_XATTR_VALUE_LEN		255
 
 #define HMFS_XATTR_BLOCK_SIZE		HMFS_PAGE_SIZE

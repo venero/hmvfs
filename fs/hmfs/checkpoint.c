@@ -59,17 +59,15 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 	case SUM_TYPE_INODE: {
 		__le64 *child;
 		struct hmfs_inode *inode_block;
+		block_t xaddr;
 
 		inode_block = (struct hmfs_inode *)block;
 
 		/* Modify version of extended blocks */
-		if (inode_block->i_xattr_addr) {
-			child_block = ADDR(sbi, le64_to_cpu(inode_block->i_xattr_addr));
-			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
-		}
-
-		if (inode_block->i_acl_addr) {
-			child_block = ADDR(sbi, le64_to_cpu(inode_block->i_acl_addr));
+		for_each_xblock(inode_block, xaddr, i) {
+			if (!xaddr)
+				continue;
+			child_block = ADDR(sbi, xaddr);
 			modify_checkpoint_version(sbi, child_block, prev_ver, new_ver);
 		}
 
@@ -977,6 +975,7 @@ delete:
 		struct hmfs_inode *cur_inode, *next_inode;
 		void *cur_child, *next_child;
 		__le64 *cur_db, *next_db;
+		block_t xaddr;
 
 		/*
 		 * If next_node is not inode, then child of cur_node 
@@ -989,17 +988,12 @@ delete:
 		next_inode = (struct hmfs_inode *)next_node;
 
 		/* Delete extended data block */
-		if (cur_inode->i_xattr_addr) {
-			cur_child = ADDR(sbi, le64_to_cpu(cur_inode->i_xattr_addr));
+		for_each_xblock(cur_inode, xaddr, i) {
+			if (!xaddr)
+				continue;
+			cur_child = ADDR(sbi, xaddr);
 			next_child = next_node ? 
-					ADDR(sbi, le64_to_cpu(next_inode->i_xattr_addr)) : NULL;
-			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
-					next_ver);
-		}
-		if (cur_inode->i_acl_addr) {
-			cur_child = ADDR(sbi, le64_to_cpu(cur_inode->i_acl_addr));
-			next_child = next_node ? 
-					ADDR(sbi, le64_to_cpu(next_inode->i_acl_addr)) : NULL;
+					ADDR(sbi, XBLOCK_ADDR(next_inode, xblock_tags[i])) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
 					next_ver);
 		}

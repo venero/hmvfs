@@ -4,8 +4,7 @@
 #include <linux/posix_acl_xattr.h>
 
 #define HMFS_ACL_VERSION	0x0001
-#define HMFS_X_BLOCK_TAG_ACL		((unsigned long)\
-				(&(((struct hmfs_inode *)NULL)->i_acl_addr)))
+
 struct hmfs_acl_entry {
 	__le16 e_tag;
 	__le16 e_perm;

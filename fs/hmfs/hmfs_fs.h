@@ -166,7 +166,6 @@ enum {
 #define SUM_TYPE_ORPHAN		(8)		/* orphan block */
 
 
-
 /* For superblock */
 struct hmfs_super_block {
 	__le32 magic;		/* Magic Number */
@@ -363,6 +362,24 @@ struct hmfs_checkpoint {
 	__le32 sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
 
 } __attribute__ ((packed));
+
+/* extended blocks */
+#define HMFS_X_BLOCK_TAG_XATTR		((unsigned long)\
+				(&(((struct hmfs_inode *)NULL)->i_xattr_addr)))
+#define HMFS_X_BLOCK_TAG_ACL		((unsigned long)\
+				(&(((struct hmfs_inode *)NULL)->i_acl_addr)))
+
+const static int xblock_tags[] = {
+	HMFS_X_BLOCK_TAG_XATTR,
+	HMFS_X_BLOCK_TAG_ACL,
+};
+
+#define XBLOCK_ADDR(inode, tag)		le64_to_cpu(*((__le64 *)JUMP(inode, tag)))
+
+#define for_each_xblock(inode, child_addr, i)	\
+		for (i = 0, child_addr = XBLOCK_ADDR(inode, xblock_tags[0]);	\
+						i < ARRAY_SIZE(xblock_tags); i++,	\
+						child_addr = XBLOCK_ADDR(inode, xblock_tags[i]))
 
 
 
