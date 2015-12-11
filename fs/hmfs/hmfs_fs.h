@@ -382,6 +382,15 @@ const static int xblock_tags[] = {
 						child_addr = XBLOCK_ADDR(inode, xblock_tags[i]))
 
 
+/* Type conversion */
+#define HMFS_NAT_NODE(ptr)		((struct hmfs_nat_node *)(ptr))
+#define HMFS_NAT_BLOCK(ptr)		((struct hmfs_nat_block *)(ptr))
+#define HMFS_INODE(ptr)			((struct hmfs_inode *)(ptr))
+#define DIRECT_NODE(ptr)		((struct direct_node *)(ptr))
+#define HMFS_CHECKPOINT(ptr)	((struct hmfs_checkpoint *)(ptr))
+#define HMFS_SUMMARY(ptr)		((struct hmfs_summary *)(ptr))
+#define HMFS_SUMMARY_BLOCK(ptr)	((struct hmfs_summary_block *)(ptr))
+
 
 static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
 {

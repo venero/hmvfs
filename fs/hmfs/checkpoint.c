@@ -30,7 +30,7 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 
 	switch (get_summary_type(summary)) {
 	case SUM_TYPE_NATN: {
-		__le64 *child = ((struct hmfs_nat_node *)block)->addr;
+		__le64 *child = HMFS_NAT_NODE(block)->addr;
 
 		/* Modify version of nat node */
 		for (i = 0; i < NAT_ADDR_PER_NODE; i++, child++) {
@@ -46,7 +46,7 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 		struct hmfs_nat_entry *entry;
 
 		/* Modify version of all kinds of nodes */
-		entry = ((struct hmfs_nat_block *)block)->entries;
+		entry = HMFS_NAT_BLOCK(block)->entries;
 		for (i = 0; i < NAT_ENTRY_PER_BLOCK; i++, entry++) {
 			if (!entry->ino)
 				continue;
@@ -61,7 +61,7 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 		struct hmfs_inode *inode_block;
 		block_t xaddr;
 
-		inode_block = (struct hmfs_inode *)block;
+		inode_block = HMFS_INODE(block);
 
 		/* Modify version of extended blocks */
 		for_each_xblock(inode_block, xaddr, i) {
@@ -83,7 +83,7 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 	}
 
 	case SUM_TYPE_DN: {
-		__le64 *child = ((struct direct_node *)block)->addr;
+		__le64 *child = DIRECT_NODE(block)->addr;
 
 		/* Modify version of data blocks of direct node */
 		for (i = 0; i < ADDRS_PER_BLOCK; i++, child++) {
@@ -99,7 +99,7 @@ static void modify_checkpoint_version(struct hmfs_sb_info *sbi, void *block,
 		struct hmfs_checkpoint *cur_cp;
 
 		/* modify version of orphan blocks */
-		cur_cp = (struct hmfs_checkpoint *)block;
+		cur_cp = HMFS_CHECKPOINT(block);
 		for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
 			if (!cur_cp->orphan_addrs[i])
 				break;
@@ -936,9 +936,9 @@ delete:
 	case SUM_TYPE_NATN: {
 		__le64 *cur_child, *next_child;
 
-		cur_child = ((struct hmfs_nat_node *)cur_node)->addr;
-		next_child = next_node ? ((struct hmfs_nat_node *)next_node)->addr
-				: NULL;
+		cur_child = HMFS_NAT_NODE(cur_node)->addr;
+		next_child = next_node ? HMFS_NAT_NODE(next_node)->addr : NULL;
+
 		for (i = 0; i < NAT_ADDR_PER_NODE; i++, cur_child++,
 				next_child = next_child ? next_child + 1 : NULL) {
 			if (!*cur_child)
@@ -955,9 +955,9 @@ delete:
 		struct hmfs_nat_entry *cur_entry, *next_entry;
 		void *cur_child, *next_child;
 
-		cur_entry = ((struct hmfs_nat_block *)cur_node)->entries;
-		next_entry = next_node ? ((struct hmfs_nat_block *)next_node)->entries
-				: NULL;
+		cur_entry = HMFS_NAT_BLOCK(cur_node)->entries;
+		next_entry = next_node ? HMFS_NAT_BLOCK(next_node)->entries : NULL;
+
 		for (i = 0; i < NAT_ENTRY_PER_BLOCK; i++, cur_entry++,
 				next_entry = next_entry ? next_entry + 1 : NULL) {
 			if (!cur_entry->ino)
@@ -1027,8 +1027,8 @@ delete:
 		if (next_sum && get_summary_type(next_sum) != SUM_TYPE_DN) {
 			next_node = NULL;
 		}
-		cur_dn = (struct direct_node *)cur_node;
-		next_dn = (struct direct_node *)next_node;
+		cur_dn = DIRECT_NODE(cur_node);
+		next_dn = DIRECT_NODE(next_node);
 		
 		cur_db = cur_dn->addr;
 		next_db = next_node ? next_dn->addr : NULL;

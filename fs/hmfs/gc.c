@@ -331,7 +331,7 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			goto next;
 
 		x_tag = le64_to_cpu(XATTR_HDR(arg.src)->h_magic);
-		addr_in_par = le64_to_cpu(*(__le64 *)((char *)this + x_tag));
+		addr_in_par = XBLOCK_ADDR(this, x_tag);
 		
 		if ((!sbi->recovery_doing && addr_in_par != arg.src_addr) ||
 				(sbi->recovery_doing && addr_in_par != arg.src_addr &&
@@ -339,7 +339,7 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			break;
 		}
 		
-		hmfs_memcpy_atomic((char *)this + x_tag, &arg.dest_addr, 8);
+		hmfs_memcpy_atomic(JUMP(this, x_tag), &arg.dest_addr, 8);
 
 		last = this;
 
@@ -446,10 +446,10 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 			goto next;
 
 		if (IS_NAT_ROOT(args.nid)) {
-			hmfs_cp = (struct hmfs_checkpoint *)this;
+			hmfs_cp = HMFS_CHECKPOINT(this);
 			addr_in_par = le64_to_cpu(hmfs_cp->nat_addr);
 		} else {
-			nat_node = (struct hmfs_nat_node *)this;
+			nat_node = HMFS_NAT_NODE(this);
 			addr_in_par = le64_to_cpu(nat_node->addr[args.ofs_in_node]);
 		}
 
@@ -509,7 +509,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	cp_i = get_checkpoint_info(sbi, args.start_version, false);
 	hmfs_bug_on(sbi, !cp_i);
 
-	this_cp = (struct hmfs_checkpoint *)args.src;
+	this_cp = HMFS_CHECKPOINT(args.src);
 	next_cp = ADDR(sbi, le64_to_cpu(this_cp->next_cp_addr));
 	prev_cp = ADDR(sbi, le64_to_cpu(this_cp->prev_cp_addr));
 
@@ -517,7 +517,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	prev_cp->next_cp_addr = cpu_to_le64(args.dest_addr);
 
 	update_dest_summary(src_sum, args.dest_sum);
-	cp_i->cp = (struct hmfs_checkpoint *)args.dest_addr;
+	cp_i->cp = HMFS_CHECKPOINT(args.dest_addr);
 }
 
 static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,

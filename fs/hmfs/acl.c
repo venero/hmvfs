@@ -165,7 +165,7 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl,
 		return ERR_PTR(-ENOSPC);
 
 	init_acl_block(acl_header);
-	entry = (struct hmfs_acl_entry *)(acl_header + 1);
+	entry = ACL_ENTRY(acl_header + 1);
 
 	if (!src_header)
 		goto write;
