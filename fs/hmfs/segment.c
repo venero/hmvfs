@@ -27,7 +27,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 	mutex_unlock(&sit_i->sentry_lock);
 }
 
-static void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
+void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
 				int del)
 {
 	struct seg_entry *se;
@@ -251,6 +251,55 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 		}
 	}
 }
+
+/* Update SIT area after deleting a checkpoint */
+void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	pgc_t total_segs = TOTAL_SEGS(sbi);
+	struct hmfs_sit_entry *sit_entry;
+	struct seg_entry *seg_entry;
+	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
+	struct hmfs_summary *summary;
+	struct free_segmap_info *free_i = FREE_I(sbi);
+	int i;
+	int offset = 0;
+
+	while(1) {
+		offset = find_next_bit(bitmap, total_segs, offset);
+		if (offset < total_segs) {
+			seg_entry = get_seg_entry(sbi, offset);
+			sit_entry = get_sit_entry(sbi, offset);
+			/*
+			 * In recovery process, the valid blocks in original
+			 * SIT area might be invalid. Because system might crash during
+			 * writing SIT. Thus, we need to calculate valid blocks by
+			 * scaning SSA area
+			 */
+			if (sbi->recovery_doing) {
+				seg_entry->valid_blocks = 0;
+				summary = get_summary_block(sbi, offset)->entries;
+				for (i = 0; i < SUM_ENTRY_PER_BLOCK; i++, summary++) {
+					if (get_summary_valid_bit(summary))
+						seg_entry->valid_blocks++;
+				}
+			}
+			if (!seg_entry->valid_blocks) {
+				write_lock(&free_i->segmap_lock);
+				clear_bit(offset, free_i->free_segmap);
+				free_i->free_segmap++;
+				write_unlock(&free_i->segmap_lock);
+			}
+
+			seg_info_to_raw_sit(seg_entry, sit_entry);
+			offset++;
+		} else
+			break;
+	}
+	sit_i->dirty_sentries = 0;
+	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
+}
+
 
 void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 				void *new_nat_root, bool gc_cp)
@@ -668,152 +717,3 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 	return &summary_blk->entries[blkoff];
 }
 
-void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr)
-{
-	struct sit_info *sit_i = SIT_I(sbi);
-	seg_t segno = GET_SEGNO(sbi, blk_addr);
-
-	mutex_lock(&sit_i->sentry_lock);
-	update_sit_entry(sbi, segno, -1);
-	mutex_unlock(&sit_i->sentry_lock);
-}
-
-// Counter operations
-//      dc: decrease counter by one
-/*
- * Workflow:
- * [1] Decrease the count of this block
- * [2] If the count is greater than 0, RETURN
- * [3] Initial invalidate_block() to claim this block is now invalid
- * [4] Traverse each pointer of its children, GOTO [1] with its block address
- */
-
-//      Decrease the count of NAT root block
-//      Should be triggered by checkpoint deletion only
-//      Output: The block which decreasing operation ends
-void dc_nat_root(struct hmfs_sb_info *sbi, block_t nat_root_addr)
-{
-	return dc_block(sbi, nat_root_addr);
-}
-
-//      Decrease the count of checkpoint block itself
-//      Should be triggered by checkpoint deletion only
-void dc_checkpoint(struct hmfs_sb_info *sbi, block_t cp_addr)
-{
-	return dc_checkpoint_block(sbi, cp_addr);
-}
-
-//      Entrance function for decreasing block count
-//      Switch blk_addr to 7 different handlers
-void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr)
-{
-	struct hmfs_summary *summary;
-	int type;
-
-	summary = get_summary_by_addr(sbi, blk_addr);
-	type = get_summary_type(summary);
-
-	switch (type) {
-	case SUM_TYPE_DATA:
-		dc_data(sbi, blk_addr);
-	case SUM_TYPE_INODE:
-		dc_inode(sbi, blk_addr);
-	case SUM_TYPE_IDN:
-		dc_indirect(sbi, blk_addr);
-	case SUM_TYPE_DN:
-		dc_direct(sbi, blk_addr);
-	case SUM_TYPE_CP:
-		dc_checkpoint_block(sbi, blk_addr);
-	case SUM_TYPE_NATN:
-		dc_nat_branch(sbi, blk_addr);
-	case SUM_TYPE_NATD:
-		dc_nat_block(sbi, blk_addr);
-	}
-}
-
-//      Decrease the count of a block
-//      In this design version, here is the only ADDR in DC operations
-void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr)
-{
-}
-
-void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr)
-{
-	int i = 0;
-	struct hmfs_nat_node *nb = ADDR(sbi, nat_branch_addr);
-
-	dc_itself(sbi, nat_branch_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, nat_branch_addr);
-	for (i = 0; i < ADDRS_PER_BLOCK; ++i) {
-		dc_block(sbi, nb->addr[i]);
-	}
-}
-
-void dc_nat_block(struct hmfs_sb_info *sbi, block_t nat_block_addr)
-{
-	int i = 0;
-	struct hmfs_nat_node *nb = ADDR(sbi, nat_block_addr);
-
-	dc_itself(sbi, nat_block_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, nat_block_addr);
-	for (i = 0; i < ADDRS_PER_BLOCK; ++i) {
-		dc_block(sbi, nb->addr[i]);
-	}
-}
-
-void dc_checkpoint_block(struct hmfs_sb_info *sbi,
-			 block_t checkpoint_block_addr)
-{
-	dc_itself(sbi, checkpoint_block_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, checkpoint_block_addr);
-}
-
-void dc_direct(struct hmfs_sb_info *sbi, block_t direct_block_addr)
-{
-	int i = 0;
-	struct direct_node *dn = ADDR(sbi, direct_block_addr);
-	dc_itself(sbi, direct_block_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, direct_block_addr);
-	for (i = 0; i < ADDRS_PER_BLOCK; ++i) {
-		dc_block(sbi, dn->addr[i]);
-	}
-}
-
-void dc_indirect(struct hmfs_sb_info *sbi, block_t idn_addr)
-{
-	dc_itself(sbi, idn_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, idn_addr);
-}
-
-void dc_inode(struct hmfs_sb_info *sbi, block_t inode_block_addr)
-{
-	int i = 0;
-	struct hmfs_inode *hi = ADDR(sbi, inode_block_addr);
-	dc_itself(sbi, inode_block_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, inode_block_addr);
-	for (i = 0; i < NORMAL_ADDRS_PER_INODE; ++i) {
-		dc_block(sbi, hi->i_addr[i]);
-	}
-}
-
-void dc_data(struct hmfs_sb_info *sbi, block_t data_block_addr)
-{
-	dc_itself(sbi, data_block_addr);
-//      If count has decreased to 0
-	invalidate_block_after_dc(sbi, data_block_addr);
-}
-
-//      ic: increase counter by one
-//      Increase the count of a block
-int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr)
-{
-	int count = 0;
-
-	return count;
-}

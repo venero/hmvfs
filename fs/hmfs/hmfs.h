@@ -683,6 +683,11 @@ static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 	summary->bt = cpu_to_le16(bt);
 }
 
+static inline void set_summary_start_version(struct hmfs_summary *summary,
+				ver_t version)
+{
+	hmfs_memcpy_atomic(&summary->start_version, &version, 4);
+}
 
 /* define prototype function */
 /* super.c */
@@ -785,20 +790,8 @@ unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
 				   seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);
-void dc_nat_root(struct hmfs_sb_info *sbi, block_t nat_root_addr);
-void dc_checkpoint(struct hmfs_sb_info *sbi, block_t cp_addr);
-void dc_block(struct hmfs_sb_info *sbi, block_t blk_addr);
-void dc_itself(struct hmfs_sb_info *sbi, block_t blk_addr);
-void dc_nat_branch(struct hmfs_sb_info *sbi, block_t nat_branch_addr);
-void dc_nat_block(struct hmfs_sb_info *sbi, block_t nat_block_addr);
-void dc_checkpoint_block(struct hmfs_sb_info *sbi,
-			 block_t checkpoint_block_addr);
-void dc_direct(struct hmfs_sb_info *sbi, block_t direct_block_addr);
-void dc_indirect(struct hmfs_sb_info *sbi, block_t indirect_block_addr);
-void dc_inode(struct hmfs_sb_info *sbi, block_t inode_block_addr);
-void dc_data(struct hmfs_sb_info *sbi, block_t data_block_addr);
-int ic_block(struct hmfs_sb_info *sbi, block_t blk_addr);
-void invalidate_block_after_dc(struct hmfs_sb_info *sbi, block_t blk_addr);
+void update_sit_entry(struct hmfs_sb_info *sbi, seg_t, int);
+void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);
@@ -809,13 +802,15 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp);
+int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp, bool unlock);
 int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
-					    unsigned int version, bool no_fail);
+				unsigned int version, bool no_fail);
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i);
 void check_checkpoint_state(struct hmfs_sb_info *sbi);
+int delete_checkpoint(struct hmfs_sb_info *sbi, ver_t version);
+int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);

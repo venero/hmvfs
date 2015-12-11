@@ -347,8 +347,6 @@ struct hmfs_checkpoint {
 	/* NAT */
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 
-	__le16 checksum;
-
 	__u8 state;				/* fs state, use set_fs_state */
 	/*
 	 * HMFS_GC_DATA: it represents (segno + 1) of current segment,

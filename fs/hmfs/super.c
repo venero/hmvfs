@@ -216,7 +216,7 @@ static int hmfs_format(struct super_block *sb)
 	struct hmfs_dentry_block *dent_blk = NULL;
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
 	struct hmfs_summary *summary;
-	u16 cp_checksum, sb_checksum;
+	u16 sb_checksum;
 
 	sbi = HMFS_SB(sb);
 
@@ -385,9 +385,6 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, next_scan_nid, 4);
 	set_struct(cp, elapsed_time, 0);
 
-	cp_checksum = hmfs_make_checksum(cp);
-	cp->checksum = cpu_to_le16(cp_checksum);
-
 	/* setup super block */
 	set_struct(super, magic, HMFS_SUPER_MAGIC);
 	set_struct(super, major_ver, HMFS_MAJOR_VERSION);
@@ -415,23 +412,32 @@ static int hmfs_format(struct super_block *sb)
 static struct hmfs_super_block *get_valid_super_block(void *start_addr)
 {
 	struct hmfs_super_block *super_1, *super_2;
-	u16 checksum, real_checksum;
+	u16 checksum_1, checksum_2, real_checksum_1, real_checksum_2;
+	bool sb_1_valid = false, sb_2_valid = false;
 
 	super_1 = start_addr;
-	checksum = hmfs_make_checksum(super_1);
-	real_checksum = le16_to_cpu(super_1->checksum);
-	if (real_checksum == checksum && super_1->magic == HMFS_SUPER_MAGIC) {
-		return super_1;
+	checksum_1 = hmfs_make_checksum(super_1);
+	real_checksum_1 = le16_to_cpu(super_1->checksum);
+	if (real_checksum_1 == checksum_1 && super_1->magic == HMFS_SUPER_MAGIC) {
+		sb_1_valid = true;
 	}
 
-	super_2 = start_addr + align_page_right(sizeof(struct hmfs_super_block));
-	checksum = hmfs_make_checksum(super_2);
-	real_checksum = le16_to_cpu(super_2->checksum);
-	if (real_checksum == checksum && super_2->magic == HMFS_SUPER_MAGIC) {
+	super_2 = next_super_block(super_1);
+	checksum_2 = hmfs_make_checksum(super_2);
+	real_checksum_2 = le16_to_cpu(super_2->checksum);
+	if (real_checksum_2 == checksum_2 && super_2->magic == HMFS_SUPER_MAGIC) {
+		sb_2_valid = true;
+	}
+
+	if (sb_1_valid) {
+		if (checksum_1 != checksum_2)
+			hmfs_memcpy(super_2, super_1, sizeof(struct hmfs_super_block));
+		return super_1;
+	} else if (sb_2_valid) {
 		hmfs_memcpy(super_1, super_2, sizeof(struct hmfs_super_block));
 		return super_1;
 	}
-
+	
 	return NULL;
 }
 
@@ -582,7 +588,7 @@ static void hmfs_put_super(struct super_block *sb)
 
 	if (sit_i->dirty_sentries) {
 		mutex_lock(&sbi->gc_mutex);
-		write_checkpoint(sbi, false);
+		write_checkpoint(sbi, false, true);
 		mutex_unlock(&sbi->gc_mutex);
 	}
 
@@ -631,7 +637,7 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
-		ret = write_checkpoint(sbi, false);
+		ret = write_checkpoint(sbi, false, true);
 		mutex_unlock(&sbi->gc_mutex);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {

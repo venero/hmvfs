@@ -269,9 +269,6 @@ static void recovery_cp_gc(struct hmfs_sb_info *sbi,
 	hmfs_cp->next_cp_addr = cpu_to_le64(rs_cp_addr);
 	nx_cp->prev_cp_addr = cpu_to_le64(rs_cp_addr);
 	raw_super->cp_page_addr = cpu_to_le64(rs_cp_addr);
-	
-	checksum = hmfs_make_checksum(rs_cp);
-	set_struct(rs_cp, checksum, checksum);
 
 	checksum = hmfs_make_checksum(raw_super);
 	set_struct(raw_super, checksum, checksum);
@@ -304,6 +301,9 @@ void check_checkpoint_state(struct hmfs_sb_info *sbi)
 		break;
 	case HMFS_ADD_CP:
 		redo_checkpoint(sbi, hmfs_cp);
+		break;
+	case HMFS_RM_CP:
+		redo_delete_checkpoint(sbi);
 		break;
 	}
 	sbi->recovery_doing = 0;
@@ -582,7 +582,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct hmfs_summary *summary;
-	unsigned int cp_checksum, sb_checksum;
+	unsigned int sb_checksum;
 	ver_t store_version;
 	block_t store_checkpoint_addr = 0;
 	block_t nat_root_addr, orphan_addrs[2] = {0, 0};
@@ -643,9 +643,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
 	set_struct(store_checkpoint, type, gc_cp ? CP_GC : CP_NORMAL);
 
-	cp_checksum = hmfs_make_checksum(store_checkpoint);
-	set_struct(store_checkpoint, checksum, cp_checksum);
-
 	/* 2. flush SIT to cp */
 	flush_sit_entries(sbi, store_checkpoint_addr, nat_root, gc_cp);
 	set_summary_valid_bit(summary);
@@ -672,10 +669,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	return 0;
 }
 
-//      Step1: calculate info and write sit and nat to NVM
-//      Step2: write CP itself to NVM
-//      Step3: remaining job
-int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
+int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp, bool unlock)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int ret;
@@ -685,8 +679,10 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 
 	ret = do_checkpoint(sbi, gc_cp);
 
-	unblock_operations(sbi);
-	mutex_unlock(&cm_i->cp_mutex);
+	if (unlock) {
+		unblock_operations(sbi);
+		mutex_unlock(&cm_i->cp_mutex);
+	}
 	return ret;
 }
 
@@ -737,34 +733,288 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	return 0;
 }
 
-//      Step1: delete all valid counter
-//      Step2: construct bypass link
-//      Step3: delete checkpoint itself
-int delete_checkpoint(struct hmfs_sb_info *sbi, unsigned int version)
+/* Clear summary bit and update SIT valid blocks */
+static void invalidate_block(struct hmfs_sb_info *sbi, block_t addr,
+				struct hmfs_summary *summary)
 {
-	struct hmfs_checkpoint *checkpoint = NULL;
-	struct hmfs_checkpoint *next_cp = NULL, *prev_cp = NULL;
-	block_t nat_root_addr;
+	clear_summary_valid_bit(summary);
+	update_sit_entry(sbi, GET_SEGNO(sbi, addr), -1);
+}
 
-	printk(KERN_INFO "Delete checkpoint stage 1.\n");
+static int __delete_checkpoint(struct hmfs_sb_info *sbi, void *cur_node,
+				void *next_node, ver_t prev_ver, ver_t next_ver)
+{
+	ver_t cur_node_ver, next_node_ver;
+	struct hmfs_summary *cur_sum, *next_sum;
+	bool delete_this = false;
+	int i;
 
-	checkpoint = CM_I(sbi)->last_cp_i->cp;
-	checkpoint = get_mnt_checkpoint(sbi, checkpoint, version);
-	if (!checkpoint) {
-		printk("Version %d not found.\n", version);
-		return -1;
+	cur_sum = get_summary_by_addr(sbi, L_ADDR(sbi, cur_node));
+	cur_node_ver = get_summary_start_version(cur_sum);
+	if (!next_node) {
+		delete_this = cur_node_ver > prev_ver;
+		next_sum = NULL;
+		goto delete;	
 	}
-	nat_root_addr = le64_to_cpu(checkpoint->nat_addr);
-	dc_nat_root(sbi, nat_root_addr);
 
-	printk(KERN_INFO "Delete checkpoint stage 2.\n");
-	next_cp = ADDR(sbi, le64_to_cpu(checkpoint->next_cp_addr));
-	prev_cp = ADDR(sbi, le64_to_cpu(checkpoint->prev_cp_addr));
+	next_sum = get_summary_by_addr(sbi, L_ADDR(sbi, next_node));
+	next_node_ver = get_summary_start_version(next_sum);
 
-	next_cp->prev_cp_addr = checkpoint->prev_cp_addr;
-	prev_cp->next_cp_addr = checkpoint->next_cp_addr;
+	/* this block is COW */
+	if (cur_node_ver != next_node_ver) {
+		hmfs_bug_on(sbi, cur_node_ver > next_node_ver);
+		/* Not any previous checkpoint refer to this block */
+		if (cur_node_ver > prev_ver) {
+			delete_this = true;
+		}
+	} else {	/* This block is shared */
+		/* If not any previous checkpoint refer to this block */
+		if (cur_node_ver > prev_ver) {
+			set_summary_start_version(cur_sum, next_ver);
+		}
+		return 0;
+	}
+	
+delete:
+	if (delete_this) {
+		/* Invalidate this block */
+		invalidate_block(sbi, L_ADDR(sbi, cur_node), cur_sum);
+	}
 
-	printk(KERN_INFO "Delete checkpoint stage 3.\n");
-	dc_checkpoint(sbi, L_ADDR(sbi, checkpoint));
+	switch (get_summary_type(cur_sum)) {
+	case SUM_TYPE_NATN: {
+		__le64 *cur_child, *next_child;
+
+		cur_child = ((struct hmfs_nat_node *)cur_node)->addr;
+		next_child = next_node ? ((struct hmfs_nat_node *)next_node)->addr
+				: NULL;
+		for (i = 0; i < NAT_ADDR_PER_NODE; i++, cur_child++,
+				next_child = next_child ? next_child + 1 : NULL) {
+			if (!*cur_child)
+				continue;
+			cur_node = ADDR(sbi, le64_to_cpu(*cur_child));
+			next_node = next_child ? ADDR(sbi, le64_to_cpu(*next_child)) 
+					: NULL;
+			__delete_checkpoint(sbi, cur_node, next_node, prev_ver, next_ver);
+		}
+		return 0;
+	}
+
+	case SUM_TYPE_NATD: {
+		struct hmfs_nat_entry *cur_entry, *next_entry;
+		void *cur_child, *next_child;
+
+		cur_entry = ((struct hmfs_nat_block *)cur_node)->entries;
+		next_entry = next_node ? ((struct hmfs_nat_block *)next_node)->entries
+				: NULL;
+		for (i = 0; i < NAT_ENTRY_PER_BLOCK; i++, cur_entry++,
+				next_entry = next_entry ? next_entry + 1 : NULL) {
+			if (!cur_entry->ino)
+				continue;
+			cur_child = ADDR(sbi, le64_to_cpu(cur_entry->block_addr));
+			next_child = next_entry ? 
+					ADDR(sbi, le64_to_cpu(next_entry->block_addr)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
+					next_ver);
+		}
+		return 0;
+	}
+
+	case SUM_TYPE_INODE: {
+		struct hmfs_inode *cur_inode, *next_inode;
+		void *cur_child, *next_child;
+		__le64 *cur_db, *next_db;
+
+		/*
+		 * If next_node is not inode, then child of cur_node 
+		 * is deleted base on previous checkpoint
+		 */
+		if (next_sum && get_summary_type(next_sum) != SUM_TYPE_INODE) {
+			next_node = NULL;
+		}
+		cur_inode = (struct hmfs_inode *)cur_node;
+		next_inode = (struct hmfs_inode *)next_node;
+
+		/* Delete extended data block */
+		if (cur_inode->i_xattr_addr) {
+			cur_child = ADDR(sbi, le64_to_cpu(cur_inode->i_xattr_addr));
+			next_child = next_node ? 
+					ADDR(sbi, le64_to_cpu(next_inode->i_xattr_addr)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
+					next_ver);
+		}
+		if (cur_inode->i_acl_addr) {
+			cur_child = ADDR(sbi, le64_to_cpu(cur_inode->i_acl_addr));
+			next_child = next_node ? 
+					ADDR(sbi, le64_to_cpu(next_inode->i_acl_addr)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
+					next_ver);
+		}
+		
+		/* Delete data blocks */
+		cur_db = cur_inode->i_addr;
+		next_db = next_node ? next_inode->i_addr : NULL;
+		for (i = 0; i < NORMAL_ADDRS_PER_INODE; i++,
+				cur_db++, next_db = next_db ? next_db + 1 : NULL) {
+			if (!*cur_db)
+				continue;
+			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
+			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, 
+					next_ver);
+		}
+
+		/* We don't need to handle nid. Because they are in NAT entry block, too */
+	}
+	
+	case SUM_TYPE_DN: {
+		__le64 *cur_db, *next_db;
+		struct direct_node *cur_dn, *next_dn;
+		void *cur_child, *next_child;
+
+		/* 
+		 * If next_node is not direct node, the this node has been deleted
+		 * in next checkpoint. And the child of cur_node is deleted based on
+		 * previous checkpoint 
+		 */
+		if (next_sum && get_summary_type(next_sum) != SUM_TYPE_DN) {
+			next_node = NULL;
+		}
+		cur_dn = (struct direct_node *)cur_node;
+		next_dn = (struct direct_node *)next_node;
+		
+		cur_db = cur_dn->addr;
+		next_db = next_node ? next_dn->addr : NULL;
+		for (i = 0; i < ADDRS_PER_BLOCK; i++, cur_db++,
+				next_db = next_db ? next_db + 1 : NULL) {
+			if (!*cur_db)
+				continue;
+			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
+			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, 
+					next_ver);
+		}
+		return 0;
+	}
+	case SUM_TYPE_ORPHAN:
+	case SUM_TYPE_CP:
+		hmfs_bug_on(sbi, 1);
+		return 1;
+	case SUM_TYPE_IDN:
+	case SUM_TYPE_DATA:
+	case SUM_TYPE_XDATA:
+		return 0;
+	default:
+		hmfs_bug_on(sbi, 1);
+		return 1;
+	}
+}
+
+static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
+{
+	struct hmfs_checkpoint *next_cp, *prev_cp, *last_cp, *cur_cp;
+	struct hmfs_nat_node *cur_root, *next_root;
+	int i;
+	struct hmfs_summary *summary;
+	block_t orphan_addr;
+	ver_t prev_ver, next_ver;
+	int ret = 0;
+	struct hmfs_super_block *raw_super;
+	block_t prev_addr, next_addr;
+
+	cur_cp = ADDR(sbi, cur_addr);
+	next_cp = ADDR(sbi, le64_to_cpu(cur_cp->next_cp_addr));
+	prev_cp = ADDR(sbi, le64_to_cpu(cur_cp->prev_cp_addr));
+	last_cp = CM_I(sbi)->last_cp_i->cp;
+
+	if (cur_cp == prev_cp) {
+		/* Only 1 valid checkpoint */
+		hmfs_bug_on(sbi, cur_cp != next_cp);
+		return -ENODATA; 
+	}
+
+	if (cur_cp == last_cp) {
+		/* We want to delete the newest checkpoint */
+		next_root = NULL;
+		next_ver = HMFS_DEF_DEAD_VER;
+	} else {
+		next_root = ADDR(sbi, le64_to_cpu(next_cp->nat_addr));
+		next_ver = le32_to_cpu(next_cp->checkpoint_ver);
+	}
+
+	if (prev_cp == last_cp) {
+		/* We want to delete the oldest checkpoint */
+		prev_ver = HMFS_DEF_DEAD_VER;
+	} else {
+		prev_ver = le32_to_cpu(prev_cp->checkpoint_ver);
+	}
+
+	set_fs_state(last_cp, HMFS_RM_CP);
+	set_fs_state_arg(last_cp, cur_addr);
+
+	cur_root = ADDR(sbi, le64_to_cpu(cur_cp->nat_addr));
+	ret = __delete_checkpoint(sbi, cur_root, next_root,
+				prev_ver, next_ver);
+
+	/* Delete orphan blocks */
+	for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
+		if (!cur_cp->orphan_addrs[i])
+			break;
+		orphan_addr = le64_to_cpu(cur_cp->orphan_addrs[i]);
+		summary = get_summary_by_addr(sbi, orphan_addr);
+		invalidate_block(sbi, orphan_addr, summary);
+	}
+
+	/* Delete checkpoint block */
+	summary = get_summary_by_addr(sbi, cur_addr);
+	invalidate_block(sbi, cur_addr, summary);
+
+	/* Set valid bit of deleted block */
+	flush_sit_entries_rmcp(sbi);
+
+	/* Link cp list */
+	prev_addr = cur_cp->prev_cp_addr;
+	next_addr = cur_cp->next_cp_addr;
+	next_cp->prev_cp_addr = cur_cp->prev_cp_addr;
+	prev_cp->next_cp_addr = cur_cp->next_cp_addr;
+
+	/* If delete newest checkpoint, we should modify super block */
+	if (next_root == NULL) {
+		set_fs_state(prev_cp, HMFS_NONE);
+		raw_super = HMFS_RAW_SUPER(sbi);
+		raw_super->cp_page_addr = cpu_to_le64(L_ADDR(sbi, prev_cp));
+		raw_super->checksum = cpu_to_le16(hmfs_make_checksum(raw_super));
+		raw_super = next_super_block(raw_super);
+		hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), 
+				sizeof(struct hmfs_super_block));
+	}
+
 	return 0;
+
+}
+
+int delete_checkpoint(struct hmfs_sb_info *sbi, ver_t version)
+{
+	struct checkpoint_info *del_cp_i = NULL;
+	int ret = 0;
+
+	del_cp_i = get_checkpoint_info(sbi, version, false);
+	if (!del_cp_i)
+		return -EINVAL;
+
+	mutex_lock(&sbi->gc_mutex);
+	ret = write_checkpoint(sbi, false, false);
+	ret = do_delete_checkpoint(sbi, L_ADDR(sbi, del_cp_i->cp));
+	unblock_operations(sbi);
+	mutex_unlock(&(CM_I(sbi)->cp_mutex));
+	mutex_unlock(&sbi->gc_mutex);
+	return ret;
+}
+
+int redo_delete_checkpoint(struct hmfs_sb_info *sbi)
+{
+	block_t cp_addr;
+
+	cp_addr = le64_to_cpu(CM_I(sbi)->last_cp_i->cp->state_arg);
+	return do_delete_checkpoint(sbi, cp_addr);
 }

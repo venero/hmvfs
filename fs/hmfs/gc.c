@@ -639,7 +639,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	
 	/* Write checkpoint before GC */
 	if (sit_i->dirty_sentries) {
-		ret = write_checkpoint(sbi, false);
+		ret = write_checkpoint(sbi, false, true);
 		if (ret)
 			goto out;
 	}
@@ -658,7 +658,7 @@ gc_more:
 	garbage_collect(sbi, segno);
 	
 	if (sit_i->sentries) {
-		ret = write_checkpoint(sbi, true);
+		ret = write_checkpoint(sbi, true, true);
 		if (ret)
 			goto out;
 	}
