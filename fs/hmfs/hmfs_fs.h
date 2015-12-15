@@ -514,8 +514,8 @@ static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)
 	hmfs_memcpy_atomic(&hmfs_cp->state, &state, 1);
 }
 
-static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block
-							*raw_super)
+static inline struct hmfs_super_block *next_super_block(
+				struct hmfs_super_block *raw_super)
 {
 	unsigned int size = sizeof(struct hmfs_super_block);
 

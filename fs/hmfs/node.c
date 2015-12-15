@@ -1193,6 +1193,7 @@ retry:
 
 	if (nm_i->nid_wrapped) {
 		hmfs_bug_on(sbi, gc_cp);
+		nm_i->nid_wrapped = 0;
 		return;
 	}
 

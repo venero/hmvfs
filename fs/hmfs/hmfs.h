@@ -116,7 +116,7 @@ struct hmfs_mmap_block {
 struct hmfs_dentry_ptr {
 	const void *bitmap;
 	struct hmfs_dir_entry *dentry;
-	 __u8(*filename)[HMFS_SLOT_LEN];
+	__u8(*filename)[HMFS_SLOT_LEN];
 	int max;
 };
 
@@ -373,7 +373,7 @@ static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
 static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)
 {
 	return ((addr - sbi->main_addr_start) & (~HMFS_SEGMENT_MASK)) >>
-			HMFS_PAGE_SIZE_BITS;
+				HMFS_PAGE_SIZE_BITS;
 }
 
 static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
@@ -453,7 +453,7 @@ static inline void mutex_unlock_op(struct hmfs_sb_info *sbi, int ilock)
 }
 
 static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
-					struct inode *inode, int count)
+				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	pgc_t alloc_valid_block_count;
@@ -484,7 +484,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 }
 
 static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
-					struct inode *inode, int count)
+				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	spin_lock(&cm_i->stat_lock);
@@ -495,7 +495,7 @@ static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
 }
 
 static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
-					struct inode *inode, int count)
+				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	spin_lock(&cm_i->stat_lock);
@@ -523,7 +523,7 @@ static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 }
 
 static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
-					 struct inode *inode, int count)
+				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	pgc_t alloc_block_count;
@@ -622,7 +622,7 @@ static inline int hmfs_readonly(struct super_block *sb)
 }
 
 static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
-				   int normal_inode)
+				int normal_inode)
 {
 	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
 
@@ -633,10 +633,8 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
 }
 
 static inline void make_summary_entry(struct hmfs_summary *summary,
-				      nid_t nid,
-				      ver_t start_version,
-				      unsigned int ofs_in_node,
-				      unsigned char type)
+				nid_t nid, ver_t start_version, unsigned int ofs_in_node,
+				unsigned char type)
 {
 	summary->nid = cpu_to_le32(nid);
 	summary->start_version = cpu_to_le32(start_version);
@@ -900,7 +898,7 @@ int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type);
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {
 	return __hmfs_add_link(dentry->d_parent->d_inode, &dentry->d_name,
-			       inode);
+				inode);
 }
 
 #endif
