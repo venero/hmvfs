@@ -114,7 +114,8 @@ enum {
 				NR_DENTRY_IN_BLOCK + SIZE_OF_DENTRY_BITMAP))
 
 //TODO
-#define NUM_NAT_JOURNALS_IN_CP	8
+#define NUM_NAT_JOURNALS_IN_CP		8
+#define HMFS_JOURNALING_THRESHOLD	4
 //?(sizeof(struct hmfs_checkpoint))-(void*)(((struct hmfs_checkpoint*)(0))->sit_journals)
 //TODO
 /* number of all sit logs in checkpoint */

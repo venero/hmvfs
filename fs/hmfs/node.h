@@ -14,13 +14,18 @@
 
 #define GET_NAT_NODE_HEIGHT(nid)		((nid) >> NAT_NODE_OFS_BITS)
 #define GET_NAT_NODE_OFS(nid)			((nid) & NAT_NODE_OFS_MASK)
-#define MAKE_NAT_NODE_NID(height, ofs)	(((height) << NAT_NODE_OFS_BITS) | ((ofs) & NAT_NODE_OFS_MASK))
+#define MAKE_NAT_NODE_NID(height, ofs)	(((height) << NAT_NODE_OFS_BITS) |\
+				((ofs) & NAT_NODE_OFS_MASK))
+
+#define NAT_FLAG_FREE_NID			0x01
+#define NAT_FLAG_JOURNAL			0x02
 
 struct node_info {
 	nid_t nid;
 	nid_t ino;
 	block_t blk_addr;
 	ver_t version;
+	char flag;
 };
 
 struct nat_entry {
@@ -35,8 +40,9 @@ struct free_nid {
 /*
  * ?????
  */
-#define make_free_nid(nid,free)		((nid) | (((u32)free) << 31))
+#define make_free_nid(nid, free)		((nid) | (((u32)free) << 31))
 #define get_free_nid(nid)			(((nid) << 1) >> 1)
+#define is_dirty_free_nid(nid)		(nid >> 31)
 
 static inline void node_info_to_raw_nat(struct node_info *ni,
 					struct hmfs_nat_entry *ne)

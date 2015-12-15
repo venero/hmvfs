@@ -500,7 +500,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	sync_checkpoint_info(sbi, hmfs_cp, cp_i);
 	cm_i->last_cp_i = cp_i;
 
-	rwlock_init(&cm_i->journal_lock);
 	spin_lock_init(&cm_i->stat_lock);
 	INIT_LIST_HEAD(&cp_i->list);
 	INIT_RADIX_TREE(&cm_i->cp_tree_root, GFP_ATOMIC);
@@ -749,17 +748,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	if (!gc_cp)
 		set_fs_state(prev_checkpoint, HMFS_ADD_CP);
 
-	/* GC process should not update nat tree */
-	if (!gc_cp) {
-		nat_root = flush_nat_entries(sbi);
-		if (IS_ERR(nat_root))
-			return PTR_ERR(nat_root);
-		nat_root_addr = L_ADDR(sbi, nat_root);
-	} else {
-		nat_root_addr = le64_to_cpu(prev_checkpoint->nat_addr);
-		nat_root = ADDR(sbi, nat_root_addr);
-	}
-
 	/* 1. set new cp block */
 	if (!gc_cp)
 		ret = flush_orphan_inodes(sbi, orphan_addrs);
@@ -769,6 +757,12 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	store_checkpoint_addr = L_ADDR(sbi, store_checkpoint);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
+
+	/* GC process should not update nat tree */
+	nat_root= flush_nat_entries(sbi, store_checkpoint, gc_cp);
+	if (IS_ERR(nat_root))
+		return PTR_ERR(nat_root);
+	nat_root_addr = L_ADDR(sbi, nat_root);
 
 	flush_orphan_inodes_finish(sbi, orphan_addrs, store_checkpoint_addr);
 
@@ -865,7 +859,7 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	/* 3. mark valid */
 	store_version = le32_to_cpu(store_cp->checkpoint_ver);
 	nat_root = ADDR(sbi, le32_to_cpu(store_cp->nat_addr));
-	__mark_block_valid(sbi, nat_root, 0, store_version, sbi->nat_height);
+	mark_block_valid(sbi, nat_root, store_cp, false);
 
 	/* 4. connect to super */
 	next_cp = ADDR(sbi, le64_to_cpu(store_cp->next_cp_addr));

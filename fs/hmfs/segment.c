@@ -400,7 +400,7 @@ retry:
 	}
 
 	/* Finally, set valid bit in SSA */
-	mark_block_valid(sbi, new_nat_root, gc_cp);
+	mark_block_valid(sbi, new_nat_root, ADDR(sbi, new_cp_addr), gc_cp);
 	sit_i->dirty_sentries = 0;
 	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
 }

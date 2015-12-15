@@ -136,12 +136,25 @@ struct hmfs_nm_info {
 	nid_t max_nid;		/* maximum possible node ids */
 	nid_t next_scan_nid;	/* the next nid to be scanned */
 
+	/*
+	 * Whether scan free nid in NAT wrap around. And we should
+	 * not write journal when nid wrap around
+	 */
+	int nid_wrapped;	
+	int delete_nid_index;	/* Index of free nid from deleting nat */
+
 	/* NAT cache management */
 	struct radix_tree_root nat_root;	/* root of the nat entry cache */
 	rwlock_t nat_tree_lock;	/* protect nat_tree_lock */
 	unsigned int nat_cnt;	/* the # of cached nat entries */
 	struct list_head nat_entries;	/* cached nat entry list (clean) */
 	struct list_head dirty_nat_entries;	/* cached nat entry list (dirty) */
+	/*
+	 * If the number of dirty nat entries in a block is less than
+	 * threshold, we write them into journal area of checkpoint
+	 * instead of NAT block in order to reduce write time.
+	 */
+	int journaling_threshold;
 
 	/* free node ids management */
 	struct list_head free_nid_list;	/* a list for free nids */
@@ -173,8 +186,6 @@ struct hmfs_cm_info {
 #ifdef CONFIG_HMFS_DEBUG
 	int nr_bugs;		/* # of bugs found */
 #endif
-
-	rwlock_t journal_lock;
 
 	struct mutex orphan_inode_mutex;
 	struct list_head orphan_inode_list;
@@ -740,31 +751,30 @@ void destroy_node_manager(struct hmfs_sb_info *sbi);
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
 void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
 struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
-			     struct checkpoint_info *cp_i, nid_t nid);
+				struct checkpoint_info *cp_i, nid_t nid);
 int create_node_manager_caches(void);
 void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,
-		     char sum_type);
+		     	char sum_type);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      block_t blk_addr, ver_t version, bool dirty);
+		      	block_t blk_addr, ver_t version, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
-struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi);
+struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
+				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
-		   struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
+				struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 void truncate_node(struct dnode_of_data *dn);
 struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *sbi,
-					   ver_t version, nid_t nid);
+				ver_t version, nid_t nid);
 struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, ver_t version,
-				     nid_t nid);
+				nid_t nid);
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
-				   ver_t version, unsigned int index);
-void __mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *,
-				unsigned int, unsigned int, u8);
+				ver_t version, unsigned int index);
 void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
-				bool gc_cp);
+				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
 int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 				unsigned long vaddr, unsigned long pgoff);
 int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
@@ -781,13 +791,13 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
-					     seg_t segno);
+				seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-					 block_t blk_addr);
+				block_t blk_addr);
 block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
 block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
-				   seg_t segno, int blkoff);
+				seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);
 void update_sit_entry(struct hmfs_sb_info *sbi, seg_t, int);
@@ -815,21 +825,21 @@ int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
-		    int *size, int mode);
+		    	int *size, int mode);
 void *alloc_new_data_block(struct inode *inode, int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
-				   int size, bool fill_zero);
+				int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
 
 /* dir.c */
 int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);
 struct hmfs_dir_entry *hmfs_find_entry(struct inode *, struct qstr *, int *,
-				       int *);
+				int *);
 struct hmfs_dir_entry *hmfs_parent_dir(struct inode *);
 void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry,
-		   struct inode *);
+				struct inode *);
 void hmfs_delete_entry(struct hmfs_dir_entry *, struct hmfs_dentry_block *,
-		       struct inode *, struct inode *, int bidx);
+				struct inode *, struct inode *, int bidx);
 int hmfs_make_empty(struct inode *, struct inode *);
 bool hmfs_empty_dir(struct inode *);
 struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
@@ -843,10 +853,10 @@ hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
 
 /* namei.c */
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		 struct kstat *stat);
+				struct kstat *stat);
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
-			       umode_t mode);
+				umode_t mode);
 
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
