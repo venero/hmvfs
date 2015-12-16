@@ -147,6 +147,7 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 static void init_acl_block(void *base_addr) 
 {
 	struct hmfs_acl_header *acl_header = ACL_HEADER(base_addr);
+
 	XATTR_HDR(base_addr)->h_magic = cpu_to_le16(HMFS_X_BLOCK_TAG_ACL);
 	acl_header->a_version = cpu_to_le32(HMFS_ACL_VERSION);
 }	
@@ -401,7 +402,7 @@ int hmfs_init_acl(struct inode *inode, struct inode *dir)
 
 	if (default_acl) {
 		error = hmfs_set_acl(inode, default_acl, ACL_TYPE_DEFAULT);
-		posix_acl_release(acl);
+		posix_acl_release(default_acl);
 	}
 
 	if (acl) {

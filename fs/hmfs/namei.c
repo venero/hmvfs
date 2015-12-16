@@ -65,7 +65,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		set_inode_flag(i_info, FI_INLINE_DATA);
 	}
 
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);
+	update_nat_entry(nm_i, ino, ino, NEW_ADDR, true);
 	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
 	mutex_unlock_op(sbi, ilock);

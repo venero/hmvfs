@@ -24,7 +24,6 @@ struct node_info {
 	nid_t nid;
 	nid_t ino;
 	block_t blk_addr;
-	ver_t version;
 	char flag;
 };
 

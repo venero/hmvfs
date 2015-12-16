@@ -207,7 +207,7 @@ void truncate_node(struct dnode_of_data *dn)
 
 	dec_valid_node_count(sbi, dn->inode, 1);
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino, NULL_ADDR,
-			 CM_I(sbi)->new_version, true);
+			 true);
 
 	if (dn->nid == dn->inode->i_ino) {
 		remove_orphan_inode(sbi, dn->nid);
@@ -474,7 +474,7 @@ fail:
 }
 
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      block_t blk_addr, ver_t version, bool dirty)
+		      block_t blk_addr, bool dirty)
 {
 	struct nat_entry *e, *le;
 
@@ -490,7 +490,6 @@ retry:
 	e->ni.ino = ino;
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
-	e->ni.version = version;
 	e->ni.flag = 0;
 	write_lock(&nm_i->nat_tree_lock);
 	if (dirty) {
@@ -595,8 +594,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 
 	setup_summary_of_new_node(sbi, blk_addr, src_addr, inode->i_ino,
 			ofs_in_node, sum_type);
-	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr, cp_i->version,
-			true);
+	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr,	true);
 
 	return dest;
 }
@@ -643,7 +641,6 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 		read_lock(&nm_i->nat_tree_lock);
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
-		ni->version = e->ni.version;
 		read_unlock(&nm_i->nat_tree_lock);
 		return 0;
 	}
@@ -654,7 +651,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 		return -ENODATA;
 	node_info_from_raw_nat(ni, ne_local);
 
-	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, ni->version, false);
+	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, false);
 	return 0;
 }
 
@@ -1087,7 +1084,6 @@ static void cache_nat_journals_entries(struct hmfs_sb_info *sbi)
 	nid_t nid, ino;
 	block_t blk_addr;
 	int i;
-	unsigned int version = cm_i->new_version;
 
 	for (i = 0; i < cm_i->nr_nat_journals; ++i) {
 		ne = &hmfs_cp->nat_journals[i];
@@ -1096,7 +1092,7 @@ static void cache_nat_journals_entries(struct hmfs_sb_info *sbi)
 		blk_addr = le64_to_cpu(ne->entry.block_addr);
 		
 		if (nid >= HMFS_ROOT_INO && blk_addr != NULL_ADDR)
-			update_nat_entry(nm_i, nid, ino, blk_addr, version, true);
+			update_nat_entry(nm_i, nid, ino, blk_addr, true);
 	}
 }
 

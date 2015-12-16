@@ -757,7 +757,7 @@ bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,
 		     	char sum_type);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
-		      	block_t blk_addr, ver_t version, bool dirty);
+		      	block_t blk_addr, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,

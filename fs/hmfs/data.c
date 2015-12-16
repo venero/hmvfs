@@ -63,7 +63,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			}
 			dn->nid = nid[i];
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
-					NEW_ADDR, CM_I(sbi)->new_version, true);
+					NEW_ADDR, true);
 			sum_type = i == level ? SUM_TYPE_DN : SUM_TYPE_IDN;
 			blocks[i] = alloc_new_node(sbi, nid[i], dn->inode, sum_type);
 			if (IS_ERR(blocks[i])) {
