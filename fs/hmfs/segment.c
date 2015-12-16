@@ -55,8 +55,8 @@ inline block_t __cal_page_addr(struct hmfs_sb_info *sbi,
 				seg_t segno, int blkoff)
 {
 	return (segno << HMFS_SEGMENT_SIZE_BITS) +
-	 	(blkoff << HMFS_PAGE_SIZE_BITS)
-	 	+ sbi->main_addr_start;
+			(blkoff << HMFS_PAGE_SIZE_BITS)
+			+ sbi->main_addr_start;
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
@@ -108,7 +108,7 @@ static void move_to_new_segment(struct hmfs_sb_info *sbi,
 	seg_t segno = seg_i->segno;
 
 	get_new_segment(sbi, &segno, seg_i->next_segno,
-					seg_i->use_next_segno);
+			seg_i->use_next_segno);
 	seg_i->next_segno = segno;
 	reset_curseg(seg_i);
 }
@@ -662,6 +662,7 @@ static void destroy_curseg(struct hmfs_sb_info *sbi)
 static void destroy_free_segmap(struct hmfs_sb_info *sbi)
 {
 	struct free_segmap_info *free_i = SM_I(sbi)->free_info;
+
 	if (!free_i)
 		return;
 	SM_I(sbi)->free_info = NULL;
@@ -686,6 +687,7 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 void destroy_segment_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_sm_info *sm_info = SM_I(sbi);
+	
 	destroy_dirty_segmap(sbi);
 	destroy_curseg(sbi);
 	destroy_free_segmap(sbi);
@@ -716,4 +718,3 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 
 	return &summary_blk->entries[blkoff];
 }
-

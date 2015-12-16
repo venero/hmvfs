@@ -139,7 +139,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	return ret;
 }
 
-static int prepare_move_argument(struct gc_move_arg *arg,
+static void prepare_move_argument(struct gc_move_arg *arg,
 				struct hmfs_sb_info *sbi, seg_t mv_segno, unsigned mv_offset,
 				struct hmfs_summary *sum, int type)
 {
@@ -163,9 +163,7 @@ static int prepare_move_argument(struct gc_move_arg *arg,
 		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
 	}
 	
-	//TODO: handle error
-	if (IS_ERR(arg->dest))
-		return -ENOSPC;
+	hmfs_bug_on(sbi, IS_ERR(arg->dest));
 
 	if ((!hmfs_cp->state_arg || !test_segoff) &&
 				likely(!sbi->recovery_doing)){
@@ -179,7 +177,6 @@ static int prepare_move_argument(struct gc_move_arg *arg,
 	arg->dest_sum = get_summary_by_addr(sbi, arg->dest_addr);
 	arg->src_addr = __cal_page_addr(sbi, mv_segno, mv_offset);
 	arg->src = ADDR(sbi, arg->src_addr);
-	return 0;
 }
 
 static void update_dest_summary(struct hmfs_summary *src_sum,
@@ -240,7 +237,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		 * refer to this data block
 		 */
 		if ((!sbi->recovery_doing && addr_in_par != args.src_addr) ||
-					(sbi->recovery_doing && addr_in_par != args.src_addr &&
+				(sbi->recovery_doing && addr_in_par != args.src_addr &&
 				addr_in_par != args.dest_addr)) {
 			break;
 		}

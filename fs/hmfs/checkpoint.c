@@ -754,6 +754,12 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 
 	store_version = cm_i->new_version;
 	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
+
+	if (IS_ERR(store_checkpoint)) {
+		set_fs_state(prev_checkpoint, HMFS_NONE);
+		return -ENOSPC;
+	}
+
 	store_checkpoint_addr = L_ADDR(sbi, store_checkpoint);
 	summary = get_summary_by_addr(sbi, store_checkpoint_addr);
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
@@ -1131,7 +1137,6 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 	}
 
 	return 0;
-
 }
 
 int delete_checkpoint(struct hmfs_sb_info *sbi, ver_t version)
