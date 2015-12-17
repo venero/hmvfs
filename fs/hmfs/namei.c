@@ -18,7 +18,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	struct hmfs_inode_info *i_info;
 	struct inode *inode;
 	nid_t ino;
-	int err, ilock;
+	int err;
 	bool nid_free = false;
 
 	inode = new_inode(sb);
@@ -66,9 +66,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	}
 
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, true);
-	ilock = mutex_lock_op(sbi);
 	err = sync_hmfs_inode(inode);
-	mutex_unlock_op(sbi, ilock);
 	if (!err) {
 		inc_valid_inode_count(sbi);
 		return inode;
@@ -93,11 +91,15 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 	struct inode *inode;
 	int err = 0, ilock;
 
-	inode = hmfs_new_inode(dir, mode);
-	if (IS_ERR(inode))
-		return inode;
 	ilock = mutex_lock_op(sbi);
+
+	inode = hmfs_new_inode(dir, mode);
+	if (IS_ERR(inode)) {
+		mutex_unlock_op(sbi, ilock);
+		return inode;
+	}
 	err = hmfs_add_link(dentry, inode);
+
 	mutex_unlock_op(sbi, ilock);
 	if (err)
 		goto out;
@@ -377,11 +379,14 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	struct inode *inode = dentry->d_inode;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct posix_acl *acl;
-	int err = 0;
+	int err = 0, ilock;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	err = inode_change_ok(inode, attr);
 	if (err)
 		return err;
+
+	ilock = mutex_lock_op(sbi);
 
 	if ((attr->ia_valid & ATTR_SIZE) && attr->ia_size != i_size_read(inode)) {
 		truncate_setsize(inode, attr->ia_size);
@@ -406,6 +411,7 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 
 out:
+	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
 	return err;
 }

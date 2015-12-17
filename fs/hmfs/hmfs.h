@@ -876,8 +876,6 @@ int init_util_function(void);
 #ifdef CONFIG_HMFS_ACL
 struct posix_acl *hmfs_get_acl(struct inode *inode, int type);
 int hmfs_init_acl(struct inode *inode, struct inode *dir);
-int hmfs_acl_xattr_set(struct dentry *, const char *, const void *,
-				size_t, int, int);
 int hmfs_acl_xattr_get(struct dentry *, const char *name, void *buffer,
 				size_t list_size, int);
 size_t hmfs_acl_access_xattr_list(struct dentry *, char *,
@@ -888,7 +886,6 @@ int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type);
 #else
 #define hmfs_get_acl(inode, type) 	NULL
 #define hmfs_init_acl(inode, dir) 	0
-#define hmfs_acl_xattr_set(dentry, name, buffer, size, flags, type) 0
 #define hmfs_acl_xattr_get(dentry, name, buffer, size, type)	0
 #define hmfs_acl_access_xattr_list(dentry, list, size, name, len, type)	0
 #define hmfs_acl_default_xattr_list(dentry, list, size, name, len, type)	0

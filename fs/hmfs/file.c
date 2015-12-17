@@ -76,6 +76,10 @@ unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk)
 	return 0;
 }
 
+/*
+ * I think it's ok to seek hole or data but not to obtain a fs lock,
+ * i.e. user could seek hole or data of file when fs is doing checkpoint
+ */
 static unsigned int hmfs_file_seek_hole_data(struct inode *inode, 
 				unsigned int end_blk, unsigned int start_pos, char type)
 {
@@ -475,6 +479,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 {
 	int ret = 0;
 
+	//FIXME: mutex use for what?
 	mutex_lock(&filp->f_inode->i_mutex);
 
 	if (!i_size_read(filp->f_inode))
@@ -565,17 +570,19 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	end_blk = (eof + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
 
 	switch (whence) {
-	case SEEK_END:		//size of the file plus offset [bytes]
+	case SEEK_END:		
+		/* size of the file plus offset [bytes] */
 		offset += eof;
 		break;
-	case SEEK_CUR:		//current location plus offset [bytes] 
-		//extra lseek(fd, 0, SEEK_CUR) can be used
+	case SEEK_CUR:
+		/* current location plus offset [bytes] */
 		spin_lock(&file->f_lock);
 		offset = vfs_setpos(file, file->f_pos + offset, maxsize);
 		spin_unlock(&file->f_lock);
 		ret = offset;
 		goto out;
-	case SEEK_DATA:	//move to data where data.offset >= offset
+	case SEEK_DATA:	
+		/* move to position of data where >= offset */
 		if (offset >= eof) {
 			ret = -ENXIO;
 			goto out;
@@ -605,7 +612,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 		break;
 	}
 
-	ret = vfs_setpos(file, offset, maxsize);	//FIXME:SEEK_HOLE/DATA/SET don't need lock?
+	ret = vfs_setpos(file, offset, maxsize);
 out:
 	mutex_unlock(&inode->i_mutex);
 	return ret;
@@ -742,7 +749,6 @@ out_backing:
 out_up:
 	mutex_unlock(&inode->i_mutex);
 	return ret;
-
 }
 
 /* dn->node_block should be writable */
@@ -1208,11 +1214,13 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	int ret = 0;
+	int ret = 0, ilock;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	if (hmfs_readonly(inode->i_sb))
 		return 0;
 
+	ilock = mutex_lock_op(sbi);
 	mutex_lock(&inode->i_mutex);
 
 	/* We don't need to sync data pages */
@@ -1222,11 +1230,12 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		ret = sync_hmfs_inode_size(inode);
 
 	mutex_unlock(&inode->i_mutex);
+	mutex_unlock_op(sbi, ilock);
 
 	return ret;
 }
 
-//      Allocate space for file from offset to offset+len
+/* Pre-allocate space for file from offset to offset + len */
 static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 			   loff_t len)
 {
@@ -1252,6 +1261,7 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		mark_inode_dirty(inode);
 	}
+
 	return ret;
 }
 

@@ -465,12 +465,12 @@ int hmfs_acl_xattr_get(struct dentry *dentry, const char *name, void *buffer,
 	return error;
 }
 
-int hmfs_acl_xattr_set(struct dentry *dentry, const char *name,
+static int hmfs_acl_xattr_set(struct dentry *dentry, const char *name,
 				const void *value, size_t size, int flags, int type)
 {
 	struct inode *inode = dentry->d_inode;
 	struct posix_acl *acl;
-	int error = 0;
+	int error = 0, ilock;
 	struct hmfs_sb_info *sbi = HMFS_SB(dentry->d_sb);
 
 	if (strcmp(name, "") != 0)
@@ -492,7 +492,10 @@ int hmfs_acl_xattr_set(struct dentry *dentry, const char *name,
 	} else
 		acl = NULL;
 
+	ilock = mutex_lock_op(sbi);
 	error = hmfs_set_acl(inode, acl, type);
+	mutex_unlock_op(sbi, ilock);
+
 release_and_out:
 	posix_acl_release(acl);
 	return error;

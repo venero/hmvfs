@@ -274,12 +274,15 @@ out:
 	return error;
 }
 
-int hmfs_setxattr(struct inode *inode, int index, const char *name,
+static int hmfs_setxattr(struct inode *inode, int index, const char *name,
 				const void *value, size_t size, int flags)
 {
-	int err;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	int err, ilock;
 
+	ilock = mutex_lock_op(sbi);
 	err = __hmfs_setxattr(inode, index, name, value, size, flags);
+	mutex_unlock_op(sbi, ilock);
 
 	return err;
 }
