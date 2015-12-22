@@ -394,44 +394,6 @@ static struct hmfs_checkpoint *get_mnt_checkpoint(struct hmfs_sb_info *sbi,
 	return NULL;
 }
 
-static void recovery_cp_gc(struct hmfs_sb_info *sbi, 
-				struct hmfs_checkpoint *hmfs_cp)
-{
-	block_t rs_cp_addr, nx_cp_addr;	
-	struct hmfs_checkpoint *rs_cp, *nx_cp;
-	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
-	int checksum;
-
-	/* If HMFS_CP_GC set, we have taken store_checkpoint_addr */
-	rs_cp_addr = le64_to_cpu(hmfs_cp->state_arg_2);
-	rs_cp = ADDR(sbi, rs_cp_addr);
-	nx_cp_addr = le64_to_cpu(rs_cp->next_cp_addr);
-	nx_cp = ADDR(sbi, nx_cp_addr);
-
-	hmfs_bug_on(sbi, le64_to_cpu(rs_cp->prev_cp_addr) != L_ADDR(sbi, hmfs_cp));
-	hmfs_bug_on(sbi, le32_to_cpu(hmfs_cp->checkpoint_ver) < 
-					le32_to_cpu(rs_cp->checkpoint_ver));
-	hmfs_bug_on(sbi, le32_to_cpu(nx_cp->checkpoint_ver) < 
-					le32_to_cpu(hmfs_cp->checkpoint_ver));
-
-	/* Flush SIT and SSA in checkpoint log area */
-	recovery_sit_entries(sbi, hmfs_cp, true);
-
-	hmfs_cp->next_cp_addr = cpu_to_le64(rs_cp_addr);
-	nx_cp->prev_cp_addr = cpu_to_le64(rs_cp_addr);
-	raw_super->cp_page_addr = cpu_to_le64(rs_cp_addr);
-
-	checksum = hmfs_make_checksum(raw_super);
-	set_struct(raw_super, checksum, checksum);
-
-	raw_super = next_super_block(raw_super);
-	hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
-
-	set_fs_state(hmfs_cp, HMFS_NONE);
-
-	move_to_next_checkpoint(sbi, rs_cp);
-}
-
 void check_checkpoint_state(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
@@ -442,13 +404,9 @@ void check_checkpoint_state(struct hmfs_sb_info *sbi)
 	state = hmfs_cp->state;
 	switch(state) {
 	case HMFS_NONE:
-		break;
-	case HMFS_GC_DATA:
-	case HMFS_GC_NODE:
+		goto out;
+	case HMFS_GC:
 		recovery_gc_crash(sbi, hmfs_cp);
-		break;
-	case HMFS_CP_GC:
-		recovery_cp_gc(sbi, hmfs_cp);
 		break;
 	case HMFS_ADD_CP:
 		redo_checkpoint(sbi, hmfs_cp);
@@ -457,6 +415,8 @@ void check_checkpoint_state(struct hmfs_sb_info *sbi)
 		redo_delete_checkpoint(sbi);
 		break;
 	}
+	set_fs_state(hmfs_cp, HMFS_NONE);
+out:
 	sbi->recovery_doing = 0;
 }
 
@@ -504,7 +464,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	INIT_LIST_HEAD(&cp_i->list);
 	INIT_RADIX_TREE(&cm_i->cp_tree_root, GFP_ATOMIC);
 	mutex_init(&cm_i->cp_tree_lock);
-	mutex_init(&cm_i->cp_mutex);
 
 	mutex_lock(&cm_i->cp_tree_lock);
 	radix_tree_insert(&cm_i->cp_tree_root, cp_i->version, cp_i);
@@ -725,7 +684,7 @@ int recover_orphan_inodes(struct hmfs_sb_info *sbi)
 	return 0;
 }
 
-static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
+static int do_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
@@ -744,19 +703,14 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 
 	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
-	
-	if (!gc_cp)
-		set_fs_state(prev_checkpoint, HMFS_ADD_CP);
 
 	/* 1. set new cp block */
-	if (!gc_cp)
-		ret = flush_orphan_inodes(sbi, orphan_addrs);
+	ret = flush_orphan_inodes(sbi, orphan_addrs);
 
 	store_version = cm_i->new_version;
 	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
 
 	if (IS_ERR(store_checkpoint)) {
-		set_fs_state(prev_checkpoint, HMFS_NONE);
 		return -ENOSPC;
 	}
 
@@ -765,7 +719,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
 
 	/* GC process should not update nat tree */
-	nat_root= flush_nat_entries(sbi, store_checkpoint, gc_cp);
+	nat_root = flush_nat_entries(sbi, store_checkpoint);
 	if (IS_ERR(nat_root))
 		return PTR_ERR(nat_root);
 	nat_root_addr = L_ADDR(sbi, nat_root);
@@ -783,19 +737,19 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
 	set_struct(store_checkpoint, alloc_block_count, cm_i->alloc_block_count);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
-	set_struct(store_checkpoint, cur_node_segno, curseg_i[CURSEG_NODE].segno);
+	set_struct(store_checkpoint, cur_node_segno, 
+			atomic_read(&curseg_i[CURSEG_NODE].segno));
 	set_struct(store_checkpoint, cur_node_blkoff,
 			curseg_i[CURSEG_NODE].next_blkoff);
 	set_struct(store_checkpoint, cur_data_segno,
-			curseg_i[CURSEG_DATA].segno);
+			atomic_read(&curseg_i[CURSEG_DATA].segno));
 	set_struct(store_checkpoint, cur_data_blkoff,
 			curseg_i[CURSEG_DATA].next_blkoff);
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
-	set_struct(store_checkpoint, type, gc_cp ? CP_GC : CP_NORMAL);
 
 	/* 2. flush SIT to cp */
-	flush_sit_entries(sbi, store_checkpoint_addr, nat_root, gc_cp);
+	flush_sit_entries(sbi, store_checkpoint_addr, nat_root);
 	set_summary_valid_bit(summary);
 
 	/* 6. connect to super */
@@ -812,27 +766,37 @@ static int do_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp)
 	raw_super = next_super_block(raw_super);
 	hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
 
+	/* clear last checkpoint state and logs */
 	set_fs_state(prev_checkpoint, HMFS_NONE);
+	if (prev_checkpoint->nr_gc_segs)
+		prev_checkpoint->nr_gc_segs = 0;
+
 	//FIXME:
 	migrate_mmap_block(sbi);
 	move_to_next_checkpoint(sbi, store_checkpoint);
 
+	free_prefree_segments(sbi);
+	reinit_gc_logs(sbi);
 	return 0;
 }
 
-int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp, bool unlock)
+int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 {
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct sit_info *sit_i = SIT_I(sbi);
 	int ret;
 
-	mutex_lock(&cm_i->cp_mutex);
 	block_operations(sbi);
 
-	ret = do_checkpoint(sbi, gc_cp);
+	if (!sit_i->dirty_sentries) {
+		ret = 0;
+		goto unlock;
+	}
 
+	ret = do_checkpoint(sbi);
+
+unlock:
 	if (unlock) {
 		unblock_operations(sbi);
-		mutex_unlock(&cm_i->cp_mutex);
 	}
 	return ret;
 }
@@ -860,12 +824,12 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	set_summary_valid_bit(summary);
 
 	/* 2. flush cp-inlined SIT journal */
-	recovery_sit_entries(sbi, prev_cp, false);
+	recovery_sit_entries(sbi, prev_cp);
 
 	/* 3. mark valid */
 	store_version = le32_to_cpu(store_cp->checkpoint_ver);
 	nat_root = ADDR(sbi, le32_to_cpu(store_cp->nat_addr));
-	mark_block_valid(sbi, nat_root, store_cp, false);
+	mark_block_valid(sbi, nat_root, store_cp);
 
 	/* 4. connect to super */
 	next_cp = ADDR(sbi, le64_to_cpu(store_cp->next_cp_addr));
@@ -878,9 +842,12 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 	//TODO: memory barrier?
 	raw_super = next_super_block(raw_super);
 	hmfs_memcpy(raw_super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
+	
+	if (prev_cp->nr_gc_segs)
+		prev_cp->nr_gc_segs = 0;
 
 	move_to_next_checkpoint(sbi, store_cp);
-
+	reinit_gc_logs(sbi);
 	return 0;
 }
 
@@ -1149,10 +1116,9 @@ int delete_checkpoint(struct hmfs_sb_info *sbi, ver_t version)
 		return -EINVAL;
 
 	mutex_lock(&sbi->gc_mutex);
-	ret = write_checkpoint(sbi, false, false);
+	ret = write_checkpoint(sbi, false);
 	ret = do_delete_checkpoint(sbi, L_ADDR(sbi, del_cp_i->cp));
 	unblock_operations(sbi);
-	mutex_unlock(&(CM_I(sbi)->cp_mutex));
 	mutex_unlock(&sbi->gc_mutex);
 	return ret;
 }

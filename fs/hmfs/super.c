@@ -465,6 +465,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->flags = 0;
 	fi->i_advise = 0;
 	fi->read_addr = NULL;
+	rwlock_init(&fi->i_lock);
 	set_inode_flag(fi, FI_NEW_INODE);
 	INIT_LIST_HEAD(&fi->list);
 	return &(fi->vfs_inode);
@@ -584,13 +585,10 @@ static void destroy_map_zero_page(struct hmfs_sb_info *sbi)
 static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct sit_info *sit_i = SIT_I(sbi);
 
-	if (sit_i->dirty_sentries) {
-		mutex_lock(&sbi->gc_mutex);
-		write_checkpoint(sbi, false, true);
-		mutex_unlock(&sbi->gc_mutex);
-	}
+	mutex_lock(&sbi->gc_mutex);
+	write_checkpoint(sbi, true);
+	mutex_unlock(&sbi->gc_mutex);
 
 	hmfs_destroy_stats(sbi);
 	destroy_map_zero_page(sbi);
@@ -626,18 +624,11 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 int hmfs_sync_fs(struct super_block *sb, int sync)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct sit_info *sit_i = SIT_I(sbi);
 	int ret = 0;
-
-	mutex_lock(&sit_i->sentry_lock);
-	if (!sit_i->dirty_sentries) {
-		mutex_unlock(&sit_i->sentry_lock);
-		return 0;
-	}
-
+	
 	if (sync) {
 		mutex_lock(&sbi->gc_mutex);
-		ret = write_checkpoint(sbi, false, true);
+		ret = write_checkpoint(sbi, true);
 		mutex_unlock(&sbi->gc_mutex);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
@@ -645,7 +636,6 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 			ret = hmfs_gc(sbi, FG_GC);
 		}
 	}
-	mutex_unlock(&sit_i->sentry_lock);
 	return ret;
 }
 
@@ -752,6 +742,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
 	sbi->sit_entries = ADDR(sbi, sit_addr);
 	sbi->nat_height = super->nat_height;
+	sbi->nr_max_fg_segs = NR_MAX_FG_SEGS;
 
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
 	end_addr = sbi->main_addr_start
@@ -789,7 +780,12 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	check_checkpoint_state(sbi);
+	if (!sbi->mnt_cp_version)
+		check_checkpoint_state(sbi);
+
+	retval = init_gc_logs(sbi);
+	if (retval)
+		goto free_segment_mgr;
 
 	if (test_opt(sbi, BG_GC) && !hmfs_readonly(sb)){
 		/* start gc kthread */

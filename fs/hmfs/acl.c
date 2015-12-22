@@ -454,7 +454,9 @@ int hmfs_acl_xattr_get(struct dentry *dentry, const char *name, void *buffer,
 	if (!test_opt(sbi, POSIX_ACL))
 		return -EOPNOTSUPP;
 
+	inode_read_lock(dentry->d_inode);
 	acl = hmfs_get_acl(dentry->d_inode, type);
+	inode_read_unlock(dentry->d_inode);
 	if (IS_ERR(acl))
 		return PTR_ERR(acl);
 	if (acl == NULL)
@@ -493,7 +495,9 @@ static int hmfs_acl_xattr_set(struct dentry *dentry, const char *name,
 		acl = NULL;
 
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(inode);
 	error = hmfs_set_acl(inode, acl, type);
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
 release_and_out:

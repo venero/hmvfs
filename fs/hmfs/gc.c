@@ -9,14 +9,33 @@
 #include "node.h"
 #include "xattr.h"
 
-static void select_policy(struct hmfs_sb_info *sbi, int gc_type,
-				struct victim_sel_policy *p)
+void prepare_move_argument(struct gc_move_arg *arg,
+				struct hmfs_sb_info *sbi, seg_t mv_segno, unsigned mv_offset,
+				struct hmfs_summary *sum, int type)
 {
-	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
+	arg->start_version = get_summary_start_version(sum);
+	arg->nid = get_summary_nid(sum);
+	arg->ofs_in_node = get_summary_offset(sum);
+	arg->src_addr = __cal_page_addr(sbi, mv_segno, mv_offset);
+	arg->src = ADDR(sbi, arg->src_addr);
 
-	p->gc_mode = gc_type == BG_GC ? GC_CB : GC_GREEDY;
-	p->dirty_segmap = dirty_i->dirty_segmap;
-	p->offset = sbi->last_victim[p->gc_mode];
+	arg->cp_i = get_checkpoint_info(sbi, arg->start_version, true);
+
+	if (sbi->recovery_doing)
+		return;
+
+	if (type == TYPE_DATA) {
+		arg->dest = alloc_new_data_block(NULL, 0);
+	} else {
+		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
+	}
+	
+	hmfs_bug_on(sbi, IS_ERR(arg->dest));
+
+	arg->dest_addr = L_ADDR(sbi, arg->dest);
+	arg->dest_sum = get_summary_by_addr(sbi, arg->dest_addr);
+	
+	hmfs_memcpy(arg->dest, arg->src, HMFS_PAGE_SIZE);
 }
 
 static unsigned int get_cb_cost(struct hmfs_sb_info *sbi, unsigned int segno)
@@ -63,46 +82,53 @@ static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
 		return get_cb_cost(sbi, segno);
 }
 
-static int __get_victim(struct hmfs_sb_info *sbi, seg_t *result,
-				int gc_type)
+static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type,
+				seg_t start_segno)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
 	struct victim_sel_policy p;
 	unsigned int max_cost;
 	unsigned long cost;
 	seg_t segno;
-	struct hmfs_summary_block *sum_blk = NULL;
 	int nsearched = 0;
+	int total_segs = TOTAL_SEGS(sbi);
+	struct curseg_info *seg_i0 = &(CURSEG_I(sbi)[0]);
+	struct curseg_info *seg_i1 = &(CURSEG_I(sbi)[1]);
 
-	select_policy(sbi, gc_type, &p);
+	p.gc_mode = gc_type == BG_GC ? GC_CB : GC_GREEDY;
+	p.offset = sbi->last_victim[p.gc_mode];
 	p.min_segno = NULL_SEGNO;
 	p.min_cost = max_cost = get_max_cost(sbi, &p);
-	mutex_lock(&dirty_i->seglist_lock);
 
 	while (1) {
-		segno = find_next_bit(p.dirty_segmap, TOTAL_SEGS(sbi), p.offset);
+		segno = find_next_bit(dirty_i->dirty_segmap, total_segs, p.offset);
 
-		hmfs_bug_on(sbi, segno == CURSEG_I(sbi)[0].segno || 
-				segno ==CURSEG_I(sbi)[1].segno);
-		if (segno >= TOTAL_SEGS(sbi)) {
+		if (segno >= total_segs) {
 			if (sbi->last_victim[p.gc_mode]) {
 				sbi->last_victim[p.gc_mode] = 0;
 				p.offset = 0;
 				continue;
 			}
 			break;
-		}
-		else {
+		} else {
 			p.offset = segno + 1;
 		}
 
-		sum_blk = get_summary_block(sbi, segno);
-		/* Don't collect segment which is current segment */
-		if (get_summary_start_version(&sum_blk->entries[0]) == 
-					CM_I(sbi)->new_version) {
-			WARN_ON(1);
+		if (segno > start_segno)
+			return 0;
+
+		if (segno == atomic_read(&seg_i0->segno) || 
+					segno == atomic_read(&seg_i1->segno)) {
 			continue;
 		}
+
+		/*
+		 * It's not allowed to move node segment where last checkpoint
+		 * locate. Because we need to log GC segments in it.
+		 */
+		if (segno == le32_to_cpu(hmfs_cp->cur_node_segno))
+			continue;
 
 		cost = get_gc_cost(sbi, segno, &p);
 
@@ -123,70 +149,14 @@ static int __get_victim(struct hmfs_sb_info *sbi, seg_t *result,
 	if (p.min_segno != NULL_SEGNO) {
 		*result = p.min_segno;
 	}
-	mutex_unlock(&dirty_i->seglist_lock);
 
 	return (p.min_segno == NULL_SEGNO) ? 0 : 1;
-}
-
-static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
-{
-	int ret;
-	struct sit_info *sit_i = SIT_I(sbi);
-
-	mutex_lock(&sit_i->sentry_lock);
-	ret = __get_victim(sbi, result, gc_type);
-	mutex_unlock(&sit_i->sentry_lock);
-	return ret;
-}
-
-static void prepare_move_argument(struct gc_move_arg *arg,
-				struct hmfs_sb_info *sbi, seg_t mv_segno, unsigned mv_offset,
-				struct hmfs_summary *sum, int type)
-{
-	seg_t test_segno;
-	int test_segoff;
-	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
-	u64 state_arg;
-
-	arg->start_version = get_summary_start_version(sum);
-	arg->nid = get_summary_nid(sum);
-	arg->ofs_in_node = get_summary_offset(sum);
-
-	arg->cp_i = get_checkpoint_info(sbi, arg->start_version, true);
-	if (type == TYPE_DATA) {
-		get_current_segment_state(sbi, &test_segno, &test_segoff,
-				CURSEG_DATA);
-		arg->dest = alloc_new_data_block(NULL, 0);
-	} else {
-		get_current_segment_state(sbi, &test_segno, &test_segoff, 
-				CURSEG_NODE);
-		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
-	}
-	
-	hmfs_bug_on(sbi, IS_ERR(arg->dest));
-
-	if ((!hmfs_cp->state_arg || !test_segoff) &&
-				likely(!sbi->recovery_doing)){
-		state_arg = test_segno + 1;
-		state_arg = state_arg << 32;
-		state_arg |= mv_segno & 0xffffffff;
-		set_fs_state_arg(hmfs_cp, state_arg);
-	}
-
-	arg->dest_addr = L_ADDR(sbi, arg->dest);
-	arg->dest_sum = get_summary_by_addr(sbi, arg->dest_addr);
-	arg->src_addr = __cal_page_addr(sbi, mv_segno, mv_offset);
-	arg->src = ADDR(sbi, arg->src_addr);
 }
 
 static void update_dest_summary(struct hmfs_summary *src_sum,
 				struct hmfs_summary *dest_sum)
 {
-	dest_sum->start_version = src_sum->start_version;
-	dest_sum->nid = src_sum->nid;
-	dest_sum->ofs_in_node = src_sum->ofs_in_node;
-	/* should not set valid bit */
-	set_summary_type(dest_sum, get_summary_type(src_sum));
+	hmfs_memcpy(dest_sum, src_sum, sizeof(struct hmfs_summary));
 }
 
 static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -195,18 +165,22 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct gc_move_arg args;
 	struct hmfs_node *last = NULL, *this = NULL;
 	struct hmfs_summary *par_sum = NULL;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	bool is_current;
 	block_t addr_in_par;
+	int par_type;
+
+	is_current = get_summary_start_version(src_sum) == cm_i->new_version;
 
 	/* 1. read summary of source blocks */
+	/* 2. move blocks */
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_DATA);
-
-	/* 2. move blocks */
-	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
 	while (1) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
+
 		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
 
 		if (IS_ERR(this)) {
@@ -221,26 +195,22 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		if (this == last)
 			goto next;
 
+		par_type = get_summary_type(par_sum);
+
 		/* Now src data block has been COW or parent node has been removed */
-		if (get_summary_type(par_sum) == SUM_TYPE_INODE) {
+		if (par_type == SUM_TYPE_INODE) {
 			addr_in_par = le64_to_cpu(this->i.i_addr[args.ofs_in_node]);
 		} else {
 			addr_in_par = le64_to_cpu(this->dn.addr[args.ofs_in_node]);
 		}
 
 		/*
-		 * In recovery, the address stored in parent node would be
-		 * arg.src_addr or arg.dest_addr. Because GC might terminate
-		 * in the loop change this address.
 		 * In normal GC, we should stop when addr_in_par != src_addr,
 		 * now direct node or inode in laster checkpoint would never
 		 * refer to this data block
 		 */
-		if ((!sbi->recovery_doing && addr_in_par != args.src_addr) ||
-				(sbi->recovery_doing && addr_in_par != args.src_addr &&
-				addr_in_par != args.dest_addr)) {
+		if (addr_in_par != args.src_addr) 
 			break;
-		}
 
 		/* 
 		 * We should use atomic write here, otherwise, if system crash
@@ -248,19 +218,19 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		 * whose value is neither args.dest_addr nor args.src_addr. Therefore,
 		 * if recovery process, it would terminate in this checkpoint
 		 */
-		if (get_summary_type(par_sum) == SUM_TYPE_INODE) {
+		if (par_type == SUM_TYPE_INODE) {
 			hmfs_memcpy_atomic(&this->i.i_addr[args.ofs_in_node], 
 					&args.dest_addr, 8);
 		} else {
 			hmfs_memcpy_atomic(&this->dn.addr[args.ofs_in_node],
 					&args.dest_addr, 8);
 		}
-
+		
 		last = this;
 
 next:
 		/* cp_i is the lastest checkpoint, stop */
-		if (args.cp_i == CM_I(sbi)->last_cp_i) {
+		if (args.cp_i == cm_i->last_cp_i || is_current) {
 			break;
 		}
 		args.cp_i = get_next_checkpoint_info(sbi, args.cp_i);
@@ -289,11 +259,9 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 
 	mutex_unlock(&sit_i->sentry_lock);
 
-	write_lock(&free_i->segmap_lock);
 	/* set free bit */
-	if (!test_and_set_bit(segno, free_i->free_segmap))
-		free_i->free_segments++;
-	write_unlock(&free_i->segmap_lock);
+	if (!test_and_set_bit(segno, free_i->prefree_segmap))
+		hmfs_bug_on(sbi, 1);
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
 	spin_lock(&cm_i->stat_lock);
@@ -306,23 +274,24 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 {
 	struct gc_move_arg arg;
 	struct hmfs_node *last = NULL, *this = NULL;
-	struct hmfs_summary *par_sum = NULL;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	block_t addr_in_par;
 	int x_tag;
+	bool is_current;
+	
+	is_current = get_summary_start_version(src_sum) == cm_i->new_version;
 
 	prepare_move_argument(&arg, sbi, src_segno, src_off, src_sum,
 			TYPE_DATA);
 
-	hmfs_memcpy(arg.dest, arg.src, HMFS_PAGE_SIZE);
-
 	while(1) {
 		this = __get_node(sbi, arg.cp_i, arg.nid);
-		par_sum = get_summary_by_addr(sbi, L_ADDR(sbi, this));
 
 		if (IS_ERR(this))
 			break;
 
-		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE);
+		hmfs_bug_on(sbi, get_summary_type(get_summary_by_addr(sbi, L_ADDR(sbi, this)))
+				!= SUM_TYPE_INODE);
 
 		if (this == last)
 			goto next;
@@ -330,9 +299,7 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		x_tag = le64_to_cpu(XATTR_HDR(arg.src)->h_magic);
 		addr_in_par = XBLOCK_ADDR(this, x_tag);
 		
-		if ((!sbi->recovery_doing && addr_in_par != arg.src_addr) ||
-				(sbi->recovery_doing && addr_in_par != arg.src_addr &&
-				addr_in_par != arg.dest_addr)) {
+		if (addr_in_par != arg.src_addr) {
 			break;
 		}
 		
@@ -341,38 +308,12 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 		last = this;
 
 next:
-		if (arg.cp_i == CM_I(sbi)->last_cp_i)
+		if (arg.cp_i == cm_i->last_cp_i || is_current)
 			break;
 		arg.cp_i = get_next_checkpoint_info(sbi, arg.cp_i);
 	}
 
 	update_dest_summary(src_sum, arg.dest_sum);
-
-}
-
-static void gc_data_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
-			     unsigned int segno)
-{
-	int off = 0;
-	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
-
-	if (!sbi->recovery_doing)
-		set_fs_state(hmfs_cp, HMFS_GC_DATA);
-	
-	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
-		if (!get_summary_valid_bit(sum))
-			continue;
-
-		switch (get_summary_type(sum)) {
-		case SUM_TYPE_DATA:
-			move_data_block(sbi, segno, off, sum);
-			break;
-		case SUM_TYPE_XDATA:
-			move_xdata_block(sbi, segno, off, sum);
-		default:
-			hmfs_bug_on(sbi, 1);
-		}
-	}
 }
 
 static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -381,10 +322,17 @@ static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct hmfs_nat_block *last = NULL, *this = NULL;
 	struct gc_move_arg args;
 	block_t addr_in_par;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	bool is_current;
+
+	is_current = get_summary_start_version(src_sum) == cm_i->new_version;
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
 
-	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
+	if (is_current) {
+		gc_update_nat_entry(NM_I(sbi), args.nid, args.dest_addr);
+		return;
+	}
 
 	while (1) {
 		this = get_nat_entry_block(sbi, args.cp_i->version, args.nid);
@@ -396,9 +344,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 		addr_in_par = le64_to_cpu(this->entries[args.ofs_in_node].block_addr);
 		/* Src node has been COW or removed */
-		if ((!sbi->recovery_doing && addr_in_par != args.src_addr) ||
-				(sbi->recovery_doing && addr_in_par != args.src_addr &&
-				addr_in_par != args.dest_addr)) {
+		if (addr_in_par != args.src_addr) {
 			break;
 		}
 
@@ -427,8 +373,6 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
 
-	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
-
 	while (1) {
 		if (IS_NAT_ROOT(args.nid))
 			this = args.cp_i->cp;
@@ -450,9 +394,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 			addr_in_par = le64_to_cpu(nat_node->addr[args.ofs_in_node]);
 		}
 
-		if ((!sbi->recovery_doing && addr_in_par != args.src_addr) ||
-				(sbi->recovery_doing && addr_in_par != args.src_addr &&
-				addr_in_par != args.dest_addr)) {
+		if (addr_in_par != args.src_addr) {
 			break;
 		}
 
@@ -474,6 +416,7 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
+/* Orphan blocks is not shared */
 static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno, 
 				int src_off, struct hmfs_summary *src_sum)
 {
@@ -483,7 +426,6 @@ static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_NODE);
-	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 	cp_addr = le64_to_cpu(*((__le64 *)args.src));
 	hmfs_cp = ADDR(sbi, cp_addr);
 	hmfs_cp->orphan_addrs[get_summary_offset(src_sum)] = 
@@ -498,10 +440,12 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct gc_move_arg args;
 	struct hmfs_checkpoint *prev_cp, *next_cp, *this_cp;
 	struct checkpoint_info *cp_i;
+	int i;
+	block_t orphan_addr;
+	__le64 *orphan;
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_NODE);
-	hmfs_memcpy(args.dest, args.src, HMFS_PAGE_SIZE);
 
 	cp_i = get_checkpoint_info(sbi, args.start_version, false);
 	hmfs_bug_on(sbi, !cp_i);
@@ -510,161 +454,132 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	next_cp = ADDR(sbi, le64_to_cpu(this_cp->next_cp_addr));
 	prev_cp = ADDR(sbi, le64_to_cpu(this_cp->prev_cp_addr));
 
-	next_cp->prev_cp_addr = cpu_to_le64(args.dest_addr);
-	prev_cp->next_cp_addr = cpu_to_le64(args.dest_addr);
+	hmfs_memcpy_atomic(&next_cp->prev_cp_addr, &args.dest_addr, 8);
+	hmfs_memcpy_atomic(&prev_cp->next_cp_addr, &args.dest_addr, 8);
+	cp_i->cp = HMFS_CHECKPOINT(args.dest);
+	
+	for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
+		orphan_addr = le64_to_cpu(this_cp->orphan_addrs[i]);
+		if (orphan_addr == NULL_ADDR)
+			break;
+		orphan = ADDR(sbi, orphan_addr);
+		hmfs_memcpy_atomic(orphan, &args.dest_addr, 8);
+	}
 
 	update_dest_summary(src_sum, args.dest_sum);
-	cp_i->cp = HMFS_CHECKPOINT(args.dest_addr);
 }
 
-static void gc_node_segment(struct hmfs_sb_info *sbi, struct hmfs_summary *sum,
-				seg_t segno)
+static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	int off = 0;
-	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	bool is_current;
+	struct hmfs_summary_block *sum_blk;
+	struct hmfs_summary *sum;
 
-	if (!sbi->recovery_doing)
-		set_fs_state(hmfs_cp, HMFS_GC_NODE);
+	sum_blk = get_summary_block(sbi, segno);
+	sum = sum_blk->entries;
 
 	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
-		if (!get_summary_valid_bit(sum))
+		is_current  = get_summary_start_version(sum) == cm_i->new_version;
+		
+		/*
+		 * We ignore two kinds of blocks:
+		 * 	- invalid blocks in older version
+		 * 	- newest blocks in newest version(checkpoint is not written)
+		 */
+		if (!get_summary_valid_bit(sum) && !is_current)
 			continue;
 
+		hmfs_bug_on(sbi, get_summary_valid_bit(sum) && is_current);
+
 		switch (get_summary_type(sum)) {
+		case SUM_TYPE_DATA:
+			move_data_block(sbi, segno, off, sum);
+			break;
+		case SUM_TYPE_XDATA:
+			move_xdata_block(sbi, segno, off, sum);
+			break;
+		case SUM_TYPE_INODE:
+		case SUM_TYPE_DN:
 		case SUM_TYPE_IDN:
 			move_node_block(sbi, segno, off, sum);
 			break;
-		case SUM_TYPE_INODE:
-			move_node_block(sbi, segno, off, sum);
-			break;
-		case SUM_TYPE_DN:
-			move_node_block(sbi, segno, off, sum);
-			break;
 		case SUM_TYPE_NATN:
-			move_nat_block(sbi, segno, off, sum);
-			break;
 		case SUM_TYPE_NATD:
+			hmfs_bug_on(sbi, is_current);
 			move_nat_block(sbi, segno, off, sum);
-			break;
+			continue;
 		case SUM_TYPE_ORPHAN:
+			hmfs_bug_on(sbi, is_current);
 			move_orphan_block(sbi, segno, off, sum);
-			break;
+			continue;
 		case SUM_TYPE_CP:
+			hmfs_bug_on(sbi, is_current);
 			move_checkpoint_block(sbi, segno, off, sum);
-			break;
+			continue;
 		default:
 			hmfs_bug_on(sbi, 1);
 			break;
 		}
 	}
-}
-
-static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
-{
-	struct hmfs_summary_block *sum_blk;
-	int type;
-
-	sum_blk = get_summary_block(sbi, segno);
-
-	type = get_summary_type(&(sum_blk->entries[0]));
-	if (type == SUM_TYPE_DATA || type == SUM_TYPE_XDATA) {
-		gc_data_segment(sbi, sum_blk->entries, segno);
-	} else {
-		gc_node_segment(sbi, sum_blk->entries, segno);
-	}
 	recycle_segment(sbi, segno);
 }
 
-void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp)
-{
-	seg_t victim_segno, dest_segno;
-	u64 state_arg;
-	u8 state;
-	struct curseg_info *seg_i = NULL;
-	struct hmfs_summary_block *sum_blk;
-
-	state_arg = le64_to_cpu(hmfs_cp->state_arg);
-
-	if (!state_arg)
-		return;
-
-	dest_segno = (state_arg >> 32) - 1;
-	victim_segno = state_arg | ~0xffffffff;
-	state = hmfs_cp->state;
-	sum_blk = get_summary_block(sbi, victim_segno);
-	hmfs_dbg("GC recover:%d with state:%c\n", (int)victim_segno, state);
-
-	sbi->recovery_doing = 1;
-	switch (state) {
-	case HMFS_GC_DATA:
-		seg_i = &(CURSEG_I(sbi)[CURSEG_DATA]);
-
-		/* Test whether GC crash in new segment */
-		if (seg_i->segno != dest_segno) {
-			seg_i->next_segno = dest_segno;
-			seg_i->use_next_segno = true;
-		}
-		gc_data_segment(sbi, sum_blk->entries, victim_segno);
-		break;
-	case HMFS_GC_NODE:
-		seg_i = &(CURSEG_I(sbi)[CURSEG_NODE]);
-
-		if (seg_i->segno != dest_segno) {
-			seg_i->next_segno = dest_segno;
-			seg_i->use_next_segno = true;
-		}
-		gc_node_segment(sbi, sum_blk->entries, victim_segno);
-		break;
-	default:
-		hmfs_bug_on(sbi, 1);
-	}
-	sbi->recovery_doing = 0;
-}
-
-// FIXME: When to do GC
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 {
 	int ret = -1;
-	seg_t segno;
-	struct sit_info *sit_i = SIT_I(sbi);
+	seg_t segno, start_segno = NULL_SEGNO;
 	struct hmfs_stat_info *stat_i = sbi->stat_info;
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+	bool do_cp = false;
 
 	hmfs_dbg("Enter GC\n");
 	stat_i->nr_gc_try++;
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
-	
-	/* Write checkpoint before GC */
-	if (sit_i->dirty_sentries) {
-		ret = write_checkpoint(sbi, false, true);
-		if (ret)
-			goto out;
-	}
+
+	if (hmfs_cp->state == HMFS_NONE)
+		set_fs_state(hmfs_cp, HMFS_GC);
 
 gc_more:
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
 	}
 
-	if (!get_victim(sbi, &segno, gc_type))
+	if (!get_victim(sbi, &segno, gc_type, start_segno))
 		goto out;
 	ret = 0;
 
 	hmfs_dbg("GC Victim:%d\n", (int)segno);
 	stat_i->nr_gc_real++;
+
+	hmfs_memcpy_atomic(sbi->gc_logs, &segno, 4);		
+	sbi->gc_logs++;
+	sbi->nr_gc_segs++;
+	hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
+
 	garbage_collect(sbi, segno);
-	
-	if (sit_i->sentries) {
-		ret = write_checkpoint(sbi, true, true);
-		if (ret)
-			goto out;
+
+	if (start_segno == NULL_SEGNO)
+		start_segno = segno;
+
+	/* If space is limited, we might need to scan the whole NVM */
+	if (need_deep_scan(sbi)) {
+		do_cp = true;
+		goto gc_more;
 	}
-	
-	if (has_not_enough_free_segs(sbi))
+
+	/* In FG_GC, we atmost scan sbi->nr_max_fg_segs segments */
+	if (has_not_enough_free_segs(sbi) && need_more_scan(sbi, segno, start_segno))
 		goto gc_more;
 
 out:
 	mutex_unlock(&sbi->gc_mutex);
+
+	if (do_cp)
+		ret= write_checkpoint(sbi, true);
+
 	hmfs_dbg("Exit GC\n");
 	return ret;
 }
@@ -745,4 +660,50 @@ void stop_gc_thread(struct hmfs_sb_info *sbi)
 	kthread_stop(gc_thread->hmfs_gc_task);
 	kfree(gc_thread);
 	sbi->gc_thread = NULL;
+}
+
+int init_gc_logs(struct hmfs_sb_info *sbi)
+{
+	seg_t segno;
+	int ret;
+	block_t addr;
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+
+	ret = get_new_segment(sbi, &segno);
+	if (!ret) {
+		addr = __cal_page_addr(sbi, segno, 0);
+		sbi->gc_logs = ADDR(sbi, addr);
+		sbi->nr_gc_segs = 0;
+		hmfs_cp->gc_logs = cpu_to_le32(segno);
+		hmfs_cp->nr_gc_segs = 0;
+	}
+
+	return ret;
+}
+
+/* Must call move_to_next_checkpoint() before this function */
+void reinit_gc_logs(struct hmfs_sb_info *sbi)
+{
+	seg_t old_segno;
+	block_t old_addr;
+	struct free_segmap_info *free_i = FREE_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+
+	old_addr = L_ADDR(sbi, sbi->gc_logs);
+	old_segno = GET_SEGNO(sbi, old_addr);
+
+	/* 
+	 * We try to get a different segments for gc logs in order to protect
+	 * NVM area. And we have make a checkpoint now. We need to set gc_logs
+	 * and nr_gc_segs for new 'last checkpoint'
+	 */
+	if (!init_gc_logs(sbi)) {
+		write_lock(&free_i->segmap_lock);
+		if (test_and_clear_bit(old_segno, free_i->free_segmap))
+				free_i->free_segments++;
+		write_unlock(&free_i->segmap_lock);
+	} else {
+		hmfs_cp->gc_logs = cpu_to_le32(old_segno);
+		hmfs_cp->nr_gc_segs = 0;
+	}
 }

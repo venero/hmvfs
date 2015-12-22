@@ -197,8 +197,6 @@ struct hmfs_cm_info {
 	spinlock_t stat_lock;
 
 	unsigned nr_nat_journals;
-
-	struct mutex cp_mutex;
 };
 
 struct hmfs_sb_info {
@@ -244,6 +242,9 @@ struct hmfs_sb_info {
 	/* GC */
 	struct hmfs_gc_kthread *gc_thread;			/* GC thread */
 	unsigned int last_victim[2];				/* victims of last gc process */
+	__le32 *gc_logs;							/* gc logs area */
+	int nr_gc_segs;								/* # of segments that have been collect */
+	int nr_max_fg_segs;							/* # of segments scan in FG_GC mode most */
 
 	/* Other */
 	struct page *map_zero_page;					/* Empty page for hole in file */
@@ -266,6 +267,7 @@ struct hmfs_inode_info {
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
 	struct rw_semaphore i_sem;
+	rwlock_t i_lock;					/* Lock for inode read-write */
 	void *read_addr;					/* Start address of read-only file */
 };
 
@@ -698,6 +700,33 @@ static inline void set_summary_start_version(struct hmfs_summary *summary,
 	hmfs_memcpy_atomic(&summary->start_version, &version, 4);
 }
 
+#ifdef CONFIG_HMFS_DEBUG_RW_LOCK
+static inline void inode_write_lock(struct inode *inode)
+{
+	write_lock(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_write_unlock(struct inode *inode)
+{
+	write_unlock(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_read_lock(struct inode *inode)
+{
+	read_lock(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_read_unlock(struct inode *inode)
+{
+	read_unlock(&HMFS_I(inode)->i_lock);
+}
+#else
+#define hmfs_write_lock(inode)
+#define hmfs_write_unlock(inode)
+#define hmfs_read_lock(inode)
+#define hmfs_read_unlock(inode)
+#endif
+
 /* define prototype function */
 /* super.c */
 int __hmfs_write_inode(struct inode *inode);
@@ -761,7 +790,7 @@ void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 int truncate_inode_blocks(struct inode *, pgoff_t);
 int get_node_path(long block, int offset[4], unsigned int noffset[4]);
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
+				struct hmfs_checkpoint *hmfs_cp);
 void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 				struct hmfs_inode *hi, struct direct_node *db, nid_t nid);
 void truncate_node(struct dnode_of_data *dn);
@@ -772,20 +801,20 @@ struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *sbi, ver_t version,
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *sbi,
 				ver_t version, unsigned int index);
 void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
+				struct hmfs_checkpoint *hmfs_cp);
 int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 				unsigned long vaddr, unsigned long pgoff);
 int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 				unsigned long pgoff);
 int migrate_mmap_block(struct hmfs_sb_info *sbi);
+void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid,
+				block_t blk_addr);
 
 /* segment.c*/
-void flush_ssa_valid_bits(struct hmfs_sb_info *sbi, seg_t segno,
-				int end_blk, int set_bit);
 void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
-				void *new_nat_root, bool gc_cp);
+				void *new_nat_root);
 void recovery_sit_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp);
+				struct hmfs_checkpoint *hmfs_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
 struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
@@ -800,6 +829,10 @@ void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);
 void update_sit_entry(struct hmfs_sb_info *sbi, seg_t, int);
 void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi);
+void free_prefree_segments(struct hmfs_sb_info *sbi);
+int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg);
+bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr);
+void invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);
@@ -810,7 +843,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
-int write_checkpoint(struct hmfs_sb_info *sbi, bool gc_cp, bool unlock);
+int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock);
 int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 				unsigned int version, bool no_fail);
@@ -858,9 +891,10 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 
 /* gc.c */
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
-void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);
+int init_gc_logs(struct hmfs_sb_info *sbi);
+void reinit_gc_logs(struct hmfs_sb_info *sbi);
 
 /* xattr.c */
 ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
@@ -892,10 +926,18 @@ int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type);
 #define hmfs_set_acl(inode, acl, type)	0
 #endif
 
+/* recovery.c */
+void recovery_gc_crash(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp);
+
 static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 {
-	return __hmfs_add_link(dentry->d_parent->d_inode, &dentry->d_name,
-				inode);
+	struct inode *dir = dentry->d_parent->d_inode;
+	int ret;
+
+	inode_write_lock(dir);
+	ret = __hmfs_add_link(dir, &dentry->d_name,	inode);
+	inode_write_unlock(dir);
+	return ret;
 }
 
 #endif

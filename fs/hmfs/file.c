@@ -181,7 +181,6 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	 * offset : start inner-blk offset this loop
 	 * index : start inner-file blk number this loop
 	 * copied : read length so far
-	 * FIXME: pending for write_lock? anything like access_ok()
 	 */
 
 	do {
@@ -479,9 +478,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 {
 	int ret = 0;
 
-	//FIXME: mutex use for what?
-	mutex_lock(&filp->f_inode->i_mutex);
-
+	inode_read_lock(filp->f_inode);
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
@@ -492,7 +489,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 
 out:
-	mutex_unlock(&filp->f_inode->i_mutex);
+	inode_read_unlock(filp->f_inode);
 	return ret;
 }
 
@@ -653,7 +650,6 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	}
 
 normal_write:
-	//FIXME: file inode lock
 	do {
 		unsigned long index;
 		unsigned long offset;
@@ -708,7 +704,7 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	loff_t pos;
 	int ilock;
 
-	mutex_lock(&inode->i_mutex);
+	inode_write_lock(inode);
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
 		ret = -EFAULT;
@@ -747,7 +743,7 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 out_backing:
 	current->backing_dev_info = NULL;
 out_up:
-	mutex_unlock(&inode->i_mutex);
+	inode_write_unlock(inode);
 	return ret;
 }
 
@@ -780,6 +776,8 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		if (addr == NULL_ADDR)
 			continue;
 
+		invalidate_delete_block(sbi, le64_to_cpu(addr));
+
 		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;
 		else
@@ -809,8 +807,10 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 	__le64 *entry = node_block->addr;
 
 	for (; ofs < ADDRS_PER_BLOCK ; ofs++, count--, entry++) {
-		if (*entry != NULL_ADDR)
+		if (*entry != NULL_ADDR) {
 			nr_free++;
+			invalidate_delete_block(sbi, le64_to_cpu(*entry));
+		}
 	}
 	if (nr_free) {
 		dec_valid_block_count(sbi, dn->inode, nr_free);
@@ -968,8 +968,6 @@ punch:
 		if (pg_start < pg_end) {
 			blk_start = pg_start << HMFS_PAGE_SIZE_BITS;
 			blk_end = pg_end << HMFS_PAGE_SIZE_BITS;
-			//FIXME: need this in mmap?
-			//truncate_inode_pages_range(inode,blk_start,blk_end);
 
 			ret = truncate_hole(inode, pg_start, pg_end);
 		}
@@ -1178,7 +1176,9 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	if (offset >= size)
 		return VM_FAULT_SIGBUS;
 
+	inode_write_lock(inode);
 	err = hmfs_get_mmap_block(inode, offset, &pfn, vma->vm_flags);
+	inode_write_unlock(inode);
 	if (unlikely(err))
 		return VM_FAULT_SIGBUS;
 
@@ -1221,7 +1221,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		return 0;
 
 	ilock = mutex_lock_op(sbi);
-	mutex_lock(&inode->i_mutex);
+	inode_write_lock(inode);
 
 	/* We don't need to sync data pages */
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
@@ -1229,7 +1229,7 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
 		ret = sync_hmfs_inode_size(inode);
 
-	mutex_unlock(&inode->i_mutex);
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
 	return ret;
@@ -1251,10 +1251,12 @@ static long hmfs_fallocate(struct file *file, int mode, loff_t offset,
 		return -ENODEV;
 
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(inode);
 	if (mode & FALLOC_FL_PUNCH_HOLE)
 		ret = punch_hole(inode, offset, len, mode);
 	else
 		ret = expand_inode_data(inode, offset, len, mode);
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
 	if (!ret) {

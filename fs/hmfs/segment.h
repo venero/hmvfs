@@ -17,6 +17,8 @@
 
 #define LIMIT_INVALID_BLOCKS	50	/* percentage over total user space */
 #define LIMIT_FREE_BLOCKS		50	/* percentage of free blocks over total user space */
+#define SEVERE_FREE_BLOCKS		75	/* percentage of free blocks over total in emergency case */
+#define NR_MAX_FG_SEGS			200
 
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
@@ -41,7 +43,6 @@ struct sit_info {
 /* Dirty segment is the segment which has both valid blocks and invalid blocks */
 struct dirty_seglist_info {
 	unsigned long *dirty_segmap;		/* bitmap for dirty segment */
-	struct mutex seglist_lock;
 };
 
 /* Free segment is the segment which does not have valid blocks */
@@ -49,15 +50,15 @@ struct free_segmap_info {
 	pgc_t free_segments;			/* # of free segments */
 	rwlock_t segmap_lock;				/* free segmap lock */
 	unsigned long *free_segmap;			/* free segment bitmap */
+	unsigned long *prefree_segmap;
 };
 
 /* for active log information */
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
-	seg_t segno;				/* current segment number */
+	atomic_t segno;				/* current segment number */
 	unsigned short next_blkoff;	/* next block offset to write */
 	seg_t next_segno;			/* preallocated segment */
-	bool use_next_segno;		/* For GC crash recovery */
 };
 
 struct hmfs_sm_info {
@@ -72,6 +73,7 @@ struct hmfs_sm_info {
 	pgc_t ovp_segments;				/* # of overprovision segments */
 	pgc_t limit_invalid_blocks;		/* # of limit invalid blocks */
 	pgc_t limit_free_blocks;		/* # of limit free blocks */
+	pgc_t severe_free_blocks;		/* # of free blocks in emergency case */
 };
 
 /* Segment inlined functions */
@@ -171,7 +173,6 @@ static inline void seg_info_to_raw_sit(struct seg_entry *se,
 static inline void __set_inuse(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	//FIXME: do we need lock here?
 	set_bit(segno, free_i->free_segmap);
 	free_i->free_segments--;
 }

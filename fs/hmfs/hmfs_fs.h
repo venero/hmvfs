@@ -23,16 +23,9 @@ enum FILE_TYPE {
 
 enum FS_STATE {
 	HMFS_NONE,		/* Normal state */
-	HMFS_GC_DATA,	/* Collect data garbage */
-	HMFS_GC_NODE,	/* Collect node garbage */
-	HMFS_CP_GC,		/* Do checkpoint for GC */
+	HMFS_GC,		/* Collect garbage */
 	HMFS_RM_CP,		/* Delete a checkpoint */
 	HMFS_ADD_CP,	/* Do normal checkpoint */
-};
-
-enum {
-	CP_NORMAL,		/* Normal checkpoint */
-	CP_GC,			/* Checkpoint for GC */
 };
 
 #define HMFS_MAJOR_VERSION		0
@@ -113,21 +106,19 @@ enum {
 				HMFS_SLOT_LEN) * \
 				NR_DENTRY_IN_BLOCK + SIZE_OF_DENTRY_BITMAP))
 
-//TODO
-#define NUM_NAT_JOURNALS_IN_CP		8
 #define HMFS_JOURNALING_THRESHOLD	4
-//?(sizeof(struct hmfs_checkpoint))-(void*)(((struct hmfs_checkpoint*)(0))->sit_journals)
-//TODO
-/* number of all sit logs in checkpoint */
 
+/* number of all sit logs in checkpoint */
 #ifdef CONFIG_HMFS_SMALL_FS
 #define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		2			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		2			/* # of nid stored in indirect node */
+#define NUM_NAT_JOURNALS_IN_CP		8
 #else
 #define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
+#define NUM_NAT_JOURNALS_IN_CP	(3932 / sizeof(struct hmfs_nat_journal))
 #endif
 #define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) +\
 		5 * sizeof(__le32))
@@ -154,16 +145,16 @@ enum {
 #define NODE_DIND_BLOCK		(NORMAL_ADDRS_PER_INODE + 5)
 
 /* SSA */
-#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE << 1)
+#define HMFS_SUMMARY_BLOCK_SIZE		(HMFS_PAGE_SIZE * 2)
 #define SUM_ENTRY_PER_BLOCK (HMFS_SUMMARY_BLOCK_SIZE / sizeof(struct hmfs_summary))
 #define SUM_TYPE_DATA		(0)		/* data block */
-#define SUM_TYPE_INODE		(1)		/* inode block */
-#define SUM_TYPE_DN			(2)		/* direct block */
-#define SUM_TYPE_NATN		(3)		/* nat node block */
-#define SUM_TYPE_NATD		(4)		/* nat data block */
-#define SUM_TYPE_IDN		(5)		/* indirect block */
-#define SUM_TYPE_CP			(6)		/* checkpoint block */
-#define SUM_TYPE_XDATA		(7) 	/* extended data block */
+#define SUM_TYPE_XDATA		(1) 	/* extended data block */
+#define SUM_TYPE_INODE		(2)		/* inode block */
+#define SUM_TYPE_DN			(3)		/* direct block */
+#define SUM_TYPE_IDN		(4)		/* indirect block */
+#define SUM_TYPE_NATN		(5)		/* nat node block */
+#define SUM_TYPE_NATD		(6)		/* nat data block */
+#define SUM_TYPE_CP			(7)		/* checkpoint block */
 #define SUM_TYPE_ORPHAN		(8)		/* orphan block */
 
 
@@ -320,6 +311,8 @@ struct hmfs_checkpoint {
 	__le64 alloc_block_count;	/* # of alloc blocks in main area */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
 	__le64 free_segment_count;	/* # of free segments in main area */
+	__le32 valid_inode_count;	/* Total number of valid inodes */
+	__le32 valid_node_count;	/* total number of valid nodes */
 
 	/* information of current node segments */
 	__le32 cur_node_segno;
@@ -327,25 +320,18 @@ struct hmfs_checkpoint {
 	/* information of current data segments */
 	__le32 cur_data_segno;
 	__le16 cur_data_blkoff;
-
 	__le64 prev_cp_addr;	/* previous checkpoint address */
 	__le64 next_cp_addr;	/* next checkpoint address */
-
-	__le32 valid_inode_count;	/* Total number of valid inodes */
-	__le32 valid_node_count;	/* total number of valid nodes */
-
 	__le64 nat_addr;	/* nat file physical address bias */
-
 	__le64 orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
 
-	__le32 next_scan_nid;
+	/* 88 bytes */
 
+	__le32 next_scan_nid;
 	__le32 elapsed_time;
 
-	__u8 type;			/* CP_NORMAL or CP_GC */
-
-	/* NAT */
-	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
+	__le32 gc_logs;		/* segno of gc log area */
+	__le32 nr_gc_segs;
 
 	__u8 state;				/* fs state, use set_fs_state */
 	/*
@@ -362,6 +348,10 @@ struct hmfs_checkpoint {
 	__le16 nr_logs;
 	__le32 sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
 
+	/* 164 bytes */
+
+	/* NAT */
+	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];
 } __attribute__ ((packed));
 
 /* extended blocks */
@@ -416,7 +406,7 @@ static inline void hmfs_memcpy(void *dest, void *src, unsigned long length)
  */
 /* a summary entry for a 4KB-sized block in a segment */
 struct hmfs_summary {
-	__le32 nid;		/* parent node id */
+	__le32 nid;	
 	__le32 start_version;
 	__le16 ofs_in_node;	/* offset in parent node */
 	__le16 bt;		/* valid bit and type */

@@ -93,7 +93,7 @@ static size_t hmfs_xattr_generic_list(struct dentry *dentry, char *list,
 	return total_len;
 }
 
-int hmfs_getxattr(struct inode *inode, int index, const char *name,
+static int __hmfs_getxattr(struct inode *inode, int index, const char *name,
 				void *buffer, size_t buffer_size) 
 {
 	struct hmfs_xattr_entry *entry;
@@ -109,8 +109,9 @@ int hmfs_getxattr(struct inode *inode, int index, const char *name,
 		return -ERANGE;
 	
 	xattr_block = get_xattr_block(inode);
-	if (!xattr_block)
+	if (!xattr_block) {
 		return -ENODATA;
+	}
 
 	entry = __find_xattr(xattr_block, index, name_len, name);
 	if (IS_XATTR_LAST_ENTRY(entry)) {
@@ -133,6 +134,17 @@ int hmfs_getxattr(struct inode *inode, int index, const char *name,
 out:
 	return error;
 } 
+
+int hmfs_getxattr(struct inode *inode, int index, const char *name,
+				void *buffer, size_t buffer_size) 
+{
+	int ret;
+
+	inode_read_lock(inode);
+	ret = __hmfs_getxattr(inode, index, name, buffer, buffer_size);
+	inode_read_unlock(inode);
+	return ret;
+}
 
 static int hmfs_xattr_generic_get(struct dentry *dentry, const char *name,
 				void *buffer, size_t size, int flags)
@@ -281,7 +293,9 @@ static int hmfs_setxattr(struct inode *inode, int index, const char *name,
 	int err, ilock;
 
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(inode);
 	err = __hmfs_setxattr(inode, index, name, value, size, flags);
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
 	return err;
@@ -332,8 +346,10 @@ static int hmfs_xattr_advise_get(struct dentry *dentry, const char *name,
 	if (strcmp(name ,"") != 0)
 		return -EINVAL;
 
+	inode_read_lock(inode);
 	if (buffer)
 		*((char *)buffer) = HMFS_I(inode)->i_advise;
+	inode_read_unlock(inode);
 	return sizeof(char);
 }
 
@@ -349,7 +365,9 @@ static int hmfs_xattr_advise_set(struct dentry *dentry, const char *name,
 	if (value == NULL)
 		return -EINVAL;
 
+	inode_write_lock(inode);
 	HMFS_I(inode)->i_advise = *(char *)value;
+	inode_write_unlock(inode);
 	mark_inode_dirty(inode);
 	return 0;
 }

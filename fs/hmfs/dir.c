@@ -809,10 +809,13 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	if (!buf)
 		return -ENOMEM;
 
+	inode_read_lock(inode);
 	if (!is_normal_inode) {
 		inode_block = get_node(sbi, inode->i_ino);
-		if (IS_ERR(inode_block))
+		if (IS_ERR(inode_block)) {
+			inode_read_unlock(inode);
 			return PTR_ERR(inode_block);
+		}
 		dentry_blk = DENTRY_BLOCK(inode_block->inline_content);
 		npages = 0;
 		goto fill;
@@ -842,6 +845,7 @@ fill:
 		ctx->pos = (n + 1) * nr_dentry_in_block;
 	}
 stop:
+	inode_read_unlock(inode);
 	vfree(buf);
 	return err;
 }

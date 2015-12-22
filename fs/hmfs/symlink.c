@@ -16,7 +16,9 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 		return -ENAMETOOLONG;
 
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(dir);
 	inode = hmfs_make_dentry(dir, dentry, S_IFLNK | S_IRWXUGO);
+	inode_write_unlock(dir);
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
@@ -45,7 +47,9 @@ static int hmfs_readlink(struct dentry *dentry, char __user * buffer,
 	int err = 0;
 	int size = 0;
 
+	inode_read_lock(inode);
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
+	inode_read_unlock(inode);
 	if (err || size != 1 || data_blk[0] == NULL)
 		return -ENODATA;
 	return vfs_readlink(dentry, buffer, buflen, data_blk[0]);
@@ -59,7 +63,9 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	int err = 0;
 	int size = 0;
 
+	inode_read_lock(inode);
 	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
+	inode_read_unlock(inode);
 	if (err || size != 1 || data_blk[0] == NULL)
 		return ERR_PTR(-ENODATA);
 	nd_set_link(nd, data_blk[0]);

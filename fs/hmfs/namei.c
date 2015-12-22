@@ -4,7 +4,6 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
-//TODO:when to set inline data
 static bool hmfs_may_set_inline_data(struct inode *dir)
 {
 	return test_opt(HMFS_I_SB(dir), INLINE_DATA);
@@ -214,6 +213,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	ilock = mutex_lock_op(sbi);
 
+	inode_write_lock(dir);
 	res_blk = get_dentry_block_for_write(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
@@ -223,6 +223,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	de = &res_blk->dentry[ofs_in_blk];
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
+	inode_write_unlock(dir);
 
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
@@ -267,6 +268,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out_k;
 	}
 
+	inode_write_lock(new_dir);
 	if (new_inode) {
 		err = -ENOTEMPTY;
 		if (old_dir_entry && !hmfs_empty_dir(new_inode))
@@ -313,10 +315,13 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
 	
+	if (old_dir != new_dir)
+		inode_write_lock(old_dir);
+
 	old_dentry_blk = get_dentry_block_for_write(old_dir, old_bidx);
 	if (IS_ERR(old_dentry_blk)) {
 		err = PTR_ERR(old_dentry_blk);
-		goto out_k;
+		goto unlock_old;
 	}
 	old_entry = &old_dentry_blk->dentry[old_ofs];
 
@@ -330,7 +335,11 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:	
+unlock_old:
+	if (old_dir != new_dir)
+		inode_write_unlock(old_dir);
+out_k:
+	inode_write_unlock(new_dir);
 	mutex_unlock_op(sbi, ilock);
 out:
 	return err;
@@ -388,6 +397,7 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 
 	ilock = mutex_lock_op(sbi);
 
+	inode_write_lock(inode);
 	if ((attr->ia_valid & ATTR_SIZE) && attr->ia_size != i_size_read(inode)) {
 		truncate_setsize(inode, attr->ia_size);
 
@@ -411,6 +421,7 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 
 out:
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
 	return err;
@@ -425,7 +436,9 @@ static struct dentry *hmfs_lookup(struct inode *dir, struct dentry *dentry,
 	if (dentry->d_name.len > HMFS_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
 
+	inode_read_lock(dir);
 	de = hmfs_find_entry(dir, &dentry->d_name, NULL, NULL);
+	inode_read_unlock(dir);
 	if (de) {
 		inode = hmfs_iget(dir->i_sb, de->ino);
 		if (IS_ERR(inode))

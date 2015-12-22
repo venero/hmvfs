@@ -29,7 +29,6 @@ struct gc_move_arg {
 
 struct victim_sel_policy {
 	int gc_mode;
-	unsigned long *dirty_segmap;
 	unsigned int offset;
 	unsigned int min_cost;
 	unsigned int min_segno;
@@ -47,13 +46,17 @@ enum {
 	GC_GREEDY = 0, GC_CB
 };
 
+void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi,
+				seg_t mv_segno, unsigned mv_offset, struct hmfs_summary *sum,
+				int type);
+
 static inline unsigned long long free_user_blocks(struct hmfs_sb_info *sbi)
 {
 	if (free_segments(sbi) < overprovision_segments(sbi))
 		return 0;
 	else
 		return (free_segments(sbi) - overprovision_segments(sbi))
-		 << HMFS_PAGE_PER_SEG_BITS;
+						<< HMFS_PAGE_PER_SEG_BITS;
 }
 
 static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
@@ -61,7 +64,7 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_sm_info *sm_i = SM_I(sbi);
 	unsigned long invalid_user_blocks = cm_i->alloc_block_count
-	 - cm_i->valid_block_count;
+						- cm_i->valid_block_count;
 
 	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
 
@@ -74,6 +77,19 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 static inline bool has_not_enough_free_segs(struct hmfs_sb_info *sbi)
 {
 	return free_user_blocks(sbi) < SM_I(sbi)->limit_free_blocks;
+}
+
+static inline bool need_deep_scan(struct hmfs_sb_info *sbi)
+{
+	return free_user_blocks(sbi) < SM_I(sbi)->severe_free_blocks;
+}
+
+static inline bool need_more_scan(struct hmfs_sb_info *sbi, seg_t segno,
+				seg_t start_segno)
+{
+	if (segno >= start_segno)
+		return segno - start_segno < sbi->nr_max_fg_segs;
+	return segno + TOTAL_SEGS(sbi) - start_segno< sbi->nr_max_fg_segs; 
 }
 
 static inline long increase_sleep_time(long wait)

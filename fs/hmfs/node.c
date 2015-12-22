@@ -215,6 +215,9 @@ void truncate_node(struct dnode_of_data *dn)
 	} else {
 		mark_inode_dirty(dn->inode);
 	}
+
+	invalidate_delete_block(sbi, ni.blk_addr);
+
 invalidate:
 	dn->node_block = NULL;
 }
@@ -320,7 +323,8 @@ struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 	struct hmfs_nat_entry *nat_entry;
 	block_t node_addr;
 
-	hmfs_bug_on(sbi, cp_i->version == CM_I(sbi)->new_version);
+	if (cp_i->version == CM_I(sbi)->new_version)
+		return get_node(sbi, nid);
 
 	nat_entry = get_nat_entry(sbi, cp_i->version, nid);
 	if (!nat_entry)
@@ -473,11 +477,26 @@ fail:
 	return err > 0 ? 0 : err;
 }
 
+void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid,
+				block_t blk_addr)
+{
+	struct nat_entry *entry;
+
+	write_lock(&nm_i->nat_tree_lock);
+	entry = __lookup_nat_cache(nm_i, nid);
+	if (entry) {
+		entry->ni.blk_addr = blk_addr;
+	}
+
+	write_unlock(&nm_i->nat_tree_lock);
+}
+
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      block_t blk_addr, bool dirty)
 {
 	struct nat_entry *e, *le;
 
+	write_lock(&nm_i->nat_tree_lock);
 retry:
 	e = __lookup_nat_cache(nm_i, nid);
 
@@ -491,7 +510,6 @@ retry:
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
 	e->ni.flag = 0;
-	write_lock(&nm_i->nat_tree_lock);
 	if (dirty) {
 		list_del(&e->list);
 		INIT_LIST_HEAD(&e->list);
@@ -1150,11 +1168,11 @@ static int __flush_nat_journals(struct hmfs_checkpoint *hmfs_cp,
  * of them to nat_entries temporary
  */
 static void flush_nat_journals(struct hmfs_sb_info *sbi, 
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp)
+				struct hmfs_checkpoint *hmfs_cp)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	int i, full, threshold;
+	int i, full;
 	nid_t nid;
 	struct nat_entry *new, *entry;
 	struct list_head *this, *next;
@@ -1188,14 +1206,10 @@ retry:
 	}
 
 	if (nm_i->nid_wrapped) {
-		hmfs_bug_on(sbi, gc_cp);
 		nm_i->nid_wrapped = 0;
 		return;
 	}
 
-	threshold = nm_i->journaling_threshold;
-	if (gc_cp)
-		nm_i->journaling_threshold = NAT_ENTRY_PER_BLOCK + 1;
 	cm_i->nr_nat_journals = 0;
 	list_for_each_entry(entry, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
@@ -1218,8 +1232,6 @@ retry:
 	nm_i->journaling_threshold++;
 
 del_journal:
-	if (gc_cp)
-		nm_i->journaling_threshold = threshold;
 
 	/* Delete journaling nat */
 	list_for_each_safe(this, next, &nm_i->dirty_nat_entries) {
@@ -1237,7 +1249,7 @@ del_journal:
 }
 
 struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp)
+				struct hmfs_checkpoint *hmfs_cp)
 {
 	struct hmfs_nat_node *old_root_node, *new_root_node;
 	struct hmfs_nat_block *old_entry_block, *new_entry_block;
@@ -1269,7 +1281,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 
 	write_lock(&nm_i->nat_tree_lock);
 
-	flush_nat_journals(sbi, hmfs_cp, gc_cp);
+	flush_nat_journals(sbi, hmfs_cp);
 
 	/* All nat entries have been written in journals */
 	if (list_empty(&nm_i->dirty_nat_entries)) {
@@ -1407,62 +1419,37 @@ static void __mark_block_valid(struct hmfs_sb_info *sbi,
 }
 
 void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
-				struct hmfs_checkpoint *hmfs_cp, bool gc_cp)
+				struct hmfs_checkpoint *hmfs_cp)
 {
-	int offset = 0;
-	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
-	struct seg_entry *seg_entry;
-	pgc_t total_segs = TOTAL_SEGS(sbi);
-	int i;
 	struct hmfs_nat_journal *nat_journal;
+	int i;
 	nid_t nid;
 	block_t blk_addr;
 	int nr_nat_journals;
 	ver_t sto_version;
 
-	if (!gc_cp) {
-		nat_journal = hmfs_cp->nat_journals;
-		if (sbi->recovery_doing) {
-			nr_nat_journals = NUM_NAT_JOURNALS_IN_CP;
-			sto_version = le32_to_cpu(hmfs_cp->checkpoint_ver);
-		} else {
-			nr_nat_journals = cm_i->nr_nat_journals;
-			sto_version = CM_I(sbi)->new_version;
-		}
+	nat_journal = hmfs_cp->nat_journals;
+	if (sbi->recovery_doing) {
+		nr_nat_journals = NUM_NAT_JOURNALS_IN_CP;
+		sto_version = le32_to_cpu(hmfs_cp->checkpoint_ver);
+	} else {
+		nr_nat_journals = cm_i->nr_nat_journals;
+		sto_version = CM_I(sbi)->new_version;
+	}
 
-		for (i = 0; i < nr_nat_journals; ++i, nat_journal++) {
-			nid = le32_to_cpu(nat_journal->nid);
-			blk_addr = le64_to_cpu(nat_journal->entry.block_addr);
-			if (nid >= HMFS_ROOT_INO && blk_addr != NULL_ADDR) {
-				mark_block_valid_type(sbi, blk_addr);
-			
-				if (sbi->recovery_doing) {
-					cm_i->nr_nat_journals = i + 1;
-				}
+	for (i = 0; i < nr_nat_journals; ++i, nat_journal++) {
+		nid = le32_to_cpu(nat_journal->nid);
+		blk_addr = le64_to_cpu(nat_journal->entry.block_addr);
+		if (nid >= HMFS_ROOT_INO && blk_addr != NULL_ADDR) {
+			mark_block_valid_type(sbi, blk_addr);
+		
+			if (sbi->recovery_doing) {
+				cm_i->nr_nat_journals = i + 1;
 			}
 		}
+	}
 
-		__mark_block_valid(sbi, nat_root, 0, sto_version, 
-				sbi->nat_height);
-		return;
-	}
-	
-	while (1) {
-		offset = find_next_bit(bitmap, total_segs, offset);
-		if (offset < total_segs) {
-			seg_entry = get_seg_entry(sbi, offset);
-			/* Segments that save blocks being moved */
-			if (seg_entry->valid_blocks)
-				flush_ssa_valid_bits(sbi, offset, seg_entry->valid_blocks, 1);
-			else {
-				/* Segments that is to be clean */
-				flush_ssa_valid_bits(sbi, offset, HMFS_PAGE_PER_SEG, 0);
-			}
-			offset++;
-		} else
-			break;
-	}
+	__mark_block_valid(sbi, nat_root, 0, sto_version, 
+			sbi->nat_height);
 }
-
