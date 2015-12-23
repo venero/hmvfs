@@ -331,7 +331,7 @@ struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 		return NULL;
 	node_addr = le64_to_cpu(nat_entry->block_addr);
 
-	return (struct hmfs_node *)ADDR(sbi, node_addr);
+	return ADDR(sbi, node_addr);
 }
 
 static int truncate_partial_nodes(struct dnode_of_data *dn,
@@ -385,11 +385,13 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 		set_nid(nodes[idx], i, 0, false);
 	}
 
-	/* FIXME: should skip check in truncate_inode_blocks? */
+	hmfs_bug_on(sbi, !offset[depth - 1]);
+	/*
 	if (offset[depth - 1] == 0) {
 		dn->nid = nid[idx];
 		truncate_node(dn);
 	}
+	*/
 
 	offset[idx]++;
 	offset[depth - 1] = 0;

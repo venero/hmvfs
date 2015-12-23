@@ -1,3 +1,20 @@
+/*
+ * fs/hmfs/acl.c
+ *
+ * Copyright (c) 2015 RadLab SJTU
+ *
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *             http://www.samsung.com/
+ *
+ * Portions of this code from linux/fs/ext2/acl.c
+ *
+ * Copyright (C) 2001-2003 Andreas Gruenbacher, <agruen@suse.de>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include "hmfs_fs.h"
 #include "hmfs.h"
 #include "xattr.h"

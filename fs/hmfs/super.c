@@ -104,8 +104,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			//remount on another area isn't allowed
 			phys_addr = (phys_addr_t) simple_strtoull(args[0].from,
 								NULL, 0);
-			if (phys_addr == 0
-			    || phys_addr == (phys_addr_t) ULLONG_MAX) {
+			if (phys_addr == 0 || phys_addr == (phys_addr_t) ULLONG_MAX) {
 				goto bad_val;
 			}
 			if (phys_addr & (HMFS_PAGE_SIZE - 1))
@@ -115,7 +114,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 		case Opt_size:
 			if (remount)
 				goto bad_opt;
-			//change size isn't allowed
+			/* change size isn't allowed */
 			/* memparse() accepts a K/M/G without a digit */
 			if (!isdigit(*args[0].from))
 				goto bad_val;

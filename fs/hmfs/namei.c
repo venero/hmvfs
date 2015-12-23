@@ -1,3 +1,15 @@
+/*
+ * fs/hmfs/namei.c
+ *
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *             http://www.samsung.com/
+ * Copyright (c) 2015 SJTU RadLab
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include <linux/fs.h>
 #include <linux/xattr.h>
 #include <linux/posix_acl.h>

@@ -675,7 +675,7 @@ static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 	int bt = le16_to_cpu(summary->bt);
 
 	bt |= 0x80;
-	summary->bt = cpu_to_le16(bt);
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
 
 static inline void set_summary_type(struct hmfs_summary *summary, int type)
@@ -683,7 +683,7 @@ static inline void set_summary_type(struct hmfs_summary *summary, int type)
 	int t = le16_to_cpu(summary->bt);
 	t &= ~0x7f;
 	t |= type & 0x7f;
-	summary->bt = cpu_to_le16(t);
+	hmfs_memcpy_atomic(&summary->bt, &t, 2);
 }
 
 static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
@@ -691,7 +691,7 @@ static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 	int bt = le16_to_cpu(summary->bt);
 
 	bt &= 0x7f;
-	summary->bt = cpu_to_le16(bt);
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
 
 static inline void set_summary_start_version(struct hmfs_summary *summary,
@@ -823,8 +823,7 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 				block_t blk_addr);
 block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
 block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
-unsigned long long __cal_page_addr(struct hmfs_sb_info *sbi,
-				seg_t segno, int blkoff);
+block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);
 void update_sit_entry(struct hmfs_sb_info *sbi, seg_t, int);

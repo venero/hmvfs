@@ -9,6 +9,9 @@
 #include "node.h"
 #include "xattr.h"
 
+/*
+ * Setup arguments for GC and GC recovery
+ */
 void prepare_move_argument(struct gc_move_arg *arg,
 				struct hmfs_sb_info *sbi, seg_t mv_segno, unsigned mv_offset,
 				struct hmfs_summary *sum, int type)
@@ -82,8 +85,13 @@ static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
 		return get_cb_cost(sbi, segno);
 }
 
-static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type,
-				seg_t start_segno)
+/*
+ * Select a victim segment from dirty_segmap. We don't lock dirty_segmap here.
+ * Because we could tolerate somewhat inconsistency of it. start_segno is used
+ * for FG_GC, i.e. we scan the whole space of NVM atmost once in a FG_GC. Therefore,
+ * we take down the first victim segment as start_segno
+ */
+static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
@@ -114,9 +122,6 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type,
 		} else {
 			p.offset = segno + 1;
 		}
-
-		if (segno > start_segno)
-			return 0;
 
 		if (segno == atomic_read(&seg_i0->segno) || 
 					segno == atomic_read(&seg_i1->segno)) {
@@ -533,6 +538,9 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	struct hmfs_stat_info *stat_i = sbi->stat_info;
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
 	bool do_cp = false;
+	int total_segs = TOTAL_SEGS(sbi);
+	int time_retry = 0;
+	int max_retry = (total_segs + MAX_SEG_SEARCH - 1) / MAX_SEG_SEARCH;
 
 	hmfs_dbg("Enter GC\n");
 	stat_i->nr_gc_try++;
@@ -542,12 +550,12 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	if (hmfs_cp->state == HMFS_NONE)
 		set_fs_state(hmfs_cp, HMFS_GC);
 
-gc_more:
 	if (gc_type == BG_GC && has_not_enough_free_segs(sbi)) {
 		gc_type = FG_GC;
 	}
 
-	if (!get_victim(sbi, &segno, gc_type, start_segno))
+gc_more:
+	if (!get_victim(sbi, &segno, gc_type))
 		goto out;
 	ret = 0;
 
@@ -567,7 +575,10 @@ gc_more:
 	/* If space is limited, we might need to scan the whole NVM */
 	if (need_deep_scan(sbi)) {
 		do_cp = true;
-		goto gc_more;
+		time_retry++;
+		if (time_retry < max_retry)
+			goto gc_more;
+		goto out;
 	}
 
 	/* In FG_GC, we atmost scan sbi->nr_max_fg_segs segments */

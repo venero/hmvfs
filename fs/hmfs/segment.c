@@ -1,5 +1,5 @@
 #include <linux/vmalloc.h>
-#include "segment.h"		//hmfs.h is included
+#include "segment.h"
 
 /*
  * Judge whether an address is a valid address. i.e.
@@ -85,15 +85,15 @@ static void reset_curseg(struct curseg_info *seg_i)
 {
 	atomic_set(&seg_i->segno, seg_i->next_segno);
 	seg_i->next_blkoff = 0;
-	seg_i->next_segno = 0;
+	seg_i->next_segno = NULL_SEGNO;
 }
 
 inline block_t __cal_page_addr(struct hmfs_sb_info *sbi,
 				seg_t segno, int blkoff)
 {
 	return (segno << HMFS_SEGMENT_SIZE_BITS) +
-			(blkoff << HMFS_PAGE_SIZE_BITS)
-			+ sbi->main_addr_start;
+					(blkoff << HMFS_PAGE_SIZE_BITS)
+					+ sbi->main_addr_start;
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
@@ -189,38 +189,6 @@ block_t alloc_free_data_block(struct hmfs_sb_info * sbi)
 block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
 {
 	return get_free_block(sbi, CURSEG_NODE, sit_lock);
-}
-
-static int restore_curseg_summaries(struct hmfs_sb_info *sbi)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct curseg_info *seg_i = CURSEG_I(sbi), *node_seg_i, *data_seg_i;
-	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
-	unsigned short node_next_blkoff, data_next_blkoff;
-
-	node_seg_i = &seg_i[CURSEG_NODE];
-	mutex_lock(&node_seg_i->curseg_mutex);
-	atomic_set(&node_seg_i->segno, le32_to_cpu(hmfs_cp->cur_node_segno));
-	node_next_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
-	node_seg_i->next_blkoff = node_next_blkoff;
-	node_seg_i->next_segno = 0;
-	mutex_unlock(&node_seg_i->curseg_mutex);
-
-	data_seg_i = &seg_i[CURSEG_DATA];
-	mutex_lock(&data_seg_i->curseg_mutex);
-	atomic_set(&data_seg_i->segno, le32_to_cpu(hmfs_cp->cur_data_segno));
-	data_next_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
-	data_seg_i->next_blkoff = data_next_blkoff;
-	data_seg_i->next_segno = 0;
-	mutex_unlock(&data_seg_i->curseg_mutex);
-
-	spin_lock(&cm_i->stat_lock);
-	node_next_blkoff = HMFS_PAGE_PER_SEG - node_next_blkoff;
-	data_next_blkoff = HMFS_PAGE_PER_SEG - data_next_blkoff;
-	cm_i->left_blocks_count[CURSEG_NODE] = node_next_blkoff;
-	cm_i->left_blocks_count[CURSEG_DATA] = data_next_blkoff;
-	spin_unlock(&cm_i->stat_lock);
-	return 0;
 }
 
 void recovery_sit_entries(struct hmfs_sb_info *sbi,
@@ -508,7 +476,9 @@ free_i:
 static int build_curseg(struct hmfs_sb_info *sbi)
 {
 	struct curseg_info *array;
-	int i;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	unsigned short node_blkoff, data_blkoff;
 
 	array = kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE,
 					GFP_KERNEL);
@@ -517,11 +487,31 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 
 	SM_I(sbi)->curseg_array = array;
 
-	for (i = 0; i < NR_CURSEG_TYPE; i++) {
-		mutex_init(&array[i].curseg_mutex);
-		array[i].next_blkoff = 0;
-	}
-	return restore_curseg_summaries(sbi);
+	mutex_init(&array[CURSEG_NODE].curseg_mutex);
+	mutex_init(&array[CURSEG_DATA].curseg_mutex);
+
+	mutex_lock(&array[CURSEG_NODE].curseg_mutex);
+	node_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
+	array[CURSEG_NODE].next_blkoff = node_blkoff;
+	atomic_set(&array[CURSEG_NODE].segno, le32_to_cpu(hmfs_cp->cur_node_segno));
+	array[CURSEG_NODE].next_segno = NULL_SEGNO;
+	mutex_unlock(&array[CURSEG_NODE].curseg_mutex);
+
+	mutex_lock(&array[CURSEG_DATA].curseg_mutex);
+	data_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
+	array[CURSEG_DATA].next_blkoff = data_blkoff;
+	atomic_set(&array[CURSEG_DATA].segno, le32_to_cpu(hmfs_cp->cur_data_segno));
+	array[CURSEG_DATA].next_segno = NULL_SEGNO;
+	mutex_unlock(&array[CURSEG_DATA].curseg_mutex);
+
+	spin_lock(&cm_i->stat_lock);
+	node_blkoff = HMFS_PAGE_PER_SEG - node_blkoff;
+	data_blkoff = HMFS_PAGE_PER_SEG - data_blkoff;
+	cm_i->left_blocks_count[CURSEG_NODE] = node_blkoff;
+	cm_i->left_blocks_count[CURSEG_DATA] = data_blkoff;
+	spin_unlock(&cm_i->stat_lock);
+
+	return 0;
 }
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
