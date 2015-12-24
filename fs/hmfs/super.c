@@ -762,7 +762,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sb->s_op = &hmfs_sops;
 	sb->s_xattr = hmfs_xattr_handlers;
 	sb->s_maxbytes = hmfs_max_file_size();
-	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 
 	/* init checkpoint */
