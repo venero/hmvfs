@@ -899,11 +899,7 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi);
 ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
 
 /* util.c */
-#ifdef CONFIG_HMFS_FAST_READ
 int init_util_function(void);
-#else
-#define init_util_function()	(0)
-#endif
 
 /* acl.c */
 #ifdef CONFIG_HMFS_ACL

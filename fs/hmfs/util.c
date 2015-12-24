@@ -10,6 +10,7 @@ int init_util_function(void)
 {
 	unsigned long sym_addr = 0;
 
+#ifdef CONFIG_HMFS_FAST_READ
 	sym_addr = kallsyms_lookup_name("init_mm");
 	if (!sym_addr)
 		goto fail;
@@ -48,6 +49,7 @@ int init_util_function(void)
 		goto fail;
 	hmfs_get_vm_area = 
 			(struct vm_struct * (*) (unsigned long, unsigned long))sym_addr;
+#endif
 
 	sym_addr = kallsyms_lookup_name("__get_locked_pte");
 	if (!sym_addr)

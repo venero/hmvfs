@@ -1,9 +1,12 @@
-#ifdef CONFIG_HMFS_FAST_READ
 #ifndef HMFS_UTIL_H
 #define HMFS_UTIL_H
 
 #include <linux/mm.h>
 
+static pte_t * (*hmfs_get_locked_pte) (struct mm_struct *, unsigned long, 
+				spinlock_t **);
+
+#ifdef CONFIG_HMFS_FAST_READ
 static int (*__hmfs_pte_alloc_kernel) (pmd_t *pmd, unsigned long address);
 
 static struct mm_struct *hmfs_init_mm;
@@ -17,9 +20,6 @@ static struct vm_struct * (*hmfs_find_vm_area) (const void *addr);
 /* mm/vmalloc.c */
 static struct vm_struct * (*hmfs_get_vm_area) (unsigned long size, 
 				unsigned long flags);
-
-static pte_t * (*hmfs_get_locked_pte) (struct mm_struct *, unsigned long, 
-				spinlock_t **);
 
 #define hmfs_pte_alloc_kernel(pmd, address)	\
 	((unlikely(pmd_none(*(pmd))) && __hmfs_pte_alloc_kernel(pmd, address))? \
