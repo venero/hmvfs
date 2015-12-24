@@ -716,7 +716,6 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	loff_t pos;
 	int ilock;
 
-	inode_write_lock(inode);
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
 		ret = -EFAULT;
@@ -748,14 +747,15 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 
 	mark_inode_dirty(inode);
 
+	inode_write_lock(inode);
 	ilock = mutex_lock_op(sbi);
 	ret = __hmfs_xip_file_write(filp, buf, count, pos, ppos);
 	mutex_unlock_op(sbi, ilock);
+	inode_write_unlock(inode);
 
 out_backing:
 	current->backing_dev_info = NULL;
 out_up:
-	inode_write_unlock(inode);
 	return ret;
 }
 
