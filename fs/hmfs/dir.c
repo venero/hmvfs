@@ -403,7 +403,7 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 		}
 
 		err = hmfs_init_acl(inode, dir);
-		if (dir)
+		if (err)
 			goto error;
 	}
 
@@ -414,6 +414,7 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 	 * This file should be checkpointed during fsync.
 	 * We lost i_pino from now on.
 	 */
+	/* For newly created directory, FI_INC_LINK is set in hmfs_new_inode */
 	if (is_inode_flag_set(HMFS_I(inode), FI_INC_LINK)) {
 		inc_nlink(inode);
 		mark_inode_dirty(inode);

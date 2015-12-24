@@ -109,6 +109,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 		mutex_unlock_op(sbi, ilock);
 		return inode;
 	}
+
 	err = hmfs_add_link(dentry, inode);
 
 	mutex_unlock_op(sbi, ilock);
