@@ -697,11 +697,11 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
-		if (dir->i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {
-			dir->i_size = hmfs_dir_seek_data_reverse(dir, bidx + 1)
+		if (dir_i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {
+			dir_i_size = hmfs_dir_seek_data_reverse(dir, bidx + 1)
 					<< HMFS_PAGE_SIZE_BITS; 
+			mark_size_dirty(dir, dir_i_size + HMFS_PAGE_SIZE);
 		}
-		mark_size_dirty(dir, dir_i_size - HMFS_PAGE_SIZE);
 	}
 }
 

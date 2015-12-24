@@ -473,9 +473,6 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 	if (inode)
 		inode->i_blocks += count;
 
-	if (inode && inode->i_ino == HMFS_ROOT_INO) 
-		printk(KERN_INFO"%s-%d:%d\n",__FUNCTION__,__LINE__,(int)inode->i_blocks);
-
 	cm_i->valid_node_count += count;
 	cm_i->valid_block_count += count;
 	cm_i->alloc_block_count = alloc_valid_block_count;
