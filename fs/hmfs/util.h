@@ -25,10 +25,26 @@ static pte_t * (*hmfs_get_locked_pte) (struct mm_struct *, unsigned long,
 	((unlikely(pmd_none(*(pmd))) && __hmfs_pte_alloc_kernel(pmd, address))? \
 		NULL: pte_offset_kernel(pmd, address))
 
-static pud_t * (*hmfs_pud_alloc) (struct mm_struct *mm, pgd_t *pgd,
+static int (*__hmfs_pud_alloc) (struct mm_struct *mm, pgd_t *pgd,
 				unsigned long address);
 
-static pmd_t *(*hmfs_pmd_alloc) (struct mm_struct *mm, pud_t *pud,
+static int (*__hmfs_pmd_alloc) (struct mm_struct *mm, pud_t *pud,
 				unsigned long address);
+
+static inline pud_t *hmfs_pud_alloc(struct mm_struct *mm, pgd_t *pgd,
+				unsigned long address)
+{
+	return (unlikely(pgd_none(*pgd)) && __hmfs_pud_alloc(mm, pgd, address))?
+					NULL: pud_offset(pgd, address);
+}
+
+static inline pmd_t *hmfs_pmd_alloc(struct mm_struct *mm, pud_t *pud, 
+				unsigned long address)
+{
+	return (unlikely(pud_none(*pud)) && __hmfs_pmd_alloc(mm, pud, address))?
+					NULL: pmd_offset(pud, address);
+}
+
 #endif
+
 #endif

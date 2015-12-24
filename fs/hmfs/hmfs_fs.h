@@ -115,7 +115,7 @@ enum FS_STATE {
 #define NIDS_PER_BLOCK		2			/* # of nid stored in indirect node */
 #define NUM_NAT_JOURNALS_IN_CP		8
 #else
-#define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
+#define NORMAL_ADDRS_PER_INODE	466		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
 #define NUM_NAT_JOURNALS_IN_CP	(3932 / sizeof(struct hmfs_nat_journal))
@@ -219,7 +219,7 @@ struct hmfs_inode {
 
 			/* direct(2), indirect(2), double_indirect(1) node id */
 			__le32 i_nid[5];
-		};
+		} __attribute__ ((packed));
 		__u8 inline_content[HMFS_INLINE_SIZE];
 	};
 } __attribute__ ((packed));

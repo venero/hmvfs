@@ -15,17 +15,17 @@ int init_util_function(void)
 		goto fail;
 	hmfs_init_mm = (struct mm_struct *)sym_addr;
 
-	sym_addr = kallsyms_lookup_name("pud_alloc");
+	sym_addr = kallsyms_lookup_name("__pud_alloc");
 	if (!sym_addr)
 		goto fail;
-	hmfs_pud_alloc = 
-			(pud_t * (*) (struct mm_struct *, pgd_t *, unsigned long))sym_addr;
+	__hmfs_pud_alloc = 
+			(int (*) (struct mm_struct *, pgd_t *, unsigned long))sym_addr;
 
-	sym_addr = kallsyms_lookup_name("pmd_alloc");
+	sym_addr = kallsyms_lookup_name("__pmd_alloc");
 	if (!sym_addr)
 		goto fail;
-	hmfs_pmd_alloc = 
-			(pmd_t * (*) (struct mm_struct *, pud_t *, unsigned long))sym_addr;
+	__hmfs_pmd_alloc = 
+			(int (*) (struct mm_struct *, pud_t *, unsigned long))sym_addr;
 
 	sym_addr = kallsyms_lookup_name("__pte_alloc_kernel");
 	if (!sym_addr)
