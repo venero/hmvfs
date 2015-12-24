@@ -798,7 +798,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 		goto free_segment_mgr;
 
 	root = hmfs_iget(sb, HMFS_ROOT_INO);
-
 	if (IS_ERR(root)) {
 		retval = PTR_ERR(root);
 		goto free_segment_mgr;

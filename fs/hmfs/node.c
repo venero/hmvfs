@@ -183,11 +183,9 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 		return NULL;
 	}
 	memset(new, 0, sizeof(struct nat_entry));
-	write_lock(&nm_i->nat_tree_lock);
 	new->ni.nid = nid;
 	list_add_tail(&new->list, &nm_i->nat_entries);
 	nm_i->nat_cnt++;
-	write_unlock(&nm_i->nat_tree_lock);
 	return new;
 }
 
@@ -512,6 +510,7 @@ retry:
 	e->ni.nid = nid;
 	e->ni.blk_addr = blk_addr;
 	e->ni.flag = 0;
+
 	if (dirty) {
 		list_del(&e->list);
 		INIT_LIST_HEAD(&e->list);
@@ -702,7 +701,7 @@ static void init_free_nids(struct hmfs_sb_info *sbi)
 			add_free_nid(nm_i, nid, 1, &pos);
 			pos++;
 		}
-		if (nid > HMFS_ROOT_INO)
+		if (nid >= HMFS_ROOT_INO)
 			cm_i->nr_nat_journals = i + 1;
 	}
 
@@ -1110,7 +1109,6 @@ static void cache_nat_journals_entries(struct hmfs_sb_info *sbi)
 		nid = le32_to_cpu(ne->nid);
 		ino = le32_to_cpu(ne->entry.ino);
 		blk_addr = le64_to_cpu(ne->entry.block_addr);
-		
 		if (nid >= HMFS_ROOT_INO && blk_addr != NULL_ADDR)
 			update_nat_entry(nm_i, nid, ino, blk_addr, true);
 	}
