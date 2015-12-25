@@ -274,9 +274,16 @@ struct hmfs_inode_info {
 struct hmfs_stat_info {
 	struct list_head stat_list;
 	struct hmfs_sb_info *sbi;
+	spinlock_t stat_lock;
 
 	int nr_gc_try;			/* Time of call hmfs_gc */
 	int nr_gc_real;			/* Time of doing GC */
+
+	/* stat of flushing nat entries */
+	/* c = nr_flush_nat_per_block[i] means times of flushing [c*50, c*50+50) entries per nat block*/
+	int nr_flush_nat_per_block[10];
+	unsigned long flush_nat_sum;
+	unsigned long flush_nat_time;
 };
 
 /*
@@ -365,6 +372,11 @@ static inline block_t L_ADDR(struct hmfs_sb_info *sbi, void *ptr)
 static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 {
 	return HMFS_SB(inode->i_sb);
+}
+
+static inline struct hmfs_stat_info *STAT_I(struct hmfs_sb_info *sbi)
+{
+	return sbi->stat_info;
 }
 
 static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
@@ -761,11 +773,13 @@ void hmfs_create_root_stat(void);
 void hmfs_destroy_root_stat(void);
 int hmfs_build_stats(struct hmfs_sb_info *sbi);
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi);
+void update_nat_stat(struct hmfs_sb_info *, int count);
 #else
 #define hmfs_destroy_stats(sbi)
 #define hmfs_destroy_root_stat()
 #define hmfs_build_stats(sbi) 	0
 #define hmfs_create_root_stat()
+#define update_nat_stat(sbi, count);
 #endif
 struct node_info;
 

@@ -1217,6 +1217,7 @@ retry:
 	list_for_each_entry(entry, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
 		if (new_blk_order != old_blk_order) {
+			update_nat_stat(sbi, nr_dirty_nat);
 			if (nr_dirty_nat && nr_dirty_nat <= nm_i->journaling_threshold) {
 				full = __flush_nat_journals(hmfs_cp, entry, nr_dirty_nat,
 								&cm_i->nr_nat_journals);

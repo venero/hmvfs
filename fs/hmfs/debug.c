@@ -52,6 +52,17 @@ struct buffer {
 static struct buffer info_buffer;
 static int hmfs_dispatch_cmd(const char *cmd, int len);
 
+void update_nat_stat(struct hmfs_sb_info *sbi, int flush_count)
+{
+	struct hmfs_stat_info *stat_i = STAT_I(sbi);
+
+	spin_lock(&stat_i->stat_lock);
+	stat_i->flush_nat_sum += flush_count;
+	stat_i->flush_nat_time++;
+	stat_i->nr_flush_nat_per_block[flush_count / 50]++;
+	spin_unlock(&stat_i->stat_lock);
+}
+
 static int stat_show(struct seq_file *s, void *v)
 {
 	struct hmfs_stat_info *si;
@@ -59,6 +70,7 @@ static int stat_show(struct seq_file *s, void *v)
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
 	unsigned long max_file_size = hmfs_max_file_size();
+	int i;
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
@@ -93,6 +105,12 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "max file size:%luk %luM %luG\n",
 			   max_file_size / 1024, max_file_size / 1024 / 1024,
 			   max_file_size / 1024 / 1024 / 1024);
+		if (si->flush_nat_time)
+			seq_printf(s, "flush_nat_per_block:%lu\n", 
+					si->flush_nat_sum / si->flush_nat_time);
+		for (i = 0; i < 10; i++)
+			seq_printf(s, "nr_flush_nat_per_block[%d-%d):%d\n", i * 50,
+					i * 50 + 50, si->nr_flush_nat_per_block[i]);
 
 		head = &cm_i->orphan_inode_list;
 		seq_printf(s, "orphan inode:\n");
@@ -195,8 +213,10 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	if (!sbi->stat_info)
 		return -ENOMEM;
 
+	memset(sbi->stat_info, 0, sizeof(struct hmfs_stat_info));
 	si = sbi->stat_info;
 	si->sbi = sbi;
+	spin_lock_init(&si->stat_lock);
 	mutex_lock(&hmfs_stat_mutex);
 	list_add_tail(&si->stat_list, &hmfs_stat_list);
 	mutex_unlock(&hmfs_stat_mutex);
