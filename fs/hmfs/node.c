@@ -530,13 +530,6 @@ unlock:
 	write_unlock(&nm_i->nat_tree_lock);
 }
 
-static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
-				seg_t cur_node_segno, unsigned int cur_node_blkoff)
-{
-	return (cur_node_segno << HMFS_SEGMENT_SIZE_BITS)
-			+ (cur_node_blkoff << HMFS_PAGE_SIZE_BITS) + sbi->main_addr_start;
-}
-
 /*
  * return node address in NVM by nid, would not allocate
  * new node
