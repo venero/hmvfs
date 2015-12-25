@@ -460,7 +460,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	sync_checkpoint_info(sbi, hmfs_cp, cp_i);
 	cm_i->last_cp_i = cp_i;
 
-	spin_lock_init(&cm_i->stat_lock);
+	spin_lock_init(&cm_i->cm_lock);
 	INIT_LIST_HEAD(&cp_i->list);
 	INIT_RADIX_TREE(&cm_i->cp_tree_root, GFP_ATOMIC);
 	mutex_init(&cm_i->cp_tree_lock);

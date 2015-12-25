@@ -269,9 +269,9 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 		hmfs_bug_on(sbi, 1);
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
-	spin_lock(&cm_i->stat_lock);
+	spin_lock(&cm_i->cm_lock);
 	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
-	spin_unlock(&cm_i->stat_lock);
+	spin_unlock(&cm_i->cm_lock);
 }
 
 static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
