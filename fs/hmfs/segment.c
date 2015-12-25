@@ -426,12 +426,13 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 	write_lock(&free_i->segmap_lock);
 	while (1) {
 		segno =find_next_bit(bitmap, total_segs, segno);
-		if (segno > total_segs)
+		if (segno >= total_segs)
 			break;
 		clear_bit(segno, bitmap);
 		if (test_and_clear_bit(segno, free_i->free_segmap)) {
 			free_i->free_segments++;
 		}
+		segno++;
 	}
 	write_unlock(&free_i->segmap_lock);
 }
