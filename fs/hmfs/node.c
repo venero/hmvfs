@@ -1139,14 +1139,14 @@ free_nm:
 }
 
 static int __flush_nat_journals(struct hmfs_checkpoint *hmfs_cp, 
-				struct nat_entry *entry, int nr_dirty_nat, int journal_pos)
+				struct nat_entry *entry, int nr_dirty_nat, int* journal_pos)
 {
 	struct hmfs_nat_journal *nat_journal;
 
-	if (nr_dirty_nat > NUM_NAT_JOURNALS_IN_CP - journal_pos)
+	if (nr_dirty_nat > NUM_NAT_JOURNALS_IN_CP - *journal_pos)
 		return 1;
 
-	nat_journal = &hmfs_cp->nat_journals[journal_pos];
+	nat_journal = &hmfs_cp->nat_journals[*journal_pos];
 
 	while (nr_dirty_nat > 0) {
 		entry = list_entry(entry->list.prev, struct nat_entry, list);
@@ -1157,6 +1157,7 @@ static int __flush_nat_journals(struct hmfs_checkpoint *hmfs_cp,
 		nat_journal++;
 		entry->ni.flag |= NAT_FLAG_JOURNAL;
 	}
+	*journal_pos = *journal_pos + nr_dirty_nat;
 	return 0;
 }
 
@@ -1211,22 +1212,26 @@ retry:
 	}
 
 	cm_i->nr_nat_journals = 0;
+	entry = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
+	old_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
 	list_for_each_entry(entry, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
-
 		if (new_blk_order != old_blk_order) {
 			if (nr_dirty_nat && nr_dirty_nat <= nm_i->journaling_threshold) {
 				full = __flush_nat_journals(hmfs_cp, entry, nr_dirty_nat,
-								cm_i->nr_nat_journals);
+								&cm_i->nr_nat_journals);
 				if (full) {
 					if (nm_i->journaling_threshold > 1)
 						nm_i->journaling_threshold--;
-					goto del_journal;
+					if (cm_i->nr_nat_journals >= NUM_NAT_JOURNALS_IN_CP)
+						goto del_journal;
 				}
-				cm_i->nr_nat_journals += nr_dirty_nat;
 			}
 			nr_dirty_nat = 0;
+			old_blk_order = new_blk_order;
 		}
+		if (nr_dirty_nat > nm_i->journaling_threshold)
+			nm_i->journaling_threshold++;
 		nr_dirty_nat++;
 	}
 	nm_i->journaling_threshold++;
