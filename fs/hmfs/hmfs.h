@@ -563,6 +563,7 @@ static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 
 	spin_lock(&cm_i->cm_lock);
 	cm_i->valid_inode_count--;
+	cm_i->valid_block_count--;
 	spin_unlock(&cm_i->cm_lock);
 }
 

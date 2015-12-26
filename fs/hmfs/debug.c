@@ -69,12 +69,14 @@ static int stat_show(struct seq_file *s, void *v)
 	struct hmfs_cm_info *cm_i = NULL;
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
+	struct free_segmap_info *free_i;
 	unsigned long max_file_size = hmfs_max_file_size();
 	int i;
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
 		cm_i = CM_I(si->sbi);
+		free_i = FREE_I(si->sbi);
 
 		seq_printf(s, "=============General Infomation=============\n");
 		seq_printf(s, "physical address:%lu\n",
@@ -88,6 +90,8 @@ static int stat_show(struct seq_file *s, void *v)
 			   (unsigned long)si->sbi->segment_count);
 		seq_printf(s, "valid_block_count:%lu\n",
 			   (unsigned long)cm_i->valid_block_count);
+		seq_printf(s, "free_block_count:%lu\n",
+				(unsigned long)free_i->free_segments << HMFS_PAGE_PER_SEG_BITS);
 		seq_printf(s, "alloc_block_count:%lu\n",
 			   (unsigned long)cm_i->alloc_block_count);
 		seq_printf(s, "valid_node_count:%lu\n", cm_i->valid_node_count);

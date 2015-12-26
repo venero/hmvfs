@@ -256,8 +256,7 @@ static int hmfs_format(struct super_block *sb)
 	area_addr = align_segment_right(area_addr);
 
 	main_segments_count = (end_addr - area_addr) >> HMFS_SEGMENT_SIZE_BITS;
-	user_segments_count =
-	 main_segments_count * (100 - DEF_OP_SEGMENTS) / 100;
+	user_segments_count = main_segments_count * (100 - DEF_OP_SEGMENTS) / 100;
 	user_pages_count = user_segments_count << HMFS_PAGE_PER_SEG_BITS;
 
 	data_blkoff = 0;
@@ -608,12 +607,18 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(dentry->d_sb);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct free_segmap_info *free_i = FREE_I(sbi);
+	pgc_t nr_user_segment = cm_i->user_block_count >> HMFS_PAGE_PER_SEG_BITS;
+	pgc_t nr_segment_reserve = sbi->segment_count_main - nr_user_segment;
+
+	hmfs_bug_on(sbi, nr_segment_reserve < 0);
 
 	buf->f_type = HMFS_SUPER_MAGIC;
 	buf->f_bsize = HMFS_PAGE_SIZE;
 	buf->f_blocks = cm_i->user_block_count;
-	buf->f_bfree = cm_i->user_block_count - cm_i->valid_block_count;
-	buf->f_bavail = buf->f_bfree;
+	buf->f_bfree = (free_i->free_segments - nr_segment_reserve) 
+			<< HMFS_PAGE_PER_SEG_BITS;
+	buf->f_bavail = cm_i->user_block_count - cm_i->valid_block_count;
 	buf->f_files = cm_i->valid_inode_count;
 	buf->f_ffree = cm_i->user_block_count - cm_i->valid_block_count;
 	buf->f_namelen = HMFS_NAME_LEN;

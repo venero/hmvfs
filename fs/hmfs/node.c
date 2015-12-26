@@ -1389,7 +1389,7 @@ static void __mark_block_valid(struct hmfs_sb_info *sbi,
 	BUG_ON(!cur_nat_node);
 	cur_node_addr = L_ADDR(sbi, cur_nat_node);
 	raw_summary = get_summary_by_addr(sbi, cur_node_addr);
-	if(get_summary_start_version(raw_summary) != version){
+	if (get_summary_start_version(raw_summary) != version) {
 		//not this version created
 		return;
 	}
