@@ -534,7 +534,7 @@ static void hmfs_evict_inode(struct inode *inode)
 
 	hi = get_node(sbi, inode->i_ino);
 	if (IS_ERR(hi)) {
-		return;
+		goto out;
 	}
 
 	if (inode->i_nlink || is_bad_inode(inode))

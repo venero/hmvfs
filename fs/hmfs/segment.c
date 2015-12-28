@@ -141,14 +141,17 @@ unlock:
 	return ret;
 }
 
-static void move_to_new_segment(struct hmfs_sb_info *sbi,
+static int move_to_new_segment(struct hmfs_sb_info *sbi,
 				struct curseg_info *seg_i)
 {
 	seg_t segno = atomic_read(&seg_i->segno);
+	int ret = get_new_segment(sbi, &segno);
 
-	get_new_segment(sbi, &segno);
+	if (ret)
+		return ret;
 	seg_i->next_segno = segno;
 	reset_curseg(seg_i);
+	return 0;
 }
 
 static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_lock)
@@ -157,6 +160,7 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
+	int ret;
 
 	mutex_lock(&seg_i->curseg_mutex);
 	page_addr = cal_page_addr(sbi, seg_i);
@@ -170,7 +174,11 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
-		move_to_new_segment(sbi, seg_i);
+		ret = move_to_new_segment(sbi, seg_i);
+		if (ret) {
+			printk(KERN_INFO"HMFS FULL DISK\n");
+			return NULL_ADDR;
+		}
 
 		spin_lock(&cm_i->cm_lock);
 		cm_i->left_blocks_count[seg_type] += HMFS_PAGE_PER_SEG;

@@ -1,5 +1,6 @@
 #include "hmfs.h"
 #include "node.h"
+#include "segment.h"
 
 /*
  * return the last block index in current node/inode
@@ -14,6 +15,30 @@ static int get_end_blk_index(int block, int level)
 		return start_blk + ADDRS_PER_BLOCK - 1;
 	}
 	return NORMAL_ADDRS_PER_INODE - 1;
+}
+
+static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
+				struct inode *inode, int count)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	pgc_t alloc_block_count;
+	pgc_t free_blocks = free_user_blocks(sbi);
+
+	spin_lock(&cm_i->cm_lock);
+	alloc_block_count = cm_i->alloc_block_count + count;
+
+	if (unlikely(!free_blocks)) {
+		spin_unlock(&cm_i->cm_lock);
+		return false;
+	}
+	if (inode)
+		inode->i_blocks += count;
+
+	cm_i->alloc_block_count = alloc_block_count;
+	cm_i->valid_block_count += count;
+	cm_i->left_blocks_count[CURSEG_DATA] -= count;
+	spin_unlock(&cm_i->cm_lock);
+	return true;
 }
 
 /*
@@ -231,6 +256,8 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
+	if (new_addr == NULL_ADDR)
+		return ERR_PTR(-ENOSPC);
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else
@@ -300,6 +327,9 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
+	if (new_addr == NULL_ADDR)
+		return ERR_PTR(-ENOSPC);
+
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else

@@ -162,7 +162,6 @@ struct hmfs_nm_info {
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
 
 	unsigned int fcnt;	/* the number of free node id */
-	struct mutex build_lock;	/* lock for build free nids */
 };
 
 /* hmfs checkpoint manager */
@@ -319,8 +318,6 @@ extern const struct inode_operations hmfs_symlink_inode_operations;
 extern const struct inode_operations hmfs_special_inode_operations;
 extern const struct address_space_operations hmfs_aops_xip;
 
-
-
 /* Inline functions */
 static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
 {
@@ -466,54 +463,14 @@ static inline void mutex_unlock_op(struct hmfs_sb_info *sbi, int ilock)
 	mutex_unlock(&sbi->fs_lock[ilock]);
 }
 
-static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
+static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	pgc_t alloc_valid_block_count;
 
 	spin_lock(&cm_i->cm_lock);
-
-	alloc_valid_block_count = cm_i->alloc_block_count + count;
-
-	if (unlikely(cm_i->left_blocks_count[CURSEG_NODE] < count
-	     && alloc_valid_block_count > cm_i->user_block_count)) {
-		spin_unlock(&cm_i->cm_lock);
-		return false;
-	}
-
-	if (inode)
-		inode->i_blocks += count;
-
-	cm_i->valid_node_count += count;
-	cm_i->valid_block_count += count;
-	cm_i->alloc_block_count = alloc_valid_block_count;
-	cm_i->left_blocks_count[CURSEG_NODE] -= count;;
+	cm_i->valid_inode_count--;
+	cm_i->valid_block_count--;
 	spin_unlock(&cm_i->cm_lock);
-
-	return true;
-}
-
-static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	spin_lock(&cm_i->cm_lock);
-	cm_i->valid_node_count -= count;
-	if (likely(inode))
-		inode->i_blocks -= count;
-	spin_unlock(&cm_i->cm_lock);
-}
-
-static inline int dec_valid_block_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	spin_lock(&cm_i->cm_lock);
-	inode->i_blocks -= count;
-	cm_i->valid_block_count -= count;
-	spin_unlock(&cm_i->cm_lock);
-	return 0;
 }
 
 static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
@@ -531,40 +488,6 @@ static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 	cm_i->alloc_block_count = alloc_block_count;
 	spin_unlock(&cm_i->cm_lock);
 	return true;
-}
-
-static inline bool inc_valid_block_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	pgc_t alloc_block_count;
-
-	spin_lock(&cm_i->cm_lock);
-	alloc_block_count = cm_i->alloc_block_count + count;
-
-	if (unlikely(cm_i->left_blocks_count[CURSEG_DATA] < count
-	     && alloc_block_count > cm_i->user_block_count)) {
-		spin_unlock(&cm_i->cm_lock);
-		return false;
-	}
-	if (inode)
-		inode->i_blocks += count;
-
-	cm_i->alloc_block_count = alloc_block_count;
-	cm_i->valid_block_count += count;
-	cm_i->left_blocks_count[CURSEG_DATA] -= count;
-	spin_unlock(&cm_i->cm_lock);
-	return true;
-}
-
-static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
-{
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-
-	spin_lock(&cm_i->cm_lock);
-	cm_i->valid_inode_count--;
-	cm_i->valid_block_count--;
-	spin_unlock(&cm_i->cm_lock);
 }
 
 static inline void inc_valid_inode_count(struct hmfs_sb_info *sbi)

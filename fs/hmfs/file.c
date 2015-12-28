@@ -24,6 +24,7 @@
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
+#include "segment.h"
 #include "util.h"
 
 #ifdef CONFIG_HMFS_FAST_READ
@@ -36,6 +37,17 @@ static unsigned int start_block(unsigned int i, int level)
 {
 	if (level)
 		return i - ((i - NORMAL_ADDRS_PER_INODE) % ADDRS_PER_BLOCK);
+	return 0;
+}
+
+static int dec_valid_block_count(struct hmfs_sb_info *sbi,
+				struct inode *inode, int count)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	spin_lock(&cm_i->cm_lock);
+	inode->i_blocks -= count;
+	cm_i->valid_block_count -= count;
+	spin_unlock(&cm_i->cm_lock);
 	return 0;
 }
 

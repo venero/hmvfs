@@ -148,6 +148,35 @@ static inline pgc_t free_segments(struct hmfs_sb_info *sbi)
 	return free_segs;
 }
 
+static inline pgc_t free_user_blocks(struct hmfs_sb_info *sbi)
+{
+	if (free_segments(sbi) < overprovision_segments(sbi))
+		return 0;
+	else
+		return (free_segments(sbi) - overprovision_segments(sbi))
+						<< HMFS_PAGE_PER_SEG_BITS;
+}
+
+static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	struct hmfs_sm_info *sm_i = SM_I(sbi);
+	unsigned long invalid_user_blocks = cm_i->alloc_block_count
+						- cm_i->valid_block_count;
+
+	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
+
+	if (invalid_user_blocks > sm_i->limit_invalid_blocks
+	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)
+		return true;
+	return false;
+}
+
+static inline bool has_not_enough_free_segs(struct hmfs_sb_info *sbi)
+{
+	return free_user_blocks(sbi) < SM_I(sbi)->limit_free_blocks;
+}
+
 static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);

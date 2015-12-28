@@ -9,6 +9,45 @@ static struct kmem_cache *nat_entry_slab;
 
 const struct address_space_operations hmfs_nat_aops;
 
+static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
+				struct inode *inode, int count)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	pgc_t alloc_valid_block_count;
+	pgc_t free_blocks = free_user_blocks(sbi);
+
+	spin_lock(&cm_i->cm_lock);
+
+	alloc_valid_block_count = cm_i->alloc_block_count + count;
+
+	if (unlikely(!free_blocks)) {
+		spin_unlock(&cm_i->cm_lock);
+		return false;
+	}
+
+	if (inode)
+		inode->i_blocks += count;
+
+	cm_i->valid_node_count += count;
+	cm_i->valid_block_count += count;
+	cm_i->alloc_block_count = alloc_valid_block_count;
+	cm_i->left_blocks_count[CURSEG_NODE] -= count;;
+	spin_unlock(&cm_i->cm_lock);
+
+	return true;
+}
+
+static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
+				struct inode *inode, int count)
+{
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	spin_lock(&cm_i->cm_lock);
+	cm_i->valid_node_count -= count;
+	if (likely(inode))
+		inode->i_blocks -= count;
+	spin_unlock(&cm_i->cm_lock);
+}
+
 static nid_t hmfs_max_nid(struct hmfs_sb_info *sbi)
 {
 	nid_t nid = 1;
@@ -150,7 +189,6 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);
-	mutex_init(&nm_i->build_lock);
 	return 0;
 }
 
@@ -158,7 +196,6 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 
-	mutex_lock(&nm_i->build_lock);
 	spin_lock(&nm_i->free_nid_list_lock);
 	/*
 	 * here, we have lost free bit of nid, therefore, we set
@@ -168,7 +205,6 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 	nm_i->free_nids[nm_i->fcnt].nid = make_free_nid(nid, 1);
 	nm_i->fcnt++;
 	spin_unlock(&nm_i->free_nid_list_lock);
-	mutex_unlock(&nm_i->build_lock);
 }
 
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
@@ -597,6 +633,9 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		return ERR_PTR(-EPERM);
 
 	blk_addr = alloc_free_node_block(sbi, true);
+	if (blk_addr == NULL_ADDR)
+		return ERR_PTR(-ENOSPC);
+
 	dest = ADDR(sbi, blk_addr);
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
@@ -670,9 +709,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 static void add_free_nid(struct hmfs_nm_info *nm_i, nid_t nid, u64 free,
 				int *pos)
 {
-	spin_lock(&nm_i->free_nid_list_lock);
 	nm_i->free_nids[*pos].nid = make_free_nid(nid, free);
-	spin_unlock(&nm_i->free_nid_list_lock);
 }
 
 /* Get free nid from journals of loaded checkpoint */
@@ -685,8 +722,8 @@ static void init_free_nids(struct hmfs_sb_info *sbi)
 	block_t blk_addr;
 	nid_t nid;
 
-	mutex_lock(&nm_i->build_lock);
 	
+	spin_lock(&nm_i->free_nid_list_lock);
 	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
 		nid = le32_to_cpu(hmfs_cp->nat_journals[i].nid);
 		blk_addr = le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
@@ -697,10 +734,7 @@ static void init_free_nids(struct hmfs_sb_info *sbi)
 		if (nid >= HMFS_ROOT_INO)
 			cm_i->nr_nat_journals = i + 1;
 	}
-
-	mutex_unlock(&nm_i->build_lock);
 	
-	spin_lock(&nm_i->free_nid_list_lock);
 	nm_i->fcnt = pos;
 	spin_unlock(&nm_i->free_nid_list_lock);
 }
@@ -858,14 +892,10 @@ retry:
 		spin_unlock(&nm_i->free_nid_list_lock);
 		return true;
 	}
-	spin_unlock(&nm_i->free_nid_list_lock);
-
-	mutex_lock(&nm_i->build_lock);
 	num = build_free_nids(sbi);
-	spin_lock(&nm_i->free_nid_list_lock);
 	nm_i->fcnt = num;
 	spin_unlock(&nm_i->free_nid_list_lock);
-	mutex_unlock(&nm_i->build_lock);
+
 	goto retry;
 }
 
