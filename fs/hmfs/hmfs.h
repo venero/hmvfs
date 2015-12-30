@@ -266,7 +266,7 @@ struct hmfs_inode_info {
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
 	struct rw_semaphore i_sem;
-	rwlock_t i_lock;					/* Lock for inode read-write */
+	struct rw_semaphore i_lock;			/* Lock for inode read-write */
 	void *read_addr;					/* Start address of read-only file */
 };
 
@@ -636,22 +636,22 @@ static inline void set_summary_start_version(struct hmfs_summary *summary,
 #ifdef CONFIG_HMFS_DEBUG_RW_LOCK
 static inline void inode_write_lock(struct inode *inode)
 {
-	write_lock(&HMFS_I(inode)->i_lock);
+	down_write(&HMFS_I(inode)->i_lock);
 }
 
 static inline void inode_write_unlock(struct inode *inode)
 {
-	write_unlock(&HMFS_I(inode)->i_lock);
+	up_write(&HMFS_I(inode)->i_lock);
 }
 
 static inline void inode_read_lock(struct inode *inode)
 {
-	read_lock(&HMFS_I(inode)->i_lock);
+	down_read(&HMFS_I(inode)->i_lock);
 }
 
 static inline void inode_read_unlock(struct inode *inode)
 {
-	read_unlock(&HMFS_I(inode)->i_lock);
+	up_read(&HMFS_I(inode)->i_lock);
 }
 #else
 #define hmfs_write_lock(inode)
