@@ -759,11 +759,13 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 
 	mark_inode_dirty(inode);
 
-	inode_write_lock(inode);
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(inode);
+
 	ret = __hmfs_xip_file_write(filp, buf, count, pos, ppos);
-	mutex_unlock_op(sbi, ilock);
+
 	inode_write_unlock(inode);
+	mutex_unlock_op(sbi, ilock);
 
 out_backing:
 	current->backing_dev_info = NULL;
@@ -859,11 +861,8 @@ static int __truncate_blocks(struct inode *inode, block_t from)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int count, err;
 	block_t free_from;
-	int ilock;
 
 	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
-
-	ilock = mutex_lock_op(sbi);
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
@@ -888,7 +887,6 @@ free_next:
 	err = truncate_inode_blocks(inode, free_from);
 	truncate_partial_data_page(inode, from);
 
-	mutex_unlock_op(sbi, ilock);
 	return err;
 }
 
@@ -942,15 +940,10 @@ int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)
 static void fill_zero(struct inode *inode, pgoff_t index, loff_t start,
 		      loff_t len)
 {
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	int ilock;
-
 	if (!len)
 		return;
 
-	ilock = mutex_lock_op(sbi);
 	alloc_new_data_partial_block(inode, index, start, start + len, true);
-	mutex_unlock_op(sbi, ilock);
 }
 
 static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
