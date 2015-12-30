@@ -487,12 +487,14 @@ int __hmfs_write_inode(struct inode *inode)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	ilock = mutex_lock_op(sbi);
+	inode_write_lock(inode);
 	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
 		err = sync_hmfs_inode(inode);
 	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
 		err = sync_hmfs_inode_size(inode);
 	else 
 		hmfs_bug_on(sbi, 1);
+	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
 	return err;
