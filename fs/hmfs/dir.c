@@ -79,7 +79,7 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dir);
 
 	if (is_inline_inode(dir)) {
-		hmfs_bug_on(sbi, old_bidx >= 0);
+		hmfs_bug_on(sbi, old_bidx > 0);
 		inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE);
 		if (IS_ERR(inode_block))
 			return DENTRY_BLOCK(inode_block);
