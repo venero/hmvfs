@@ -587,7 +587,7 @@ start:
 				dentry_blk = alloc_new_data_block(dir, block);
 				if (IS_ERR(dentry_blk)) {
 					err = PTR_ERR(dentry_blk);
-					goto fail;
+					goto out;
 				}
 				goto add_dentry;
 			}
@@ -599,12 +599,11 @@ start:
 	goto start;
 add_dentry:
 	if (inode) {
-		down_write(&HMFS_I(inode)->i_sem);
 		hn = init_inode_metadata(inode, dir, name);
 
 		if (IS_ERR(hn)) {
 			err = PTR_ERR(hn);
-			goto fail;
+			goto out;
 		}
 	}
 	make_dentry_ptr(&d, (void *)dentry_blk, !is_inline_inode(dir));
@@ -617,10 +616,6 @@ add_dentry:
 	}
 
 	update_parent_metadata(dir, inode, current_depth);
-fail:	
-	if (inode)
-		up_write(&HMFS_I(inode)->i_sem);
-
 out:
 	if (is_inode_flag_set(HMFS_I(dir), FI_UPDATE_DIR)) {
 		clear_inode_flag(HMFS_I(dir), FI_UPDATE_DIR);
@@ -630,8 +625,6 @@ out:
 
 void hmfs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
 {
-	down_write(&HMFS_I(inode)->i_sem);
-
 	if (S_ISDIR(inode->i_mode)) {
 		drop_nlink(dir);
 	}
@@ -642,7 +635,6 @@ void hmfs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
 		drop_nlink(inode);
 		i_size_write(inode, 0);
 	}
-	up_write(&HMFS_I(inode)->i_sem);
 }
 
 /*

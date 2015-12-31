@@ -265,7 +265,6 @@ struct hmfs_inode_info {
 	nid_t i_pino;						/* parent inode number */
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
-	struct rw_semaphore i_sem;
 	struct rw_semaphore i_lock;			/* Lock for inode read-write */
 	void *read_addr;					/* Start address of read-only file */
 };
