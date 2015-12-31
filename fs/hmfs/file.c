@@ -662,8 +662,8 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 			status = PTR_ERR(inode_block);
 			goto out;
 		}
-		written = __copy_from_user_nocache((__u8 *)inode_block->inline_content 
-						+ pos, buf, count);
+		written = count - __copy_from_user_nocache((__u8 *)inode_block->inline_content 
+								+ pos, buf, count);
 		if (unlikely(written != count)) {
 			status = -EFAULT;
 			written = 0;

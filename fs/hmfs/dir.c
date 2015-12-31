@@ -514,12 +514,13 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 
 	dentry_hash = hmfs_dentry_hash(name);
 
-	if (is_inline_inode(inode)) {
+	if (is_inline_inode(dir)) {
 		inode_block = get_node(sbi, dir->i_ino);
 		if (IS_ERR(inode_block)) {
 			err = PTR_ERR(inode_block);
 			goto out;
 		}
+
 		/* Whether inline inode could save new dentry */
 		dentry_blk = DENTRY_BLOCK(inode_block->inline_content);
 		bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
@@ -606,7 +607,7 @@ add_dentry:
 			goto fail;
 		}
 	}
-	make_dentry_ptr(&d, (void *)dentry_blk, !is_inline_inode(inode));
+	make_dentry_ptr(&d, (void *)dentry_blk, !is_inline_inode(dir));
 	hmfs_update_dentry(inode->i_ino, inode->i_mode, &d, name, dentry_hash,
 			bit_pos);
 

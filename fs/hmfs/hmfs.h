@@ -58,7 +58,7 @@
 #define HMFS_MOUNT_INLINE_DATA		0x00000008
 
 #define clear_opt(sbi, option)	(sbi->s_mount_opt &= ~HMFS_MOUNT_##option)
-#define set_opt(sbi, option)	(sbi->s_mount_opt |= ~HMFS_MOUNT_##option)
+#define set_opt(sbi, option)	(sbi->s_mount_opt |= HMFS_MOUNT_##option)
 #define test_opt(sbi, option)	(sbi->s_mount_opt & HMFS_MOUNT_##option)
 
 #define DISTANCE(left, right)	((char *)(right) - (char *)(left))
