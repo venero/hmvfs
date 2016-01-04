@@ -179,7 +179,7 @@ void add_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 	struct orphan_inode_entry *new = NULL, *orphan = NULL;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	mutex_lock(&cm_i->orphan_inode_mutex);
+	lock_orphan_inodes(cm_i);
 	head = &cm_i->orphan_inode_list;
 	list_for_each(this, head) {
 		orphan = list_entry(this, struct orphan_inode_entry, list);
@@ -203,7 +203,7 @@ retry:
 		list_add_tail(&new->list, head);
 	cm_i->n_orphans++;
 out:	
-	mutex_unlock(&cm_i->orphan_inode_mutex);
+	unlock_orphan_inodes(cm_i);
 }
 
 void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
@@ -212,7 +212,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 	struct orphan_inode_entry *orphan;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	mutex_lock(&cm_i->orphan_inode_mutex);
+	lock_orphan_inodes(cm_i);
 	head = &cm_i->orphan_inode_list;
 	list_for_each_safe(this, next, head) {
 		orphan = list_entry(this, struct orphan_inode_entry, list);
@@ -224,7 +224,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t ino)
 			break;
 		}
 	}
-	mutex_unlock(&cm_i->orphan_inode_mutex);
+	unlock_orphan_inodes(cm_i);
 }
 
 int check_orphan_space(struct hmfs_sb_info *sbi)
@@ -232,11 +232,11 @@ int check_orphan_space(struct hmfs_sb_info *sbi)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	int err = 0;
 
-	mutex_lock(&cm_i->orphan_inode_mutex);
+	lock_orphan_inodes(cm_i);
 	if (cm_i->n_orphans >= HMFS_MAX_ORPHAN_NUM)
 		err = -ENOSPC;
 	BUG_ON(cm_i->n_orphans > HMFS_MAX_ORPHAN_NUM);
-	mutex_unlock(&cm_i->orphan_inode_mutex);
+	unlock_orphan_inodes(cm_i);
 	return err;
 }
 
@@ -254,7 +254,7 @@ static void move_to_next_checkpoint(struct hmfs_sb_info *sbi,
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	mutex_lock(&cm_i->cp_tree_lock);
+	lock_cp_tree(cm_i);
 
 	sync_checkpoint_info(sbi, prev_checkpoint, cm_i->cur_cp_i);
 	radix_tree_insert(&cm_i->cp_tree_root, cm_i->new_version,
@@ -274,7 +274,7 @@ retry:
 	cm_i->cur_cp_i->nat_root = NULL;
 	cm_i->cur_cp_i->cp = NULL;
 
-	mutex_unlock(&cm_i->cp_tree_lock);
+	unlock_cp_tree(cm_i);
 }
 
 struct checkpoint_info *get_next_checkpoint_info(struct hmfs_sb_info *sbi,
@@ -325,7 +325,7 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 	if (version == cm_i->new_version)
 		return cm_i->cur_cp_i;
 
-	mutex_lock(&cm_i->cp_tree_lock);
+	lock_cp_tree(cm_i);
 	cp_i = radix_tree_lookup(&cm_i->cp_tree_root, version);
 	if (!cp_i) {
 		cp_i = cm_i->last_cp_i;
@@ -372,7 +372,7 @@ retry:
 		} while (1);
 
 	}
-	mutex_unlock(&cm_i->cp_tree_lock);
+	unlock_cp_tree(cm_i);
 	return cp_i;
 }
 
@@ -465,9 +465,9 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	INIT_RADIX_TREE(&cm_i->cp_tree_root, GFP_ATOMIC);
 	mutex_init(&cm_i->cp_tree_lock);
 
-	mutex_lock(&cm_i->cp_tree_lock);
+	lock_cp_tree(cm_i);
 	radix_tree_insert(&cm_i->cp_tree_root, cp_i->version, cp_i);
-	mutex_unlock(&cm_i->cp_tree_lock);
+	unlock_cp_tree(cm_i);
 
 	/* Allocate and Init current checkpoint_info */
 	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
@@ -512,9 +512,9 @@ int destroy_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = sbi->cm_info;
 
-	mutex_lock(&cm_i->cp_tree_lock);
+	lock_cp_tree(cm_i);
 	destroy_checkpoint_info(cm_i);
-	mutex_unlock(&cm_i->cp_tree_lock);
+	unlock_cp_tree(cm_i);
 
 	kfree(cm_i);
 	return 0;
@@ -598,8 +598,8 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 	int i = 0;
 	int ret = 0;
 
-	mutex_lock(&cm_i->orphan_inode_mutex);
 
+	lock_orphan_inodes(cm_i);
 	head = &cm_i->orphan_inode_list;
 	list_for_each(this, head) {
 		entry = list_entry(this, struct orphan_inode_entry, list);
@@ -627,7 +627,7 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 	}
 	hmfs_bug_on(sbi, i > NUM_ORPHAN_BLOCKS);
 out:
-	mutex_unlock(&cm_i->orphan_inode_mutex);
+	unlock_orphan_inodes(cm_i);
 	return ret;
 }
 
@@ -1115,11 +1115,11 @@ int delete_checkpoint(struct hmfs_sb_info *sbi, ver_t version)
 	if (!del_cp_i)
 		return -EINVAL;
 
-	mutex_lock(&sbi->gc_mutex);
+	lock_gc(sbi);
 	ret = write_checkpoint(sbi, false);
 	ret = do_delete_checkpoint(sbi, L_ADDR(sbi, del_cp_i->cp));
 	unblock_operations(sbi);
-	mutex_unlock(&sbi->gc_mutex);
+	unlock_gc(sbi);
 	return ret;
 }
 

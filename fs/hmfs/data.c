@@ -24,11 +24,11 @@ static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	pgc_t alloc_block_count;
 	pgc_t free_blocks = free_user_blocks(sbi);
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	alloc_block_count = cm_i->alloc_block_count + count;
 
 	if (unlikely(!free_blocks)) {
-		spin_unlock(&cm_i->cm_lock);
+		unlock_cm(cm_i);
 		return false;
 	}
 	if (inode)
@@ -37,7 +37,7 @@ static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
 	cm_i->left_blocks_count[CURSEG_DATA] -= count;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 	return true;
 }
 

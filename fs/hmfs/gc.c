@@ -252,7 +252,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct seg_entry *seg_entry;
 
-	mutex_lock(&sit_i->sentry_lock);
+	lock_sentry(sit_i);
 
 	/* clean dirty bit */
 	if (!test_and_set_bit(segno, sit_i->dirty_sentries_bitmap)) {
@@ -262,16 +262,16 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	seg_entry->valid_blocks = 0;
 	seg_entry->mtime = get_seconds();
 
-	mutex_unlock(&sit_i->sentry_lock);
+	unlock_sentry(sit_i);
 
 	/* set free bit */
 	if (!test_and_set_bit(segno, free_i->prefree_segmap))
 		hmfs_bug_on(sbi, 1);
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 }
 
 static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -586,7 +586,7 @@ gc_more:
 		goto gc_more;
 
 out:
-	mutex_unlock(&sbi->gc_mutex);
+	unlock_gc(sbi);
 
 	if (do_cp)
 		ret= write_checkpoint(sbi, true);
@@ -618,7 +618,7 @@ static int gc_thread_func(void *data)
 			continue;
 		}
 
-		if (!mutex_trylock(&sbi->gc_mutex))
+		if (!trylock_gc(sbi))
 			continue;
 
 		if (has_enough_invalid_blocks(sbi))
@@ -709,10 +709,10 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi)
 	 * and nr_gc_segs for new 'last checkpoint'
 	 */
 	if (!init_gc_logs(sbi)) {
-		write_lock(&free_i->segmap_lock);
+		lock_write_segmap(free_i);
 		if (test_and_clear_bit(old_segno, free_i->free_segmap))
-				free_i->free_segments++;
-		write_unlock(&free_i->segmap_lock);
+			free_i->free_segments++;
+		unlock_write_segmap(free_i);
 	} else {
 		hmfs_cp->gc_logs = cpu_to_le32(old_segno);
 		hmfs_cp->nr_gc_segs = 0;

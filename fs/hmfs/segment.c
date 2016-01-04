@@ -37,9 +37,9 @@ void invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
 		return;
 	
 	segno = GET_SEGNO(sbi, addr);
-	mutex_lock(&sit_i->sentry_lock);
+	lock_sentry(sit_i);
 	update_sit_entry(sbi, segno, -1);
-	mutex_unlock(&sit_i->sentry_lock);
+	unlock_sentry(sit_i);
 
 	test_and_set_bit(segno, dirty_i->dirty_segmap);
 }
@@ -50,8 +50,8 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 	seg_t segno;
 	unsigned long long mtime;
 
-	mutex_lock(&sit_i->sentry_lock);
 
+	lock_sentry(sit_i);
 	sit_i->min_mtime = LLONG_MAX;
 
 	for (segno = 0; segno < TOTAL_SEGS(sbi); segno++) {
@@ -61,7 +61,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 			sit_i->min_mtime = mtime;
 	}
 	sit_i->max_mtime = get_mtime(sbi);
-	mutex_unlock(&sit_i->sentry_lock);
+	unlock_sentry(sit_i);
 }
 
 void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
@@ -116,7 +116,7 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
 	int ret = 0;
 	void *ssa;
 
-	write_lock(&free_i->segmap_lock);
+	lock_write_segmap(free_i);
 retry:
 	segno = find_next_zero_bit(free_i->free_segmap,
 				   TOTAL_SEGS(sbi), *newseg);
@@ -137,7 +137,7 @@ retry:
 	ssa= get_summary_block(sbi, segno);
 	memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
 unlock:
-	write_unlock(&free_i->segmap_lock);
+	unlock_write_segmap(free_i);
 	return ret;
 }
 
@@ -162,29 +162,29 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
 	int ret;
 
-	mutex_lock(&seg_i->curseg_mutex);
+	lock_curseg(seg_i);
 	page_addr = cal_page_addr(sbi, seg_i);
 
 	if (sit_lock)
-		mutex_lock(&sit_i->sentry_lock);
+		lock_sentry(sit_i);
 	update_sit_entry(sbi, atomic_read(&seg_i->segno), 1);
 	
 	if (sit_lock)
-		mutex_unlock(&sit_i->sentry_lock);
+		unlock_sentry(sit_i);
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
 		ret = move_to_new_segment(sbi, seg_i);
 		if (ret) {
-			printk(KERN_INFO"HMFS FULL DISK\n");
+			unlock_curseg(seg_i);
 			return NULL_ADDR;
 		}
 
-		spin_lock(&cm_i->cm_lock);
+		lock_cm(cm_i);
 		cm_i->left_blocks_count[seg_type] += HMFS_PAGE_PER_SEG;
-		spin_unlock(&cm_i->cm_lock);
+		unlock_cm(cm_i);
 	}
-	mutex_unlock(&seg_i->curseg_mutex);
+	unlock_curseg(seg_i);
 
 	return page_addr;
 }
@@ -261,10 +261,10 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
 				}
 			}
 			if (!seg_entry->valid_blocks) {
-				write_lock(&free_i->segmap_lock);
+				lock_write_segmap(free_i);
 				clear_bit(offset, free_i->free_segmap);
 				free_i->free_segmap++;
-				write_unlock(&free_i->segmap_lock);
+				unlock_write_segmap(free_i);
 			}
 
 			seg_info_to_raw_sit(seg_entry, sit_entry);
@@ -380,11 +380,11 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 
-	write_lock(&free_i->segmap_lock);
+	lock_write_segmap(free_i);
 	if (!test_and_set_bit(segno, free_i->free_segmap)) {
 		free_i->free_segments--;
 	}
-	write_unlock(&free_i->segmap_lock);
+	unlock_write_segmap(free_i);
 }
 
 /*
@@ -431,7 +431,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 	unsigned long *bitmap = free_i->prefree_segmap;
 	seg_t segno = 0;
 
-	write_lock(&free_i->segmap_lock);
+	lock_write_segmap(free_i);
 	while (1) {
 		segno =find_next_bit(bitmap, total_segs, segno);
 		if (segno >= total_segs)
@@ -442,7 +442,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 		}
 		segno++;
 	}
-	write_unlock(&free_i->segmap_lock);
+	unlock_write_segmap(free_i);
 }
 
 static int build_free_segmap(struct hmfs_sb_info *sbi)
@@ -499,26 +499,26 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	mutex_init(&array[CURSEG_NODE].curseg_mutex);
 	mutex_init(&array[CURSEG_DATA].curseg_mutex);
 
-	mutex_lock(&array[CURSEG_NODE].curseg_mutex);
+	lock_curseg(&array[CURSEG_NODE]);
 	node_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
 	array[CURSEG_NODE].next_blkoff = node_blkoff;
 	atomic_set(&array[CURSEG_NODE].segno, le32_to_cpu(hmfs_cp->cur_node_segno));
 	array[CURSEG_NODE].next_segno = NULL_SEGNO;
-	mutex_unlock(&array[CURSEG_NODE].curseg_mutex);
+	unlock_curseg(&array[CURSEG_NODE]);
 
-	mutex_lock(&array[CURSEG_DATA].curseg_mutex);
+	lock_curseg(&array[CURSEG_DATA]);
 	data_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
 	array[CURSEG_DATA].next_blkoff = data_blkoff;
 	atomic_set(&array[CURSEG_DATA].segno, le32_to_cpu(hmfs_cp->cur_data_segno));
 	array[CURSEG_DATA].next_segno = NULL_SEGNO;
-	mutex_unlock(&array[CURSEG_DATA].curseg_mutex);
+	unlock_curseg(&array[CURSEG_DATA]);
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	node_blkoff = HMFS_PAGE_PER_SEG - node_blkoff;
 	data_blkoff = HMFS_PAGE_PER_SEG - data_blkoff;
 	cm_i->left_blocks_count[CURSEG_NODE] = node_blkoff;
 	cm_i->left_blocks_count[CURSEG_DATA] = data_blkoff;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 
 	return 0;
 }
@@ -530,13 +530,13 @@ static void build_sit_entries(struct hmfs_sb_info *sbi)
 	struct hmfs_sit_entry *sit_entry;
 	unsigned int start;
 
-	mutex_lock(&sit_i->sentry_lock);
+	lock_sentry(sit_i);
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		seg_entry = get_seg_entry(sbi, start);
 		sit_entry = get_sit_entry(sbi, start);
 		seg_info_from_raw_sit(seg_entry, sit_entry);
 	}
-	mutex_unlock(&sit_i->sentry_lock);
+	unlock_sentry(sit_i);
 }
 
 static void init_free_segmap(struct hmfs_sb_info *sbi)
@@ -550,10 +550,10 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
 		sentry = get_seg_entry(sbi, start);
 		if (!sentry->valid_blocks) {
-			write_lock(&free_i->segmap_lock);
+			lock_write_segmap(free_i);
 			clear_bit(start, free_i->free_segmap);
 			free_i->free_segments++;
-			write_unlock(&free_i->segmap_lock);
+			unlock_write_segmap(free_i);
 		}
 	}
 

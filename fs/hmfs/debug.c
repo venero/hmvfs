@@ -56,11 +56,11 @@ void update_nat_stat(struct hmfs_sb_info *sbi, int flush_count)
 {
 	struct hmfs_stat_info *stat_i = STAT_I(sbi);
 
-	spin_lock(&stat_i->stat_lock);
+	lock_hmfs_stat(stat_i);
 	stat_i->flush_nat_sum += flush_count;
 	stat_i->flush_nat_time++;
 	stat_i->nr_flush_nat_per_block[flush_count / 50]++;
-	spin_unlock(&stat_i->stat_lock);
+	unlock_hmfs_stat(stat_i);
 }
 
 static int stat_show(struct seq_file *s, void *v)

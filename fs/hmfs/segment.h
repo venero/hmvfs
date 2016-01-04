@@ -77,6 +77,46 @@ struct hmfs_sm_info {
 };
 
 /* Segment inlined functions */
+static inline void lock_read_segmap(struct free_segmap_info *free_i)
+{
+	read_lock(&free_i->segmap_lock);
+}
+
+static inline void unlock_read_segmap(struct free_segmap_info *free_i)
+{
+	read_unlock(&free_i->segmap_lock);
+}
+
+static inline void lock_write_segmap(struct free_segmap_info *free_i)
+{
+	write_lock(&free_i->segmap_lock);
+}
+
+static inline void unlock_write_segmap(struct free_segmap_info *free_i)
+{
+	write_unlock(&free_i->segmap_lock);
+}
+
+static inline void lock_sentry(struct sit_info *sit_i)
+{
+	mutex_lock(&sit_i->sentry_lock);
+}
+
+static inline void unlock_sentry(struct sit_info *sit_i)
+{
+	mutex_unlock(&sit_i->sentry_lock);
+}
+
+static inline void lock_curseg(struct curseg_info *seg_i)
+{
+	mutex_lock(&seg_i->curseg_mutex);
+}
+
+static inline void unlock_curseg(struct curseg_info *seg_i)
+{
+	mutex_unlock(&seg_i->curseg_mutex);
+}
+
 static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->sm_info;
@@ -125,9 +165,9 @@ static inline seg_t find_next_inuse(struct free_segmap_info *free_i,
 {
 	seg_t ret;
 
-	read_lock(&free_i->segmap_lock);
+	lock_read_segmap(free_i);
 	ret = find_next_bit(free_i->free_segmap, max, segno);
-	read_unlock(&free_i->segmap_lock);
+	unlock_read_segmap(free_i);
 	return ret;
 }
 
@@ -141,9 +181,9 @@ static inline pgc_t free_segments(struct hmfs_sb_info *sbi)
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	pgc_t free_segs;
 
-	read_lock(&free_i->segmap_lock);
+	lock_read_segmap(free_i);
 	free_segs = free_i->free_segments;
-	read_unlock(&free_i->segmap_lock);
+	unlock_read_segmap(free_i);
 
 	return free_segs;
 }

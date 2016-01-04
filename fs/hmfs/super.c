@@ -586,9 +586,9 @@ static void hmfs_put_super(struct super_block *sb)
 {
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 
-	mutex_lock(&sbi->gc_mutex);
+	lock_gc(sbi);
 	write_checkpoint(sbi, true);
-	mutex_unlock(&sbi->gc_mutex);
+	unlock_gc(sbi);
 
 	hmfs_destroy_stats(sbi);
 	destroy_map_zero_page(sbi);
@@ -633,12 +633,12 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	int ret = 0;
 	
 	if (sync) {
-		mutex_lock(&sbi->gc_mutex);
+		lock_gc(sbi);
 		ret = write_checkpoint(sbi, true);
-		mutex_unlock(&sbi->gc_mutex);
+		unlock_gc(sbi);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
-			mutex_lock(&sbi->gc_mutex);
+			lock_gc(sbi);
 			ret = hmfs_gc(sbi, FG_GC);
 		}
 	}

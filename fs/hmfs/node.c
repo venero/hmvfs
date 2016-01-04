@@ -16,12 +16,12 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 	pgc_t alloc_valid_block_count;
 	pgc_t free_blocks = free_user_blocks(sbi);
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 
 	alloc_valid_block_count = cm_i->alloc_block_count + count;
 
 	if (unlikely(!free_blocks)) {
-		spin_unlock(&cm_i->cm_lock);
+		unlock_cm(cm_i);
 		return false;
 	}
 
@@ -32,7 +32,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 	cm_i->valid_block_count += count;
 	cm_i->alloc_block_count = alloc_valid_block_count;
 	cm_i->left_blocks_count[CURSEG_NODE] -= count;;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 
 	return true;
 }
@@ -41,11 +41,11 @@ static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
 				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	cm_i->valid_node_count -= count;
 	if (likely(inode))
 		inode->i_blocks -= count;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 }
 
 static nid_t hmfs_max_nid(struct hmfs_sb_info *sbi)
@@ -196,7 +196,7 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 
-	spin_lock(&nm_i->free_nid_list_lock);
+	lock_free_nid(nm_i);
 	/*
 	 * here, we have lost free bit of nid, therefore, we set
 	 * free bit of nid for every nid which is fail in
@@ -204,7 +204,7 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 	 */
 	nm_i->free_nids[nm_i->fcnt].nid = make_free_nid(nid, 1);
 	nm_i->fcnt++;
-	spin_unlock(&nm_i->free_nid_list_lock);
+	unlock_free_nid(nm_i);
 }
 
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
@@ -518,13 +518,13 @@ void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid,
 {
 	struct nat_entry *entry;
 
-	write_lock(&nm_i->nat_tree_lock);
+	lock_write_nat(nm_i);
 	entry = __lookup_nat_cache(nm_i, nid);
 	if (entry) {
 		entry->ni.blk_addr = blk_addr;
 	}
 
-	write_unlock(&nm_i->nat_tree_lock);
+	unlock_write_nat(nm_i);
 }
 
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
@@ -532,7 +532,7 @@ void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 {
 	struct nat_entry *e, *le;
 
-	write_lock(&nm_i->nat_tree_lock);
+	lock_write_nat(nm_i);
 retry:
 	e = __lookup_nat_cache(nm_i, nid);
 
@@ -563,7 +563,7 @@ retry:
 		list_add_tail(&e->list, &nm_i->dirty_nat_entries);
 	}
 unlock:
-	write_unlock(&nm_i->nat_tree_lock);
+	unlock_write_nat(nm_i);
 }
 
 /*
@@ -689,10 +689,10 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	/* search in nat cache */
 	e = __lookup_nat_cache(nm_i, nid);
 	if (e) {
-		read_lock(&nm_i->nat_tree_lock);
+		lock_read_nat(nm_i);
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
-		read_unlock(&nm_i->nat_tree_lock);
+		unlock_read_nat(nm_i);
 		return 0;
 	}
 
@@ -723,7 +723,7 @@ static void init_free_nids(struct hmfs_sb_info *sbi)
 	nid_t nid;
 
 	
-	spin_lock(&nm_i->free_nid_list_lock);
+	lock_free_nid(nm_i);
 	for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
 		nid = le32_to_cpu(hmfs_cp->nat_journals[i].nid);
 		blk_addr = le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
@@ -736,7 +736,7 @@ static void init_free_nids(struct hmfs_sb_info *sbi)
 	}
 	
 	nm_i->fcnt = pos;
-	spin_unlock(&nm_i->free_nid_list_lock);
+	unlock_free_nid(nm_i);
 }
 
 /* Check whether block_addr of nid in journal is NULL_ADDR */
@@ -808,7 +808,7 @@ static int scan_delete_nid(struct hmfs_sb_info *sbi, int *pos)
 	struct list_head *head, *this, *next;
 
 	head = &nm_i->dirty_nat_entries;
-	write_lock(&nm_i->nat_tree_lock);
+	lock_write_nat(nm_i);
 
 	list_for_each_safe(this, next, head) {
 		ne = list_entry(this, struct nat_entry, list);
@@ -831,7 +831,7 @@ static int scan_delete_nid(struct hmfs_sb_info *sbi, int *pos)
 	}
 
 	nm_i->delete_nid_index = *pos;
-	write_unlock(&nm_i->nat_tree_lock);
+	unlock_write_nat(nm_i);
 	return *pos;
 }
 
@@ -884,17 +884,16 @@ retry:
 	if (cm_i->valid_node_count + 1 >= nm_i->max_nid)
 		return false;
 
-	spin_lock(&nm_i->free_nid_list_lock);
-
+	lock_free_nid(nm_i);
 	if (nm_i->fcnt > 0) {
 		nm_i->fcnt--;
 		*nid = get_free_nid(nm_i->free_nids[nm_i->fcnt].nid);
-		spin_unlock(&nm_i->free_nid_list_lock);
+		unlock_free_nid(nm_i);
 		return true;
 	}
 	num = build_free_nids(sbi);
 	nm_i->fcnt = num;
-	spin_unlock(&nm_i->free_nid_list_lock);
+	unlock_free_nid(nm_i);
 
 	goto retry;
 }
@@ -1308,7 +1307,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 	nat_height = sbi->nat_height;
 	new_root_node = old_root_node = CM_I(sbi)->last_cp_i->nat_root;
 
-	write_lock(&nm_i->nat_tree_lock);
+	lock_write_nat(nm_i);
 
 	flush_nat_journals(sbi, hmfs_cp);
 
@@ -1368,7 +1367,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 out:
 	clean_dirty_nat_entries(sbi);
 
-	write_unlock(&nm_i->nat_tree_lock);
+	unlock_write_nat(nm_i);
 
 	kunmap(empty_page);
 	__free_page(empty_page);

@@ -44,10 +44,12 @@ static int dec_valid_block_count(struct hmfs_sb_info *sbi,
 				struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	spin_lock(&cm_i->cm_lock);
+
+	lock_cm(cm_i);
 	inode->i_blocks -= count;
 	cm_i->valid_block_count -= count;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
+
 	return 0;
 }
 
@@ -1126,9 +1128,9 @@ int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 	entry->pgoff = pgoff;
 	INIT_LIST_HEAD(&entry->list);
 	/* No check for duplicate */
-	mutex_lock(&sbi->mmap_block_lock);
+	lock_mmap(sbi);
 	list_add_tail(&entry->list, &sbi->mmap_block_list);
-	mutex_unlock(&sbi->mmap_block_lock);
+	unlock_mmap(sbi);
 	return 0;
 }
 
@@ -1139,7 +1141,7 @@ int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 	struct list_head *head, *this, *next;
 	
 	head = &sbi->mmap_block_list;
-	mutex_lock(&sbi->mmap_block_lock);
+	lock_mmap(sbi);
 	list_for_each_safe(this, next, head) {
 		entry = list_entry(this, struct hmfs_mmap_block, list);
 		if (entry->mm == mm && entry->pgoff == pgoff) {
@@ -1147,7 +1149,7 @@ int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 			kmem_cache_free(mmap_block_slab, entry);
 		}
 	}
-	mutex_unlock(&sbi->mmap_block_lock);
+	unlock_mmap(sbi);
 	return 0;
 }
 
@@ -1159,7 +1161,7 @@ int migrate_mmap_block(struct hmfs_sb_info *sbi)
 	spinlock_t *ptl;
 
 	head = &sbi->mmap_block_list;
-	mutex_lock(&sbi->mmap_block_lock);
+	lock_mmap(sbi);
 	list_for_each_safe(this, next, head) {
 		entry = list_entry(this, struct hmfs_mmap_block, list);
 
@@ -1176,7 +1178,7 @@ next:
 free:
 		list_del(&entry->list);
 	}
-	mutex_unlock(&sbi->mmap_block_lock);
+	unlock_mmap(sbi);
 	return 0;
 }
 

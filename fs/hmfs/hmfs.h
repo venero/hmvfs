@@ -34,23 +34,6 @@
 /* # of FS Lock in hmfs_sb_info */
 #define NR_GLOBAL_LOCKS	16
 
-#ifdef CONFIG_HMFS_DEBUG
-#define hmfs_bug_on(sbi, condition)	\
-			do {					\
-				if (condition) {	\
-					spin_lock(&CM_I(sbi)->cm_lock);	\
-					CM_I(sbi)->nr_bugs++;				\
-					spin_unlock(&CM_I(sbi)->cm_lock);	\
-					BUG();								\
-				}										\
-			} while(0)
-#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
-							__FUNCTION__, __LINE__, ##__VA_ARGS__)
-#else
-#define hmfs_bug_on(sbi, condition)
-#define hmfs_dbg(fmt, ...)
-#endif
-
 /* Mount option */
 #define HMFS_MOUNT_BG_GC			0x00000001
 #define HMFS_MOUNT_XATTR_USER		0x00000002
@@ -317,7 +300,6 @@ extern const struct inode_operations hmfs_symlink_inode_operations;
 extern const struct inode_operations hmfs_special_inode_operations;
 extern const struct address_space_operations hmfs_aops_xip;
 
-/* Inline functions */
 static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
 {
 	return (struct hmfs_super_block *)(sbi->virt_addr);
@@ -375,6 +357,140 @@ static inline struct hmfs_stat_info *STAT_I(struct hmfs_sb_info *sbi)
 	return sbi->stat_info;
 }
 
+/* Lock operation */
+static inline void inode_write_lock(struct inode *inode)
+{
+	down_write(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_write_unlock(struct inode *inode)
+{
+	up_write(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_read_lock(struct inode *inode)
+{
+	down_read(&HMFS_I(inode)->i_lock);
+}
+
+static inline void inode_read_unlock(struct inode *inode)
+{
+	up_read(&HMFS_I(inode)->i_lock);
+}
+
+static inline void lock_free_nid(struct hmfs_nm_info *nm_i) 
+{
+	spin_lock(&nm_i->free_nid_list_lock);
+}
+
+static inline void unlock_free_nid(struct hmfs_nm_info *nm_i)
+{
+	spin_unlock(&nm_i->free_nid_list_lock);
+}
+
+static inline void lock_cm(struct hmfs_cm_info *cm_i)
+{
+	spin_lock(&cm_i->cm_lock);
+}
+
+static inline void unlock_cm(struct hmfs_cm_info *cm_i)
+{
+	spin_unlock(&cm_i->cm_lock);
+}
+
+static inline void lock_hmfs_stat(struct hmfs_stat_info *stat_i)
+{
+	spin_lock(&stat_i->stat_lock);
+}
+
+static inline void unlock_hmfs_stat(struct hmfs_stat_info *stat_i)
+{
+	spin_unlock(&stat_i->stat_lock);
+}
+
+static inline void lock_read_nat(struct hmfs_nm_info *nm_i)
+{
+	read_lock(&nm_i->nat_tree_lock);
+}
+
+static inline void unlock_read_nat(struct hmfs_nm_info *nm_i)
+{
+	read_unlock(&nm_i->nat_tree_lock);
+}
+
+static inline void lock_write_nat(struct hmfs_nm_info *nm_i)
+{
+	write_lock(&nm_i->nat_tree_lock);
+}
+
+static inline void unlock_write_nat(struct hmfs_nm_info *nm_i)
+{
+	write_unlock(&nm_i->nat_tree_lock);
+}
+
+static inline void lock_orphan_inodes(struct hmfs_cm_info *cm_i)
+{
+	mutex_lock(&cm_i->orphan_inode_mutex);	
+}
+
+static inline void unlock_orphan_inodes(struct hmfs_cm_info *cm_i)
+{
+	mutex_unlock(&cm_i->orphan_inode_mutex);
+}
+
+static inline void lock_cp_tree(struct hmfs_cm_info *cm_i)
+{
+	mutex_lock(&cm_i->cp_tree_lock);
+}
+
+static inline void unlock_cp_tree(struct hmfs_cm_info *cm_i)
+{
+	mutex_unlock(&cm_i->cp_tree_lock);
+}
+
+static inline void lock_gc(struct hmfs_sb_info *sbi)
+{
+	mutex_lock(&sbi->gc_mutex);
+}
+
+static inline int trylock_gc(struct hmfs_sb_info *sbi)
+{
+	return mutex_trylock(&sbi->gc_mutex);
+}
+
+static inline void unlock_gc(struct hmfs_sb_info *sbi)
+{
+	mutex_unlock(&sbi->gc_mutex);
+}
+
+static inline void lock_mmap(struct hmfs_sb_info *sbi)
+{
+	mutex_lock(&sbi->mmap_block_lock);
+}
+
+static inline void unlock_mmap(struct hmfs_sb_info *sbi)
+{
+	mutex_unlock(&sbi->mmap_block_lock);
+}
+
+#ifdef CONFIG_HMFS_DEBUG
+#define hmfs_bug_on(sbi, condition)	\
+			do {					\
+				if (condition) {	\
+					lock_cm(CM_I(sbi));	\
+					CM_I(sbi)->nr_bugs++;				\
+					unlock_cm(CM_I(sbi));	\
+					BUG();								\
+				}										\
+			} while(0)
+#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
+							__FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+#define hmfs_bug_on(sbi, condition)
+#define hmfs_dbg(fmt, ...)
+#endif
+
+/* Inline functions */
 static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
 {
 	return (addr - sbi->main_addr_start) >> HMFS_SEGMENT_SIZE_BITS;
@@ -466,10 +582,10 @@ static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	cm_i->valid_inode_count--;
 	cm_i->valid_block_count--;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 }
 
 static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
@@ -477,15 +593,15 @@ static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	pgc_t alloc_block_count;
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	alloc_block_count = cm_i->alloc_block_count + 1;
 	if (alloc_block_count > sbi->page_count_main) {
-		spin_unlock(&cm_i->cm_lock);
+		unlock_cm(cm_i);
 		return false;
 	}
 	cm_i->left_blocks_count[seg_type]--;
 	cm_i->alloc_block_count = alloc_block_count;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 	return true;
 }
 
@@ -493,9 +609,9 @@ static inline void inc_valid_inode_count(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
-	spin_lock(&cm_i->cm_lock);
+	lock_cm(cm_i);
 	cm_i->valid_inode_count++;
-	spin_unlock(&cm_i->cm_lock);
+	unlock_cm(cm_i);
 }
 
 static inline loff_t hmfs_max_file_size(void)
@@ -632,32 +748,6 @@ static inline void set_summary_start_version(struct hmfs_summary *summary,
 	hmfs_memcpy_atomic(&summary->start_version, &version, 4);
 }
 
-#ifdef CONFIG_HMFS_DEBUG_RW_LOCK
-static inline void inode_write_lock(struct inode *inode)
-{
-	down_write(&HMFS_I(inode)->i_lock);
-}
-
-static inline void inode_write_unlock(struct inode *inode)
-{
-	up_write(&HMFS_I(inode)->i_lock);
-}
-
-static inline void inode_read_lock(struct inode *inode)
-{
-	down_read(&HMFS_I(inode)->i_lock);
-}
-
-static inline void inode_read_unlock(struct inode *inode)
-{
-	up_read(&HMFS_I(inode)->i_lock);
-}
-#else
-#define hmfs_write_lock(inode)
-#define hmfs_write_unlock(inode)
-#define hmfs_read_lock(inode)
-#define hmfs_read_unlock(inode)
-#endif
 
 /* define prototype function */
 /* super.c */
