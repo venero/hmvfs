@@ -621,7 +621,8 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	if (!IS_ERR(src)) {
 		src_addr = L_ADDR(sbi, src);
 		summary = get_summary_by_addr(sbi, src_addr);
-		if (get_summary_start_version(summary) == cp_i->version)
+		if (get_summary_start_version(summary) == cp_i->version &&
+					!is_inode_flag_set(HMFS_I(inode), FI_CONVERT_INLINE))
 			return src;
 	} else
 		src_addr = 0;

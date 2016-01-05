@@ -82,6 +82,7 @@ enum {
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
 	FI_ACL_MODE,		/* ACL */
 	FI_INLINE_DATA,		/* inline data of inode */
+	FI_CONVERT_INLINE,
 };
 
 
