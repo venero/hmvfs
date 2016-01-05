@@ -161,10 +161,30 @@ static struct nat_entry *__lookup_nat_cache(struct hmfs_nm_info *nm_i, nid_t n)
 
 void destroy_node_manager(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_nm_info *info = NM_I(sbi);
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	struct nat_entry *result[NATVEC_SIZE], *entry;
+	nid_t nid = HMFS_ROOT_INO;
+	int found, i;
 
-	kfree(info->free_nids);
-	kfree(info);
+	lock_write_nat(nm_i);
+	while (1) {
+		found = radix_tree_gang_lookup(&nm_i->nat_root, (void **)result, nid,
+						NATVEC_SIZE);
+		if (!found)
+			break;
+		for (i = 0; i < found; i++) {
+			entry = result[i];
+			nid = entry->ni.nid + 1;
+			list_del(&entry->list);
+			kmem_cache_free(nat_entry_slab, entry);
+		}
+	}
+	unlock_write_nat(nm_i);
+	hmfs_bug_on(sbi, !list_empty(&nm_i->nat_entries));
+	hmfs_bug_on(sbi, !list_empty(&nm_i->dirty_nat_entries));
+
+	kfree(nm_i->free_nids);
+	kfree(nm_i);
 }
 
 static int init_node_manager(struct hmfs_sb_info *sbi)

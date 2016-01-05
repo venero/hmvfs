@@ -20,6 +20,9 @@
 #define NAT_FLAG_FREE_NID			0x01
 #define NAT_FLAG_JOURNAL			0x02
 
+/* vector size for gang look-up from nat cache that consist of radix tree */
+#define NATVEC_SIZE					64
+
 struct node_info {
 	nid_t nid;
 	nid_t ino;
