@@ -189,6 +189,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);
+	mutex_init(&nm_i->build_lock);
 	return 0;
 }
 
@@ -770,6 +771,12 @@ static int is_valid_free_nid(struct hmfs_sb_info *sbi, nid_t nid)
 			return 0;
 	}
 
+	lock_read_nat(nm_i);
+	if (__lookup_nat_cache(nm_i, nid)) {
+		unlock_read_nat(nm_i);
+		return 0;
+	}
+	unlock_read_nat(nm_i);
 check_value:
 	return nid > HMFS_ROOT_INO;
 }
@@ -844,10 +851,8 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 	int pos = BUILD_FREE_NID_COUNT - 1;
 	int count;
 
-	if (nm_i->fcnt >= BUILD_FREE_NID_COUNT)
-		return nm_i->fcnt;
-
-	hmfs_bug_on(sbi, nm_i->fcnt != 0);
+	if (nm_i->fcnt > 0)
+		return 0;
 
 	pos = scan_delete_nid(sbi, &pos);
 	
@@ -875,7 +880,7 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 	return count;
 }
 
-bool alloc_nid(struct hmfs_sb_info * sbi, nid_t * nid)
+bool alloc_nid(struct hmfs_sb_info *sbi, nid_t *nid)
 {
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
@@ -892,9 +897,16 @@ retry:
 		unlock_free_nid(nm_i);
 		return true;
 	}
-	num = build_free_nids(sbi);
-	nm_i->fcnt = num;
 	unlock_free_nid(nm_i);
+
+	mutex_lock(&nm_i->build_lock);
+	num = build_free_nids(sbi);
+	if (num) {
+		lock_free_nid(nm_i);
+		nm_i->fcnt = num;
+		unlock_free_nid(nm_i);
+	}
+	mutex_unlock(&nm_i->build_lock);
 
 	goto retry;
 }

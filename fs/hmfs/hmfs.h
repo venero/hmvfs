@@ -144,6 +144,7 @@ struct hmfs_nm_info {
 	struct list_head free_nid_list;	/* a list for free nids */
 	struct free_nid *free_nids;
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
+	struct mutex build_lock;
 
 	unsigned int fcnt;	/* the number of free node id */
 };
