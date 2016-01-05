@@ -542,7 +542,7 @@ static inline void mutex_lock_all(struct hmfs_sb_info *sbi)
 	int i;
 
 	for (i = 0; i < NR_GLOBAL_LOCKS; i++)
-		mutex_lock(&sbi->fs_lock[i]);
+		mutex_lock_nest_lock(&sbi->fs_lock[i], &sbi->gc_mutex);
 }
 
 static inline u64 pfn_from_vaddr(struct hmfs_sb_info *sbi, void *vaddr)
