@@ -1332,41 +1332,58 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 
 	ne = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
 	old_blk_order = (ne->ni.nid) >> LOG2_NAT_ENTRY_PER_BLOCK;
+	unlock_write_nat(nm_i);
 	old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, 
 							ne->ni.nid);
-	if(old_entry_block)
+	lock_write_nat(nm_i);
+
+	if (old_entry_block)
 		hmfs_memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+
 	list_for_each_entry_from(ne, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (ne->ni.nid) / NAT_ENTRY_PER_BLOCK;
 
 		if (new_blk_order != old_blk_order) {
-			// one page done, flush it
+			/*
+			 * It's safe to unlock write to nat. Because fs have
+			 * obtained all mutex_lock_op. And there'is only read operation
+			 * in fs. The structure of list would not be changed
+			 */
+			unlock_write_nat(nm_i);
+			
+			/* one page done, flush it */
 			new_nat_root_addr = recursive_flush_nat_pages(sbi, 
 										old_root_node, new_root_node, 
 										old_blk_order, nat_height, 
 										new_entry_block, &alloc_cnt);
 			if (new_nat_root_addr != 0) {
-				// root node not COWed
+				/* root node not be COWed */
 				new_root_node = ADDR(sbi, new_nat_root_addr);
 			}
 			old_blk_order = new_blk_order;
+			
 			old_entry_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
 					     			old_blk_order * NAT_ENTRY_PER_BLOCK);
+
 			if(old_entry_block){
 				memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
 			} else {
 				memset_nt(new_entry_block, 0, HMFS_PAGE_SIZE);
 			}
+			lock_write_nat(nm_i);
 		}
-		//add a entry to a page
+
+		/* add the entry to the page */
 		_ofs = NID_TO_BLOCK_OFS(ne->ni.nid);
 		node_info_to_raw_nat(&ne->ni, &new_entry_block->entries[_ofs]);
 	}
 
-	// one page done, flush it
+	/* the last one page done, flush it */
+	unlock_write_nat(nm_i);
 	new_nat_root_addr = recursive_flush_nat_pages(sbi, old_root_node,
 				   new_root_node, new_blk_order, nat_height,
 				   new_entry_block, &alloc_cnt);
+	lock_write_nat(nm_i);
 	if (new_nat_root_addr != NULL_ADDR) {
 		// root node COWed
 		new_root_node = ADDR(sbi, new_nat_root_addr);
