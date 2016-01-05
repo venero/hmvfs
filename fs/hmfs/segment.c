@@ -686,6 +686,7 @@ static void destroy_free_segmap(struct hmfs_sb_info *sbi)
 		return;
 	SM_I(sbi)->free_info = NULL;
 	kfree(free_i->free_segmap);
+	kfree(free_i->prefree_segmap);
 	kfree(free_i);
 }
 
