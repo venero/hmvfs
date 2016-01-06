@@ -189,7 +189,7 @@ struct file_operations info_fops = {
 	.write = info_write,
 };
 
-int hmfs_build_info(struct hmfs_sb_info *sbi, size_t c)
+static int hmfs_build_info(struct hmfs_sb_info *sbi, size_t c)
 {
 	info_buffer.sbi = sbi;
 	info_buffer.size = 0;
@@ -200,7 +200,7 @@ int hmfs_build_info(struct hmfs_sb_info *sbi, size_t c)
 	return 0;
 }
 
-void hmfs_destroy_info(void)
+static void hmfs_destroy_info(void)
 {
 	info_buffer.sbi = NULL;
 	info_buffer.size = 0;
@@ -231,6 +231,8 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_stat_info *si = sbi->stat_info;
+
+	hmfs_destroy_info(sbi);
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_del(&si->stat_list);
