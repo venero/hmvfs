@@ -788,7 +788,6 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	struct hmfs_dentry_block *dentry_blk = NULL;
 	struct hmfs_inode *inode_block;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	unsigned int n = ((unsigned long)ctx->pos / NR_DENTRY_IN_BLOCK);
 	struct hmfs_dentry_ptr d;
 	int size = -1;
 	int i = 0;
@@ -797,6 +796,7 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 	int is_normal_inode = !is_inline_inode(inode);
 	int nr_dentry_in_block = is_normal_inode ? NR_DENTRY_IN_BLOCK :
 			NR_DENTRY_IN_INLINE_INODE;
+	unsigned int n = ((unsigned long)ctx->pos / nr_dentry_in_block);
 
 	buf = vzalloc(HMFS_PAGE_SIZE);
 
@@ -805,6 +805,8 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 
 	inode_read_lock(inode);
 	if (!is_normal_inode) {
+		if (n > 0)
+			goto stop;
 		inode_block = get_node(sbi, inode->i_ino);
 		if (IS_ERR(inode_block)) {
 			inode_read_unlock(inode);
@@ -833,7 +835,7 @@ fill:
 		make_dentry_ptr(&d, (void *)dentry_blk, is_normal_inode);
 
 		if (hmfs_fill_dentries(HMFS_I_SB(inode), ctx, &d, 
-				n * NR_DENTRY_IN_BLOCK))
+				n * nr_dentry_in_block))
 			goto stop;
 
 		ctx->pos = (n + 1) * nr_dentry_in_block;

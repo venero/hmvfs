@@ -689,8 +689,10 @@ normal_write:
 			bytes = count;
 
 		xip_mem = alloc_new_data_block(inode, index);
-		if (unlikely(IS_ERR(xip_mem)))
+		if (unlikely(IS_ERR(xip_mem))) {
+			status = -ENOSPC;
 			break;
+		}
 
 		copied = bytes - __copy_from_user_nocache(xip_mem + offset, 
 								buf, bytes);
@@ -729,7 +731,6 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	size_t count = 0, ret;
 	loff_t pos;
 	int ilock;
-
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
 		ret = -EFAULT;

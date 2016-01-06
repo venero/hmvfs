@@ -195,6 +195,7 @@ static int hmfs_build_info(struct hmfs_sb_info *sbi, size_t c)
 	info_buffer.size = 0;
 	info_buffer.capacity = c;
 	info_buffer.buf = kzalloc(sizeof(char) * c, GFP_KERNEL);
+
 	if (!info_buffer.buf)
 		return -ENOMEM;
 	return 0;
@@ -212,6 +213,7 @@ static void hmfs_destroy_info(void)
 int hmfs_build_stats(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_stat_info *si;
+	int ret = 0;
 
 	sbi->stat_info = kzalloc(sizeof(struct hmfs_stat_info), GFP_KERNEL);
 	if (!sbi->stat_info)
@@ -223,18 +225,19 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	spin_lock_init(&si->stat_lock);
 	mutex_lock(&hmfs_stat_mutex);
 	list_add_tail(&si->stat_list, &hmfs_stat_list);
+	ret = hmfs_build_info(sbi, 1 << 20 );
 	mutex_unlock(&hmfs_stat_mutex);
 
-	return hmfs_build_info(sbi, (1 << 20));	//TODO
+	return ret;
 }
 
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_stat_info *si = sbi->stat_info;
 
+	mutex_lock(&hmfs_stat_mutex);
 	hmfs_destroy_info();
 
-	mutex_lock(&hmfs_stat_mutex);
 	list_del(&si->stat_list);
 	mutex_unlock(&hmfs_stat_mutex);
 
