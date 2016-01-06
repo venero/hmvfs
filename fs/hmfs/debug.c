@@ -232,7 +232,7 @@ void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_stat_info *si = sbi->stat_info;
 
-	hmfs_destroy_info(sbi);
+	hmfs_destroy_info();
 
 	mutex_lock(&hmfs_stat_mutex);
 	list_del(&si->stat_list);
