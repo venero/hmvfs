@@ -17,6 +17,7 @@
 #include "segment.h"
 #include "node.h"
 #include "xattr.h"
+#include "util.h"
 
 static struct kmem_cache *hmfs_inode_cachep;	//inode cachep
 

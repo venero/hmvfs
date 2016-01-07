@@ -202,13 +202,13 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	offset = pos & ~HMFS_PAGE_MASK;
 
 	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
+
 	/*
 	 * nr : read length for this loop
 	 * offset : start inner-blk offset this loop
 	 * index : start inner-file blk number this loop
 	 * copied : read length so far
 	 */
-
 	do {
 		unsigned long nr, left;
 		void *xip_mem[1];
@@ -270,7 +270,7 @@ static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
 	return addr_struct && (addr_struct->magic == HMFS_SUPER_MAGIC);
 }
 
-static struct ro_file_address *new_ro_file_address(void *addr)
+static struct ro_file_address *new_ro_file_address(void *addr, unsigned int count)
 {
 	struct ro_file_address *addr_struct;
 
@@ -279,6 +279,7 @@ static struct ro_file_address *new_ro_file_address(void *addr)
 	if (addr_struct) {
 		addr_struct->magic = HMFS_SUPER_MAGIC;
 		addr_struct->start_addr = addr;
+		addr_struct->count = count;
 	}
 	return addr_struct;
 }
@@ -289,114 +290,44 @@ static void free_ro_file_address(struct file *filp)
 	filp->private_data = NULL;
 }
 
-static int remap_pte_file_range(struct inode *inode, pmd_t *pmd, 
-				unsigned long addr, unsigned long end, void** blocks, 
-				int *block_size, int *index)
+static int remap_file_range(struct inode *inode, struct page **pages, int count)
 {
-	pte_t *pte;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	u64 pfn;
-	int st_index;
+	void **blocks_buf;
+	int buf_size = 0;
+	/* index of buffer */
+	int b_index = 0;
+	/* index of file data */
+	int f_index = 0;
 	int err;
+	u64 pfn;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
-	pte = hmfs_pte_alloc_kernel(pmd, addr);
-	if (!pte)
+	blocks_buf = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
+	if (!blocks_buf)
 		return -ENOMEM;
-	do {
-		hmfs_bug_on(sbi, !pte_none(*pte));
 
-		if (*index >= *block_size) {
-			*block_size = 0;
-			*index = 0;
-			st_index = addr >> HMFS_PAGE_SIZE_BITS;
-			hmfs_bug_on(sbi, st_index >= INT_MAX / 2);
-			err = get_data_blocks(inode, st_index, INT_MAX / 2, blocks,
-						block_size, RA_DB_END);
-			if (!*block_size)
-				return err;
+	do {
+		if (b_index >= buf_size) {
+			buf_size = 0;
+			b_index = 0;
+			err = get_data_blocks(inode, f_index, count, blocks_buf, &buf_size,
+						RA_DB_END);		
+			if (!buf_size)
+				goto out;
 		}
-		if (blocks[*index])
-			pfn = pfn_from_vaddr(sbi, blocks[*index]);
+		if (blocks_buf[b_index])
+			pfn = pfn_from_vaddr(sbi, blocks_buf[b_index]);
 		else
 			pfn = sbi->map_zero_page_number;
-		set_pte_at(hmfs_init_mm, addr, pte, pfn_pte(pfn, PAGE_KERNEL_IO_NOCACHE));
-		(*index) += 1;
-	} while(pte++, addr += PAGE_SIZE, addr != end);
-	return 0;
-}
 
-static int remap_pmd_file_range(struct inode *inode, pud_t *pud, 
-				unsigned long addr, unsigned long end, void **blocks,
-				int *block_size, int *index)
-{
-	pmd_t *pmd;
-	unsigned long next;
+		pages[f_index] = pfn_to_page(pfn);
+		f_index++;
+		b_index++;
+	} while(f_index < count);
 
-	pmd = hmfs_pmd_alloc(hmfs_init_mm, pud, addr);
-	if (!pmd)
-		return -ENOMEM;
-	do {
-		next = pmd_addr_end(addr, end);
-		if (remap_pte_file_range(inode, pmd, addr, next, blocks, block_size,
-					index))
-			return -ENOMEM;
-	} while(pmd++, addr = next, addr != end);
-	return 0;
-}
-
-static int remap_pud_file_range(struct inode *inode, pgd_t *pgd,
-				unsigned long addr, unsigned long end, void** blocks,
-				int *block_size, int *index)
-{
-	pud_t *pud;
-	unsigned long next;
-
-	pud = hmfs_pud_alloc(hmfs_init_mm, pgd, addr);
-	if (!pud)
-		return -ENOMEM;
-	do {
-		next = pud_addr_end(addr, end);
-		if (remap_pmd_file_range(inode, pud, addr, next, blocks, block_size, 
-					index))
-			return -ENOMEM;
-	} while(pud++, addr = next, addr != end);
-	return 0;
-}
-
-static int remap_ro_file_range(struct inode *inode, unsigned long addr,
-				unsigned long end)
-{
-	pgd_t *pgd;
-	unsigned long start, next;
-	int err;
-	void *blocks;
-	struct page *page;
-	int block_size, index;
-
-	page = alloc_page(GFP_KERNEL);
-	if (!page)
-		return -ENOMEM;
-
-	blocks = kmap(page);
-	memset(blocks, 0, PAGE_CACHE_SIZE);
-	block_size = 0;
-	index = 0;
-	start = addr;
-	pgd = pgd_offset(hmfs_init_mm, (addr));
-
-	
-	do {
-		next = pgd_addr_end(addr, end);
-		err = remap_pud_file_range(inode, pgd, addr, next, (void **)blocks,
-					&block_size, &index);
-		if (err)
-			break;
-	} while(pgd++, addr = next, addr != end);
-
-	flush_cache_vmap(start, end);
-
-	kunmap(blocks);
-	__free_page(page);
+	err = 0;
+out:
+	kfree(blocks_buf);
 	return err;
 }
 
@@ -409,8 +340,9 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	int ret;
 	unsigned long size;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	struct vm_struct *area;
-	unsigned vaddr;
+	void *map_addr;
+	struct page **pages;
+	int count;
 
 	ret = generic_file_open(inode, filp);
 	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY ||
@@ -418,25 +350,30 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 		return ret;;
 
 	if (filp->private_data)
-		goto out;
+		return 0;
 
 	/* Do not map an empty file */
 	size = i_size_read(inode);
 	if (!size || fi->read_addr)
-		goto out;
+		return 0;
 
-	/* Search a VMALLOC area */
-	size = PAGE_CACHE_ALIGN(size);
-	area = hmfs_get_vm_area(size, VM_IOREMAP);
-	if (!area)
-		goto out;
-	vaddr = (unsigned long) area->addr;
+	count = align_page_right(size) >> HMFS_PAGE_SIZE_BITS;
+	pages = kzalloc(count * sizeof(struct page *), GFP_KERNEL);
+	if (!pages)
+		return 0;
 
-	ret = remap_ro_file_range(inode, vaddr, vaddr + size); 
-	if (!ret)
-		filp->private_data = new_ro_file_address(area->addr);
-out:
-	return ret;
+	ret = remap_file_range(inode, pages, count);
+
+	if (ret) {
+		goto free_pages;
+	}
+
+	map_addr = vm_map_ram(pages, count, 0, PAGE_KERNEL);
+	if (map_addr)
+		filp->private_data = new_ro_file_address(map_addr, count);
+free_pages:
+	kfree(pages);
+	return 0;
 }
 
 static int hmfs_release_file(struct inode *inode, struct file *filp)
@@ -444,32 +381,21 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct ro_file_address *addr_struct = NULL;
-	struct vm_struct *area;
 
 	addr_struct = filp->private_data;
 	if (is_fast_read_file(addr_struct)) {
 		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
 				!= O_RDONLY);
 
+		vm_unmap_ram(addr_struct->start_addr, addr_struct->count);
 		/* 
 		 * Use the vm area unlocked, assuming the caller unsures there isn't
 		 * another iounmap for the same address in parallel. Reuse of the virtual
 		 * address is prevented by leaving it in the global lists 
 		 * until we're done with it.
 		 */
-		area = hmfs_find_vm_area((void __force *)addr_struct->start_addr);
-		if (!area) {
-			hmfs_bug_on(HMFS_I_SB(inode), 1);
-			goto check_mmap;
-		}
-		
-		/* Now, do it */
-		area = hmfs_remove_vm_area((void __force *)addr_struct->start_addr);
-		kfree(area);
 		free_ro_file_address(filp);
 	}
-
-check_mmap:
 	
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode);
@@ -490,13 +416,17 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 
 	if (*ppos + len > isize)
 		copied = isize - *ppos;
-	
+
+	if (!copied)
+		return 0;
+
 	left = __copy_to_user(buf, addr_struct->start_addr, copied);
 
-	if (left)
+	if (left == copied)
 		err = -EFAULT;
 
-	return err ? err : copied;
+	*ppos = *ppos + copied;
+	return err ? err : copied - left;
 }
 
 static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,

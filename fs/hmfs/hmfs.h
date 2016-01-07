@@ -291,6 +291,7 @@ struct dnode_of_data {
  */
 struct ro_file_address {
 	unsigned long magic;
+	unsigned int count;
 	void *start_addr;
 };
 
