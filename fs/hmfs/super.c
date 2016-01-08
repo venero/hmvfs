@@ -207,15 +207,16 @@ static int hmfs_format(struct super_block *sb)
 	block_t sit_addr;
 	int retval = 0;
 	int data_blkoff, node_blkoff;
+	int nat_height;
 	struct hmfs_super_block *super;
 	struct hmfs_sb_info *sbi;
 	struct hmfs_checkpoint *cp;
 	struct hmfs_node *root_node;
 	struct hmfs_sit_entry *sit_entry;
-	struct hmfs_nat_journal *nat_journals;
 	struct hmfs_dentry_block *dent_blk = NULL;
 	struct hmfs_summary_block *node_summary_block, *data_summary_block;
 	struct hmfs_summary *summary;
+	struct hmfs_nat_node *nat_root;
 	u16 sb_checksum;
 
 	sbi = HMFS_SB(sb);
@@ -318,21 +319,28 @@ static int hmfs_format(struct super_block *sb)
 
 	/* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
+	nat_height = hmfs_get_nat_height(init_size);
+	nat_root = ADDR(sbi, nat_addr);
+	while (nat_height > 0) {
+		memset_nt(nat_root, 0, HMFS_PAGE_SIZE);
+		node_blkoff++;
+		nat_root->addr[0] = cpu_to_le64(node_segaddr + HMFS_PAGE_SIZE * node_blkoff);
+		nat_root++;
+		nat_height--;
+	}
+	((struct hmfs_nat_block *)nat_root)->entries[HMFS_ROOT_INO].ino = 
+			le32_to_cpu(HMFS_ROOT_INO);
+	((struct hmfs_nat_block *)nat_root)->entries[HMFS_ROOT_INO].block_addr =
+			le64_to_cpu(root_node_addr);
 	/* node[1]: nat root */
 	node_blkoff++;
-	memset_nt(ADDR(sbi, nat_addr), 0, HMFS_PAGE_SIZE);
 
 	cp_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
+	memset_nt(cp, 0, HMFS_PAGE_SIZE);
 	/* node[2]: init cp */
 	node_blkoff += 1;
 	/* segment 0 is first node segment */
-	nat_journals = cp->nat_journals;
-
-	/* update nat journal */
-	nat_journals[0].nid = cpu_to_le32(HMFS_ROOT_INO);
-	nat_journals[0].entry.ino = nat_journals[0].nid;
-	nat_journals[0].entry.block_addr = root_node_addr;
 
 	/* update SIT */
 	sit_entry = get_sit_entry(sbi, 0);

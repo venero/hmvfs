@@ -55,7 +55,7 @@ int hmfs_convert_inline_inode(struct inode *inode)
 	/* Reinitialize i_addrs */
 	memset_nt(new_inode_block->i_addr, 0, sizeof(__le64) * 
 			NORMAL_ADDRS_PER_INODE + sizeof(__le32) * 5);
-	data_block = alloc_new_data_block(inode, 0);
+	data_block = alloc_new_data_block(sbi, inode, 0);
 	hmfs_memcpy(data_block, old_inode_block->inline_content, 
 					i_size);
 	if (S_ISDIR(mode))

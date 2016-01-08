@@ -26,7 +26,7 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	inode->i_op = &hmfs_symlink_inode_operations;
 	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
-	data_blk = alloc_new_data_block(inode, 0);
+	data_blk = alloc_new_data_block(sbi, inode, 0);
 	if (IS_ERR(data_blk))
 		return PTR_ERR(data_blk);
 	hmfs_memcpy(data_blk, (void *)symname, symlen);

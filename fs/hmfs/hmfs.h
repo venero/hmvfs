@@ -883,7 +883,8 @@ int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    	int *size, int mode);
-void *alloc_new_data_block(struct inode *inode, int block);
+void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, 
+				int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
 				int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);

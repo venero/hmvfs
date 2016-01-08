@@ -86,7 +86,7 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
 		return DENTRY_BLOCK(inode_block->inline_content);
 	}
 
-	return alloc_new_data_block(dir, old_bidx);
+	return alloc_new_data_block(sbi, dir, old_bidx);
 }
 
 static unsigned long dir_block_index(unsigned int level, unsigned int idx)
@@ -564,7 +564,7 @@ start:
 	for (block = bidx; block <= (bidx + nblock - 1); block++) {
 		//FIXME: use bat process to reduce read time
 		if (block >= end_blk) {
-			dentry_blk = alloc_new_data_block(dir, block);
+			dentry_blk = alloc_new_data_block(sbi, dir, block);
 			bit_pos = 0;
 			end_blk = block + 1;
 			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
@@ -584,7 +584,7 @@ start:
 			else 
 				bit_pos = 0;
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
-				dentry_blk = alloc_new_data_block(dir, block);
+				dentry_blk = alloc_new_data_block(sbi, dir, block);
 				if (IS_ERR(dentry_blk)) {
 					err = PTR_ERR(dentry_blk);
 					goto out;

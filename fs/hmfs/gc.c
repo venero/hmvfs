@@ -28,7 +28,7 @@ void prepare_move_argument(struct gc_move_arg *arg,
 		return;
 
 	if (type == TYPE_DATA) {
-		arg->dest = alloc_new_data_block(NULL, 0);
+		arg->dest = alloc_new_data_block(sbi, NULL, 0);
 	} else {
 		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
 	}
@@ -109,6 +109,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	p.min_segno = NULL_SEGNO;
 	p.min_cost = max_cost = get_max_cost(sbi, &p);
 
+	hmfs_dbg("Start select:%lu\n", (unsigned long)p.offset);
 	while (1) {
 		segno = find_next_bit(dirty_i->dirty_segmap, total_segs, p.offset);
 
@@ -125,6 +126,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 
 		if (segno == atomic_read(&seg_i0->segno) || 
 					segno == atomic_read(&seg_i1->segno)) {
+			hmfs_dbg("%lu current_segno\n", (unsigned long)segno);
 			continue;
 		}
 
@@ -132,11 +134,13 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		 * It's not allowed to move node segment where last checkpoint
 		 * locate. Because we need to log GC segments in it.
 		 */
-		if (segno == le32_to_cpu(hmfs_cp->cur_node_segno))
+		if (segno == le32_to_cpu(hmfs_cp->cur_node_segno)) {
+			hmfs_dbg("%lu checkpoint node seg\n", (unsigned long)segno);
 			continue;
+		}
 
 		cost = get_gc_cost(sbi, segno, &p);
-
+		hmfs_dbg("%lu %lu %s\n", (unsigned long)segno, cost, gc_type == BG_GC ? "BG" : "FG");
 		if (p.min_cost > cost) {
 			p.min_segno = segno;
 			p.min_cost = cost;
@@ -154,7 +158,8 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	if (p.min_segno != NULL_SEGNO) {
 		*result = p.min_segno;
 	}
-
+	
+	hmfs_dbg("Select %d\n", p.min_segno == NULL_SEGNO ? -1 : p.min_segno);
 	return (p.min_segno == NULL_SEGNO) ? 0 : 1;
 }
 
@@ -182,6 +187,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_DATA);
 
+	hmfs_dbg("data_blk:(%d %d) -> %d\n", (int)src_segno, src_off, (int)args.nid);
 	while (1) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
@@ -193,6 +199,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			break;
 		}
 
+		hmfs_dbg("\n");
 		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
 				get_summary_type(par_sum) != SUM_TYPE_DN);
 
@@ -265,7 +272,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	unlock_sentry(sit_i);
 
 	/* set free bit */
-	if (!test_and_set_bit(segno, free_i->prefree_segmap))
+	if (test_and_set_bit(segno, free_i->prefree_segmap))
 		hmfs_bug_on(sbi, 1);
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */

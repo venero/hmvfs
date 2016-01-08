@@ -346,17 +346,17 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	return dest;
 }
 
-void *alloc_new_data_block(struct inode *inode, int block)
+void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, 
+				int block)
 {
 	block_t addr;
-	struct hmfs_sb_info *sbi = NULL;
 
 	if (likely(inode))
 		return __alloc_new_data_block(inode, block);
 
 	if (!inc_gc_block_count(sbi, CURSEG_DATA))
 		return ERR_PTR(-ENOSPC);
-	sbi = HMFS_I_SB(inode);
+
 	addr = alloc_free_data_block(sbi);
 	return ADDR(sbi, addr);
 }

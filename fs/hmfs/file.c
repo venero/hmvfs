@@ -575,6 +575,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 				size_t count, loff_t pos, loff_t *ppos)
 {
 	struct inode *inode = filp->f_inode;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	long status = 0;
 	size_t bytes;
 	ssize_t written = 0;
@@ -618,7 +619,7 @@ normal_write:
 		if (bytes > count)
 			bytes = count;
 
-		xip_mem = alloc_new_data_block(inode, index);
+		xip_mem = alloc_new_data_block(sbi, inode, index);
 		if (unlikely(IS_ERR(xip_mem))) {
 			status = -ENOSPC;
 			break;
@@ -999,7 +1000,7 @@ static int hmfs_get_mmap_block(struct inode *inode, pgoff_t index,
 	block_t data_block_addr;
 
 	if (vm_type & VM_WRITE) {
-		data_block[0] = alloc_new_data_block(inode, index);
+		data_block[0] = alloc_new_data_block(sbi, inode, index);
 		if (IS_ERR(data_block[0]))
 			return PTR_ERR(data_block[0]);
 	} else {

@@ -116,6 +116,7 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
 	int ret = 0;
 	void *ssa;
 
+	hmfs_dbg("Start scan:%lu\n", (unsigned long)*newseg);
 	lock_write_segmap(free_i);
 retry:
 	segno = find_next_zero_bit(free_i->free_segmap,
@@ -134,8 +135,9 @@ retry:
 	__set_inuse(sbi, segno);
 	*newseg = segno;
 	/* Need to clear SSA */
-	ssa= get_summary_block(sbi, segno);
+	ssa = get_summary_block(sbi, segno);
 	memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
+	hmfs_dbg("Use %lu\n", (unsigned long)segno);
 unlock:
 	unlock_write_segmap(free_i);
 	return ret;
@@ -174,6 +176,7 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
+		hmfs_dbg("seg_type:%s\n", seg_type == CURSEG_DATA ? "data" : "node");
 		ret = move_to_new_segment(sbi, seg_i);
 		if (ret) {
 			unlock_curseg(seg_i);
