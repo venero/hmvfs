@@ -91,6 +91,7 @@ static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
  * for FG_GC, i.e. we scan the whole space of NVM atmost once in a FG_GC. Therefore,
  * we take down the first victim segment as start_segno
  */
+//TODO: We might need to collect many segments in one victim searching
 static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
@@ -257,6 +258,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
+	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	struct seg_entry *seg_entry;
 
 	lock_sentry(sit_i);
@@ -270,6 +272,10 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	seg_entry->mtime = get_seconds();
 
 	unlock_sentry(sit_i);
+
+	/* clear dirty bit */
+	if (!test_and_clear_bit(segno, dirty_i->dirty_segmap))
+		hmfs_bug_on(sbi, 1);
 
 	/* set free bit */
 	if (test_and_set_bit(segno, free_i->prefree_segmap))
@@ -486,6 +492,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	int off = 0;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	bool is_current;
+	nid_t nid;
 	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
 
@@ -502,6 +509,12 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 		 */
 		if (!get_summary_valid_bit(sum) && !is_current)
 			continue;
+
+		if (is_current) {
+			nid = get_summary_nid(sum);
+			if (IS_ERR(get_node(sbi, nid)))
+				continue;
+		}
 
 		hmfs_bug_on(sbi, get_summary_valid_bit(sum) && is_current);
 
