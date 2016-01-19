@@ -180,6 +180,7 @@ void destroy_node_manager(struct hmfs_sb_info *sbi)
 		}
 	}
 	unlock_write_nat(nm_i);
+
 	hmfs_bug_on(sbi, !list_empty(&nm_i->nat_entries));
 	hmfs_bug_on(sbi, !list_empty(&nm_i->dirty_nat_entries));
 
@@ -281,6 +282,7 @@ static int truncate_dnode(struct dnode_of_data *dn)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
 	struct direct_node *hn;
+
 	if (dn->nid == 0)
 		return 1;
 
@@ -462,7 +464,6 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 	unsigned int nofs = 0;
 	struct hmfs_node *hn;
 	struct dnode_of_data dn;
-	struct node_info ni;
 
 	level = get_node_path(from, offset, noffset);
 	hn = get_node(sbi, inode->i_ino);
@@ -498,7 +499,6 @@ int truncate_inode_blocks(struct inode *inode, pgoff_t from)
 skip_partial:
 	while (cont) {
 		dn.nid = le32_to_cpu(hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]);
-		err = get_node_info(sbi, dn.nid, &ni);
 
 		switch (offset[0]) {
 		case NODE_DIR1_BLOCK:
