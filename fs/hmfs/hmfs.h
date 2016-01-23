@@ -236,6 +236,7 @@ struct hmfs_sb_info {
 
 	int recovery_doing;								/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
+	spinlock_t dirty_inodes_lock;
 };
 
 struct hmfs_inode_info {
