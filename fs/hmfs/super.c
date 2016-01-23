@@ -641,16 +641,16 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	int ret = 0;
 	
-/*	if (sync) {
+	if (sync) {
 		lock_gc(sbi);
 		ret = write_checkpoint(sbi, true);
 		unlock_gc(sbi);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
-*/			lock_gc(sbi);
+			lock_gc(sbi);
 			ret = hmfs_gc(sbi, FG_GC);
-//		}
-//	}
+		}
+	}
 	return ret;
 }
 

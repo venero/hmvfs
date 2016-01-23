@@ -606,11 +606,11 @@ gc_more:
 		goto gc_more;
 
 out:
-	unlock_gc(sbi);
 
 	if (do_cp)
 		ret= write_checkpoint(sbi, true);
 
+	unlock_gc(sbi);
 	hmfs_dbg("Exit GC\n");
 	return ret;
 }
