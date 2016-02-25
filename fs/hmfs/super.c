@@ -564,9 +564,9 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	set_inode_flag(hi, FI_DIRTY_INODE);
+	spin_lock(&sbi->dirty_inodes_lock);
 	list_del(&hi->list);
 	INIT_LIST_HEAD(&hi->list);
-	spin_lock(&sbi->dirty_inodes_lock);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 	spin_unlock(&sbi->dirty_inodes_lock);
 }

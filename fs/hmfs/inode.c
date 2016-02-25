@@ -110,9 +110,9 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 
 	i_size_write(inode, size);
 	set_inode_flag(hi, FI_DIRTY_SIZE);
+	spin_lock(&sbi->dirty_inodes_lock);
 	list_del(&hi->list);
 	INIT_LIST_HEAD(&hi->list);
-	spin_lock(&sbi->dirty_inodes_lock);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
 	spin_unlock(&sbi->dirty_inodes_lock);
 }

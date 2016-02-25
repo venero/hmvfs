@@ -638,8 +638,6 @@ out:
 	}
 
 	unlock_gc(sbi);
-
-	unlock_gc(sbi);
 	hmfs_dbg("Exit GC\n");
 	return ret;
 }
