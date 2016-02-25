@@ -577,6 +577,7 @@ static void hmfs_evict_inode(struct inode *inode)
 	struct dnode_of_data dn;
 	struct hmfs_node *hi;
 	struct node_info ni;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
 	int ret;
 
 	if (inode->i_ino < HMFS_ROOT_INO)
@@ -598,6 +599,10 @@ static void hmfs_evict_inode(struct inode *inode)
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
 
+	spin_lock(&sbi->dirty_inodes_lock);
+	list_del(&fi->list);
+	spin_unlock(&sbi->dirty_inodes_lock);
+	INIT_LIST_HEAD(&fi->list);
 //	ret = __hmfs_write_inode(inode);	
 //	hmfs_bug_on(sbi, ret);
 
