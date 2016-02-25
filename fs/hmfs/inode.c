@@ -112,7 +112,9 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 	set_inode_flag(hi, FI_DIRTY_SIZE);
 	list_del(&hi->list);
 	INIT_LIST_HEAD(&hi->list);
+	spin_lock(&sbi->dirty_inodes_lock);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
+	spin_unlock(&sbi->dirty_inodes_lock);
 }
 
 int sync_hmfs_inode_size(struct inode *inode)
@@ -131,7 +133,9 @@ int sync_hmfs_inode_size(struct inode *inode)
 
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
 	if (!is_inode_flag_set(inode_i, FI_DIRTY_INODE)) {
+		spin_lock(&sbi->dirty_inodes_lock);
 		list_del(&inode_i->list);
+		spin_unlock(&sbi->dirty_inodes_lock);
 		INIT_LIST_HEAD(&inode_i->list);
 	}
 	return 0;
@@ -152,7 +156,9 @@ int sync_hmfs_inode(struct inode *inode)
 
 	clear_inode_flag(inode_i, FI_DIRTY_INODE);
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
+	spin_lock(&sbi->dirty_inodes_lock);
 	list_del(&inode_i->list);
+	spin_unlock(&sbi->dirty_inodes_lock);
 	INIT_LIST_HEAD(&inode_i->list);
 	
 	hi->i_mode = cpu_to_le16(inode->i_mode);

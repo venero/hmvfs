@@ -566,7 +566,9 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 	set_inode_flag(hi, FI_DIRTY_INODE);
 	list_del(&hi->list);
 	INIT_LIST_HEAD(&hi->list);
+	spin_lock(&sbi->dirty_inodes_lock);
 	list_add_tail(&hi->list, &sbi->dirty_inodes_list);
+	spin_unlock(&sbi->dirty_inodes_lock);
 }
 
 static void hmfs_evict_inode(struct inode *inode)
@@ -596,8 +598,8 @@ static void hmfs_evict_inode(struct inode *inode)
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
 
-	ret = __hmfs_write_inode(inode);	
-	hmfs_bug_on(sbi, ret);
+//	ret = __hmfs_write_inode(inode);	
+//	hmfs_bug_on(sbi, ret);
 
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
@@ -678,16 +680,16 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	int ret = 0;
 	
-/*	if (sync) {
+	if (sync) {
 		lock_gc(sbi);
 		ret = write_checkpoint(sbi, true);
 		unlock_gc(sbi);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
-*/			lock_gc(sbi);
+			lock_gc(sbi);
 			ret = hmfs_gc(sbi, FG_GC);
-//		}
-//	}
+		}
+	}
 	return ret;
 }
 
@@ -811,6 +813,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	INIT_LIST_HEAD(&sbi->dirty_inodes_list);
 	INIT_LIST_HEAD(&sbi->mmap_block_list);
 	mutex_init(&sbi->mmap_block_lock);
+	spin_lock_init(&sbi->dirty_inodes_lock);
 	sb->s_magic = le32_to_cpu(super->magic);
 	sb->s_op = &hmfs_sops;
 	sb->s_xattr = hmfs_xattr_handlers;
