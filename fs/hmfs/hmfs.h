@@ -196,6 +196,9 @@ struct hmfs_sb_info {
 	kuid_t uid;						/* user id */
 	kgid_t gid;						/* group id */
 	char deep_fmt;				/* whether set 0 of whole area of NVM */
+	int gc_thread_min_sleep_time;
+	int gc_thread_max_sleep_time;
+	int gc_thread_time_step;
 
 	/* FS statisic */
 	pgc_t segment_count;			/* # of all segments */

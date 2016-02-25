@@ -70,6 +70,7 @@ static int stat_show(struct seq_file *s, void *v)
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
 	struct free_segmap_info *free_i;
+	struct hmfs_sm_info *sm_i;
 	unsigned long max_file_size = hmfs_max_file_size();
 	int i;
 
@@ -77,6 +78,7 @@ static int stat_show(struct seq_file *s, void *v)
 	list_for_each_entry(si, &hmfs_stat_list, stat_list) {
 		cm_i = CM_I(si->sbi);
 		free_i = FREE_I(si->sbi);
+		sm_i = SM_I(si->sbi);
 
 		seq_printf(s, "=============General Infomation=============\n");
 		seq_printf(s, "physical address:%lu\n",
@@ -109,6 +111,15 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "max file size:%luk %luM %luG\n",
 			   max_file_size / 1024, max_file_size / 1024 / 1024,
 			   max_file_size / 1024 / 1024 / 1024);
+		seq_printf(s, "GC Real:%d\n", si->nr_gc_real);
+		seq_printf(s, "limit invalid blocks:%lu\n", 
+				(unsigned long)sm_i->limit_invalid_blocks);
+		seq_printf(s, "limit free blocks:%lu\n", 
+				(unsigned long)sm_i->limit_free_blocks);
+		seq_printf(s, "limit severe free blocks:%lu\n", 
+				(unsigned long)sm_i->severe_free_blocks);
+		seq_printf(s, "overprovision blocks:%lu\n", 
+				(unsigned long)sm_i->ovp_segments << HMFS_PAGE_PER_SEG_BITS);
 		if (si->flush_nat_time)
 			seq_printf(s, "flush_nat_per_block:%lu\n", 
 					si->flush_nat_sum / si->flush_nat_time);

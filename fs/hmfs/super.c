@@ -32,6 +32,9 @@ enum {
 	Opt_uid,
 	Opt_gid,
 	Opt_bg_gc,
+	Opt_gc_min_time,
+	Opt_gc_max_time,
+	Opt_gc_time_step,
 	Opt_mnt_cp,
 	Opt_deep_fmt,
 	Opt_user_xattr,
@@ -47,6 +50,9 @@ static const match_table_t tokens = {
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
 	{Opt_bg_gc, "bg_gc=%u"},
+	{Opt_gc_min_time, "gc_min_time=%u"},
+	{Opt_gc_max_time, "gc_max_time=%u"},
+	{Opt_gc_time_step, "gc_time_step=%u"},
 	{Opt_mnt_cp, "mnt_cp=%u"},
 	{Opt_deep_fmt, "deep_fmt=%u"},
 	{Opt_user_xattr, "user_xattr=%u"},
@@ -85,6 +91,7 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 	substring_t args[MAX_OPT_ARGS];
 	phys_addr_t phys_addr = 0;
 	int option;
+	bool check_gc_time = false;
 
 	if (!options)
 		return 0;
@@ -145,6 +152,24 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 			if (option)
 				set_opt(sbi, BG_GC);
 			break;
+		case Opt_gc_min_time:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->gc_thread_min_sleep_time = option;
+			check_gc_time = true;
+			break;
+		case Opt_gc_max_time:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->gc_thread_max_sleep_time = option;
+			check_gc_time = true;
+			break;
+		case Opt_gc_time_step:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			sbi->gc_thread_time_step = option;
+			check_gc_time = true;
+			break;
 #ifdef CONFIG_HMFS_XATTR
 		case Opt_user_xattr:
 			if (match_int(&args[0], &option))
@@ -185,6 +210,16 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi,
 	/* format fs and mount cp in the same time is invalid */
 	if (sbi->initsize && sbi->mnt_cp_version)
 		goto bad_opt;
+
+	if (check_gc_time) {
+		if (sbi->gc_thread_min_sleep_time > sbi->gc_thread_max_sleep_time ||
+					sbi->gc_thread_time_step > sbi->gc_thread_max_sleep_time)
+				goto bad_val;
+	} else {
+		sbi->gc_thread_min_sleep_time = GC_THREAD_MIN_SLEEP_TIME;
+		sbi->gc_thread_time_step = GC_THREAD_MIN_SLEEP_TIME;
+		sbi->gc_thread_max_sleep_time = GC_THREAD_MAX_SLEEP_TIME;
+	}
 
 	return 0;
 
@@ -506,6 +541,8 @@ int __hmfs_write_inode(struct inode *inode)
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
+	if (err)
+		hmfs_dbg("%d\n", err);
 	return err;
 }
 
@@ -801,7 +838,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_segment_mgr;
 
-	if (test_opt(sbi, BG_GC) && !hmfs_readonly(sb)){
+	if (test_opt(sbi, BG_GC) && !hmfs_readonly(sb)) {
 		/* start gc kthread */
 		retval = start_gc_thread(sbi);
 		if (retval)

@@ -79,10 +79,10 @@ static unsigned int get_max_cost(struct hmfs_sb_info *sbi,
 static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
 				struct victim_sel_policy *p)
 {
-	if (p->gc_mode == GC_GREEDY)
+//	if (p->gc_mode == GC_GREEDY)
 		return get_seg_entry(sbi, segno)->valid_blocks;
-	else
-		return get_cb_cost(sbi, segno);
+//	else
+//		return get_cb_cost(sbi, segno);
 }
 
 /*
@@ -110,7 +110,6 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	p.min_segno = NULL_SEGNO;
 	p.min_cost = max_cost = get_max_cost(sbi, &p);
 
-	hmfs_dbg("Start select:%lu\n", (unsigned long)p.offset);
 	while (1) {
 		segno = find_next_bit(dirty_i->dirty_segmap, total_segs, p.offset);
 
@@ -127,7 +126,6 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 
 		if (segno == atomic_read(&seg_i0->segno) || 
 					segno == atomic_read(&seg_i1->segno)) {
-			hmfs_dbg("%lu current_segno\n", (unsigned long)segno);
 			continue;
 		}
 
@@ -136,8 +134,15 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		 * locate. Because we need to log GC segments in it.
 		 */
 		if (segno == le32_to_cpu(hmfs_cp->cur_node_segno)) {
-			hmfs_dbg("%lu checkpoint node seg\n", (unsigned long)segno);
 			continue;
+		}
+
+		/* Stop if we find a segment with none valid blocks */
+		if (get_seg_entry(sbi, segno)->valid_blocks < NR_GC_MIN_BLOCK) {
+			p.min_segno = segno;
+			hmfs_dbg("%lu %lu %s\n", (unsigned long)segno, get_seg_entry(sbi, segno)->valid_blocks,
+					gc_type == BG_GC ? "BG" : "FG");
+			break;
 		}
 
 		cost = get_gc_cost(sbi, segno, &p);
@@ -151,10 +156,11 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 			continue;
 
 		if (nsearched++ >= MAX_SEG_SEARCH) {
-			sbi->last_victim[p.gc_mode] = segno;
 			break;
 		}
 	}
+
+	sbi->last_victim[p.gc_mode] = segno;
 
 	if (p.min_segno != NULL_SEGNO) {
 		*result = p.min_segno;
@@ -188,7 +194,6 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_DATA);
 
-	hmfs_dbg("data_blk:(%d %d) -> %d\n", (int)src_segno, src_off, (int)args.nid);
 	while (1) {
 		/* 3. get the parent node which hold the pointer point to source node */
 		this = __get_node(sbi, args.cp_i, args.nid);
@@ -200,7 +205,6 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			break;
 		}
 
-		hmfs_dbg("\n");
 		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
 				get_summary_type(par_sum) != SUM_TYPE_DN);
 
@@ -253,7 +257,7 @@ next:
 	update_dest_summary(src_sum, args.dest_sum);
 }
 
-static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
+static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_valid)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
@@ -277,9 +281,17 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	if (!test_and_clear_bit(segno, dirty_i->dirty_segmap))
 		hmfs_bug_on(sbi, 1);
 
-	/* set free bit */
-	if (test_and_set_bit(segno, free_i->prefree_segmap))
-		hmfs_bug_on(sbi, 1);
+	if (none_valid) {
+		lock_write_segmap(free_i);
+		if (test_and_clear_bit(segno, free_i->free_segmap)) {
+			free_i->free_segments++;
+		}
+		unlock_write_segmap(free_i);
+	} else {
+		/* set free bit */
+		if (test_and_set_bit(segno, free_i->prefree_segmap))
+			hmfs_bug_on(sbi, 1);
+	}
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
 	lock_cm(cm_i);
@@ -491,10 +503,15 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	int off = 0;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	bool is_current;
+	bool is_current, none_valid;
 	nid_t nid;
 	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
+
+	none_valid = !get_seg_entry(sbi, segno)->valid_blocks;
+
+	if (none_valid)
+		goto recycle;
 
 	sum_blk = get_summary_block(sbi, segno);
 	sum = sum_blk->entries;
@@ -548,7 +565,9 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 			break;
 		}
 	}
-	recycle_segment(sbi, segno);
+
+recycle:
+	recycle_segment(sbi, segno, none_valid);
 }
 
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
@@ -582,10 +601,17 @@ gc_more:
 	hmfs_dbg("GC Victim:%d\n", (int)segno);
 	stat_i->nr_gc_real++;
 
-	hmfs_memcpy_atomic(sbi->gc_logs, &segno, 4);		
-	sbi->gc_logs++;
-	sbi->nr_gc_segs++;
-	hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
+	/*
+	 * If a segment does not contains any valid blocks, we do not 
+	 * need to set it as PREFREE. And we could reuse it right now, which
+	 * could improve GC efficiency
+	 */
+	if (get_seg_entry(sbi, segno)->valid_blocks) {
+		hmfs_memcpy_atomic(sbi->gc_logs, &segno, 4);		
+		sbi->gc_logs++;
+		sbi->nr_gc_segs++;
+		hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
+	}
 
 	garbage_collect(sbi, segno);
 
@@ -606,10 +632,12 @@ gc_more:
 		goto gc_more;
 
 out:
-	unlock_gc(sbi);
-
-	if (do_cp)
+	if (do_cp) {
 		ret= write_checkpoint(sbi, true);
+		hmfs_bug_on(sbi, ret);
+	}
+
+	unlock_gc(sbi);
 
 	hmfs_dbg("Exit GC\n");
 	return ret;
@@ -621,7 +649,7 @@ static int gc_thread_func(void *data)
 	wait_queue_head_t *wq = &(sbi->gc_thread->gc_wait_queue_head);
 	long wait_ms = 0;
 	printk(KERN_INFO "start gc thread\n");
-	wait_ms = GC_THREAD_MIN_SLEEP_TIME;
+	wait_ms = sbi->gc_thread_min_sleep_time;
 
 	do {
 		if (try_to_freeze())
@@ -634,7 +662,7 @@ static int gc_thread_func(void *data)
 			break;
 
 		if (sbi->sb->s_writers.frozen >= SB_FREEZE_WRITE) {
-			wait_ms = GC_THREAD_MAX_SLEEP_TIME;
+			wait_ms = sbi->gc_thread_max_sleep_time;
 			continue;
 		}
 
@@ -642,12 +670,14 @@ static int gc_thread_func(void *data)
 			continue;
 
 		if (has_enough_invalid_blocks(sbi))
-			wait_ms = decrease_sleep_time(wait_ms);
+			wait_ms = decrease_sleep_time(sbi, wait_ms);
 		else
-			wait_ms = increase_sleep_time(wait_ms);
+			wait_ms = increase_sleep_time(sbi, wait_ms);
 
-		if (hmfs_gc(sbi, BG_GC))
-			wait_ms = GC_THREAD_NOGC_SLEEP_TIME;
+		if (hmfs_gc(sbi, BG_GC)) {
+//			if (wait_ms == sbi->gc_thread_max_sleep_time)
+//				wait_ms = GC_THREAD_NOGC_SLEEP_TIME;
+		}
 	} while (!kthread_should_stop());
 	return 0;
 }

@@ -711,6 +711,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
 
 	if (IS_ERR(store_checkpoint)) {
+		hmfs_dbg("\n");
 		return -ENOSPC;
 	}
 

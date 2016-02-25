@@ -6,10 +6,16 @@
 #include "hmfs_fs.h"
 
 #define GC_THREAD_MIN_SLEEP_TIME	3000	/* milliseconds */
-#define GC_THREAD_MAX_SLEEP_TIME	6000
-#define GC_THREAD_NOGC_SLEEP_TIME	3000	/* 5 min */
+#define GC_THREAD_MAX_SLEEP_TIME	60000
+#define GC_THREAD_NOGC_SLEEP_TIME	300000	/* 5 min */
 
 #define MAX_SEG_SEARCH				16
+
+/* 
+ * If number of invalid blocks of segment is less than xx, GC process
+ * would stop scaning
+ */
+#define NR_GC_MIN_BLOCK				100
 
 struct hmfs_gc_kthread {
 	struct task_struct *hmfs_gc_task;
@@ -63,25 +69,25 @@ static inline bool need_more_scan(struct hmfs_sb_info *sbi, seg_t segno,
 	return segno + TOTAL_SEGS(sbi) - start_segno< sbi->nr_max_fg_segs; 
 }
 
-static inline long increase_sleep_time(long wait)
+static inline long increase_sleep_time(struct hmfs_sb_info *sbi, long wait)
 {
 	if (wait == GC_THREAD_NOGC_SLEEP_TIME)
 		return wait;
 
-	wait += GC_THREAD_MIN_SLEEP_TIME;
-	if (wait > GC_THREAD_MAX_SLEEP_TIME)
-		wait = GC_THREAD_MAX_SLEEP_TIME;
+	wait += sbi->gc_thread_time_step;
+	if (wait > sbi->gc_thread_max_sleep_time)
+		wait = sbi->gc_thread_max_sleep_time;
 	return wait;
 }
 
-static inline long decrease_sleep_time(long wait)
+static inline long decrease_sleep_time(struct hmfs_sb_info *sbi, long wait)
 {
 	if (wait == GC_THREAD_NOGC_SLEEP_TIME)
-		wait = GC_THREAD_MAX_SLEEP_TIME;
+		wait = sbi->gc_thread_max_sleep_time;
 
-	wait -= GC_THREAD_MIN_SLEEP_TIME;
-	if (wait <= GC_THREAD_MIN_SLEEP_TIME)
-		wait = GC_THREAD_MIN_SLEEP_TIME;
+	wait -= sbi->gc_thread_time_step;
+	if (wait <= sbi->gc_thread_min_sleep_time)
+		wait = sbi->gc_thread_min_sleep_time;
 	return wait;
 }
 

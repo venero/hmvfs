@@ -15,9 +15,9 @@
 /* constant macro */
 #define NULL_SEGNO			((unsigned int)(~0))
 
-#define LIMIT_INVALID_BLOCKS	50	/* percentage over total user space */
-#define LIMIT_FREE_BLOCKS		50	/* percentage of free blocks over total user space */
-#define SEVERE_FREE_BLOCKS		75	/* percentage of free blocks over total in emergency case */
+#define LIMIT_INVALID_BLOCKS	25	/* percentage over total user space */
+#define LIMIT_FREE_BLOCKS		60	/* percentage of free blocks over total user space */
+#define SEVERE_FREE_BLOCKS		45	/* percentage of free blocks over total in emergency case */
 #define NR_MAX_FG_SEGS			200
 
 struct seg_entry {
@@ -207,8 +207,9 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
 
 	if (invalid_user_blocks > sm_i->limit_invalid_blocks
-	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)
+			&& free_user_blocks(sbi) < sm_i->limit_free_blocks)
 		return true;
+	hmfs_dbg("\n");
 	return false;
 }
 

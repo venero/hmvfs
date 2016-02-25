@@ -10,7 +10,7 @@ static struct kmem_cache *nat_entry_slab;
 const struct address_space_operations hmfs_nat_aops;
 
 static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
+				struct inode *inode, int count, bool force)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	pgc_t alloc_valid_block_count;
@@ -20,7 +20,7 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 
 	alloc_valid_block_count = cm_i->alloc_block_count + count;
 
-	if (unlikely(!free_blocks)) {
+	if (unlikely(!free_blocks && !force)) {
 		unlock_cm(cm_i);
 		return false;
 	}
@@ -648,7 +648,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	} else
 		src_addr = 0;
 
-	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1))
+	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1, false))
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
@@ -681,14 +681,14 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 		return __alloc_new_node(sbi, nid, inode, sum_type);
 
 	if (sum_type == SUM_TYPE_NATD || sum_type == SUM_TYPE_NATN) {
-		if (!inc_valid_node_count(sbi, NULL, 1))
+		if (!inc_valid_node_count(sbi, NULL, 1, true))
 			return ERR_PTR(-ENOSPC);
 		addr = alloc_free_node_block(sbi, false);
 		return ADDR(sbi, addr);
 	}
 
 	if (sum_type == SUM_TYPE_CP) {
-		if (!inc_valid_node_count(sbi, NULL, 1))
+		if (!inc_valid_node_count(sbi, NULL, 1, true))
 			return ERR_PTR(-ENOSPC);
 		addr = alloc_free_node_block(sbi, false);
 		memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
@@ -1329,6 +1329,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 	}
 	empty_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
 	if (!empty_page) {
+		hmfs_dbg("\n");
 		return ERR_PTR(-ENOMEM);
 	}
 	new_entry_block = kmap(empty_page);	

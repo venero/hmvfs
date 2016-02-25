@@ -116,7 +116,6 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
 	int ret = 0;
 	void *ssa;
 
-	hmfs_dbg("Start scan:%lu\n", (unsigned long)*newseg);
 	lock_write_segmap(free_i);
 retry:
 	segno = find_next_zero_bit(free_i->free_segmap,
@@ -137,7 +136,6 @@ retry:
 	/* Need to clear SSA */
 	ssa = get_summary_block(sbi, segno);
 	memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
-	hmfs_dbg("Use %lu\n", (unsigned long)segno);
 unlock:
 	unlock_write_segmap(free_i);
 	return ret;
@@ -176,7 +174,6 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 
 	seg_i->next_blkoff++;
 	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
-		hmfs_dbg("seg_type:%s\n", seg_type == CURSEG_DATA ? "data" : "node");
 		ret = move_to_new_segment(sbi, seg_i);
 		if (ret) {
 			unlock_curseg(seg_i);
@@ -632,9 +629,12 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sm_info->main_segments = main_segments;
 	user_segments = sm_info->main_segments * (100 - DEF_OP_SEGMENTS) / 100;
 	sm_info->ovp_segments = sm_info->main_segments - user_segments;
-	sm_info->limit_invalid_blocks = main_segments * LIMIT_INVALID_BLOCKS / 100;
-	sm_info->limit_free_blocks = main_segments * LIMIT_FREE_BLOCKS / 100;
-	sm_info->severe_free_blocks = main_segments * SEVERE_FREE_BLOCKS / 100;
+	sm_info->limit_invalid_blocks = main_segments * HMFS_PAGE_PER_SEG
+			* LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_free_blocks = main_segments * HMFS_PAGE_PER_SEG 
+			* LIMIT_FREE_BLOCKS / 100;
+	sm_info->severe_free_blocks = main_segments * HMFS_PAGE_PER_SEG 
+			* SEVERE_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);
 	if (err)
