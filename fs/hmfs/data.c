@@ -90,7 +90,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 			update_nat_entry(NM_I(sbi), nid[i], dn->inode->i_ino,
 					NEW_ADDR, true);
 			sum_type = i == level ? SUM_TYPE_DN : SUM_TYPE_IDN;
-			blocks[i] = alloc_new_node(sbi, nid[i], dn->inode, sum_type);
+			blocks[i] = alloc_new_node(sbi, nid[i], dn->inode, sum_type, false);
 			if (IS_ERR(blocks[i])) {
 				err = PTR_ERR(blocks[i]);
 				goto out;
@@ -98,7 +98,7 @@ int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
 
 			if (i == 1) {
 				blocks[0] = alloc_new_node(sbi, nid[0], dn->inode,
-									SUM_TYPE_INODE);
+									SUM_TYPE_INODE, false);
 
 				if (IS_ERR(blocks[i])) {
 					err = PTR_ERR(blocks[i]);
@@ -235,7 +235,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		return ERR_PTR(-EPERM);
 
 	sum_type = dn.level ? SUM_TYPE_DN : SUM_TYPE_INODE;
-	hn = alloc_new_node(sbi, dn.nid, inode, sum_type);
+	hn = alloc_new_node(sbi, dn.nid, inode, sum_type, false);
 	if (IS_ERR(hn))
 		return hn;
 
@@ -303,7 +303,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(err);
 
 	sum_type = dn.level ? SUM_TYPE_DN : SUM_TYPE_INODE;
-	hn = alloc_new_node(sbi, dn.nid, inode, sum_type);
+	hn = alloc_new_node(sbi, dn.nid, inode, sum_type, false);
 	if (IS_ERR(hn))
 		return hn;
 
@@ -374,7 +374,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	void *src, *dst;
 	struct hmfs_summary *summary = NULL;
 
-	inode_block = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	inode_block = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, false);
 	if (IS_ERR(inode_block))
 		return inode_block;
 

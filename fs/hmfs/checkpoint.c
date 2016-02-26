@@ -556,7 +556,7 @@ static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
 	head = &sbi->dirty_inodes_list;
 	list_for_each_safe(this, next, head) {
 		fi = list_entry(this, struct hmfs_inode_info, list);
-		ret = __hmfs_write_inode(&fi->vfs_inode);
+		ret = __hmfs_write_inode(&fi->vfs_inode, true);
 		//TODO: if (ret) ?
 	}
 }
@@ -604,7 +604,7 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 	list_for_each(this, head) {
 		entry = list_entry(this, struct orphan_inode_entry, list);
 		if (!orphan_addr) {
-			orphan_block = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
+			orphan_block = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP, true);
 			if (IS_ERR(orphan_block)) {
 				ret = -ENOMEM;
 				goto out;
@@ -708,7 +708,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	ret = flush_orphan_inodes(sbi, orphan_addrs);
 
 	store_version = cm_i->new_version;
-	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP);
+	store_checkpoint = alloc_new_node(sbi, 0, NULL, SUM_TYPE_CP, true);
 
 	if (IS_ERR(store_checkpoint)) {
 		hmfs_dbg("\n");

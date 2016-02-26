@@ -393,6 +393,7 @@ static int hmfs_format(struct super_block *sb)
 	summary = &node_summary_block->entries[0];
 	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
 			SUM_TYPE_INODE);
+	hmfs_dbg("%p %d\n",summary,get_summary_type(summary));
 	set_summary_valid_bit(summary);
 	summary = &node_summary_block->entries[1];
 	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
@@ -525,7 +526,7 @@ static void hmfs_destroy_inode(struct inode *inode)
 	call_rcu(&inode->i_rcu, hmfs_i_callback);
 }
 
-int __hmfs_write_inode(struct inode *inode)
+int __hmfs_write_inode(struct inode *inode, bool force)
 {
 	int err = 0, ilock;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -533,16 +534,17 @@ int __hmfs_write_inode(struct inode *inode)
 	ilock = mutex_lock_op(sbi);
 	inode_write_lock(inode);
 	if (is_inode_flag_set(HMFS_I(inode), FI_DIRTY_INODE))
-		err = sync_hmfs_inode(inode);
+		err = sync_hmfs_inode(inode, force);
 	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
-		err = sync_hmfs_inode_size(inode);
+		err = sync_hmfs_inode_size(inode, force);
 	else 
 		hmfs_bug_on(sbi, 1);
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
-	if (err)
-		hmfs_dbg("%d\n", err);
+	hmfs_bug_on(sbi, err && err != -ENOSPC);
+//	if (err)
+//		hmfs_dbg("%d\n", err);
 	return err;
 }
 
@@ -555,7 +557,7 @@ static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 				!is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
 		return 0;
 
-	return __hmfs_write_inode(inode);
+	return __hmfs_write_inode(inode, false);
 }
 
 static void hmfs_dirty_inode(struct inode *inode, int flags)
@@ -603,8 +605,6 @@ static void hmfs_evict_inode(struct inode *inode)
 	list_del(&fi->list);
 	spin_unlock(&sbi->dirty_inodes_lock);
 	INIT_LIST_HEAD(&fi->list);
-//	ret = __hmfs_write_inode(inode);	
-//	hmfs_bug_on(sbi, ret);
 
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
@@ -685,8 +685,10 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	int ret = 0;
 	
+	hmfs_dbg("\n");
 	if (sync) {
 		lock_gc(sbi);
+	hmfs_dbg("\n");
 		ret = write_checkpoint(sbi, true);
 		unlock_gc(sbi);
 	} else {

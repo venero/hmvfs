@@ -30,7 +30,7 @@ void prepare_move_argument(struct gc_move_arg *arg,
 	if (type == TYPE_DATA) {
 		arg->dest = alloc_new_data_block(sbi, NULL, 0);
 	} else {
-		arg->dest = alloc_new_node(sbi, 0, NULL, 0);
+		arg->dest = alloc_new_node(sbi, 0, NULL, 0, true);
 	}
 	
 	hmfs_bug_on(sbi, IS_ERR(arg->dest));
@@ -146,7 +146,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		}
 
 		cost = get_gc_cost(sbi, segno, &p);
-		hmfs_dbg("%lu %lu %s\n", (unsigned long)segno, cost, gc_type == BG_GC ? "BG" : "FG");
+	//	hmfs_dbg("%lu %lu %s\n", (unsigned long)segno, cost, gc_type == BG_GC ? "BG" : "FG");
 		if (p.min_cost > cost) {
 			p.min_segno = segno;
 			p.min_cost = cost;
@@ -204,6 +204,12 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 			/* the node(args.nid) has been deleted */
 			break;
 		}
+
+		hmfs_dbg_on(get_summary_type(par_sum) != SUM_TYPE_INODE &&
+				get_summary_type(par_sum) != SUM_TYPE_DN, "Invalid summary type:"
+				" nid(%u) Address(%p)[%lu %d] Version(%d) Type(%d)\n", args.nid, 
+				par_sum, GET_SEGNO(sbi, L_ADDR(sbi, this)), GET_SEG_OFS(sbi, L_ADDR(sbi, this)), 
+				args.cp_i->version, get_summary_type(par_sum));
 
 		hmfs_bug_on(sbi, get_summary_type(par_sum) != SUM_TYPE_INODE &&
 				get_summary_type(par_sum) != SUM_TYPE_DN);
@@ -297,6 +303,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 	lock_cm(cm_i);
 	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
 	unlock_cm(cm_i);
+	hmfs_dbg("alloc block count:%d\n",cm_i->alloc_block_count);
 }
 
 static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -594,6 +601,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	}
 
 gc_more:
+	hmfs_dbg("Before get victim\n");
 	if (!get_victim(sbi, &segno, gc_type))
 		goto out;
 	ret = 0;
@@ -633,8 +641,10 @@ gc_more:
 
 out:
 	if (do_cp) {
+		hmfs_dbg("Before write checkpoint\n");
 		ret= write_checkpoint(sbi, true);
 		hmfs_bug_on(sbi, ret);
+		hmfs_dbg("Write checkpoint done\n");
 	}
 
 	unlock_gc(sbi);

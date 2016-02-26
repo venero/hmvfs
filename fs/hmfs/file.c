@@ -398,9 +398,9 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	}
 	
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
-		ret = sync_hmfs_inode(inode);
+		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
-		ret = sync_hmfs_inode_size(inode);
+		ret = sync_hmfs_inode_size(inode, false);
 
 	return ret;
 }
@@ -492,9 +492,9 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
-		ret = sync_hmfs_inode(inode);
+		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
-		ret = sync_hmfs_inode_size(inode);
+		ret = sync_hmfs_inode_size(inode, false);
 
 	return ret;
 }
@@ -590,7 +590,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 			goto normal_write;
 		}
 		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
-							SUM_TYPE_INODE);
+							SUM_TYPE_INODE, false);
 		if (IS_ERR(inode_block)) {
 			status = PTR_ERR(inode_block);
 			goto out;
@@ -723,7 +723,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	nid = get_summary_nid(node_sum);
 	sum_type = dn->level ? SUM_TYPE_DN : SUM_TYPE_INODE;
 	hmfs_bug_on(sbi, sum_type != get_summary_type(node_sum));
-	new_node = alloc_new_node(sbi, nid, dn->inode, sum_type);
+	new_node = alloc_new_node(sbi, nid, dn->inode, sum_type, false);
 
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
@@ -830,7 +830,7 @@ static int truncate_blocks(struct inode *inode, block_t from)
 
 	if (is_inline_inode(inode)) {
 		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino,
-							inode, SUM_TYPE_INODE);
+							inode, SUM_TYPE_INODE, false);
 		if (IS_ERR(inode_block))
 			return PTR_ERR(inode_block);
 		memset_nt((__u8 *)inode_block->inline_content, 0,
@@ -1176,9 +1176,9 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 	/* We don't need to sync data pages */
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
-		ret = sync_hmfs_inode(inode);
+		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
-		ret = sync_hmfs_inode_size(inode);
+		ret = sync_hmfs_inode_size(inode, false);
 
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);

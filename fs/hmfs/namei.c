@@ -77,7 +77,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	}
 
 	update_nat_entry(nm_i, ino, ino, NEW_ADDR, true);
-	err = sync_hmfs_inode(inode);
+	err = sync_hmfs_inode(inode, false);
 	if (!err) {
 		inc_valid_inode_count(sbi);
 		return inode;

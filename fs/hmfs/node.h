@@ -76,6 +76,15 @@ static inline void set_nid(struct hmfs_node *hn, int off, nid_t nid, bool in_i)
 		hn->in.nid[off] = cpu_to_le32(nid);
 }
 
+static inline bool is_checkpoint_node(char sum_type)
+{
+	BUG_ON(sum_type >= SUM_TYPE_NATN && sum_type <= SUM_TYPE_CP &&
+			sum_type != SUM_TYPE_NATN && sum_type != SUM_TYPE_NATD 
+			&& sum_type != SUM_TYPE_CP);
+
+	return sum_type >= SUM_TYPE_NATN && sum_type <= SUM_TYPE_CP;
+}
+
 static inline char hmfs_get_nat_height(unsigned long long initsize)
 {
 	unsigned long long max_nid;

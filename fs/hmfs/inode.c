@@ -45,7 +45,7 @@ int hmfs_convert_inline_inode(struct inode *inode)
 		return PTR_ERR(old_inode_block);
 	
 	set_inode_flag(HMFS_I(inode), FI_CONVERT_INLINE);
-	new_inode_block = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	new_inode_block = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, false);
 	clear_inode_flag(HMFS_I(inode), FI_CONVERT_INLINE);
 	if (IS_ERR(new_inode_block))
 		return PTR_ERR(new_inode_block);
@@ -117,14 +117,14 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 	spin_unlock(&sbi->dirty_inodes_lock);
 }
 
-int sync_hmfs_inode_size(struct inode *inode)
+int sync_hmfs_inode_size(struct inode *inode, bool force)
 {
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_node *hn;
 	struct hmfs_inode *hi;
 
-	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, force);
 	if(IS_ERR(hn))
 		return PTR_ERR(hn);
 	hi = &hn->i;
@@ -141,7 +141,7 @@ int sync_hmfs_inode_size(struct inode *inode)
 	return 0;
 }
 
-int sync_hmfs_inode(struct inode *inode)
+int sync_hmfs_inode(struct inode *inode, bool force)
 {
 	struct super_block *sb = inode->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
@@ -149,7 +149,7 @@ int sync_hmfs_inode(struct inode *inode)
 	struct hmfs_node *rn;
 	struct hmfs_inode *hi;
 
-	rn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	rn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, force);
 	if (IS_ERR(rn))
 		return PTR_ERR(rn);
 	hi = &(rn->i);

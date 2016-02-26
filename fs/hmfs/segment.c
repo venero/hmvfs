@@ -74,6 +74,11 @@ void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
 	se = get_seg_entry(sbi, segno);
 	new_vblocks = se->valid_blocks + del;
 
+	hmfs_dbg_on(new_vblocks < 0 || new_vblocks > HMFS_PAGE_PER_SEG,
+			"Invalid value of valid_blocks: %ld free:%d prefree:%d dirty:%d\n",
+			new_vblocks, test_bit(segno, FREE_I(sbi)->free_segmap),
+			test_bit(segno, FREE_I(sbi)->prefree_segmap), 
+			test_bit(segno, DIRTY_I(sbi)->dirty_segmap));
 	hmfs_bug_on(sbi, new_vblocks < 0 || new_vblocks > HMFS_PAGE_PER_SEG);
 
 	se->valid_blocks = new_vblocks;

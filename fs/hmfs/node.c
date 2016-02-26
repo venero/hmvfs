@@ -434,7 +434,7 @@ static int truncate_partial_nodes(struct dnode_of_data *dn,
 		err = truncate_dnode(dn);
 		if (err < 0)
 			goto fail;
-		nodes[idx] = alloc_new_node(sbi, nid[idx], dn->inode, SUM_TYPE_IDN);
+		nodes[idx] = alloc_new_node(sbi, nid[idx], dn->inode, SUM_TYPE_IDN, false);
 		if (IS_ERR(nodes[idx])) {
 			err = PTR_ERR(nodes[idx]);
 			goto fail;
@@ -519,7 +519,7 @@ skip_partial:
 		if (err < 0 && err != -ENODATA)
 			goto fail;
 		if (offset[1] == 0 && hn->i.i_nid[offset[0] - NODE_DIR1_BLOCK]) {
-			hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+			hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, false);
 			if (IS_ERR(hn)) {
 				err = PTR_ERR(hn);
 				goto fail;
@@ -627,7 +627,7 @@ static void setup_summary_of_new_node(struct hmfs_sb_info *sbi,
 }
 
 static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
-				struct inode *inode, char sum_type)
+				struct inode *inode, char sum_type, bool force)
 {
 	void *src;
 	block_t blk_addr, src_addr;
@@ -648,7 +648,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	} else
 		src_addr = 0;
 
-	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1, false))
+	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1, force))
 		return ERR_PTR(-ENOSPC);
 
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
@@ -673,31 +673,24 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 }
 
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
-				char sum_type)
+				char sum_type, bool force)
 {
 	block_t addr;
 
 	if (likely(inode))
-		return __alloc_new_node(sbi, nid, inode, sum_type);
+		return __alloc_new_node(sbi, nid, inode, sum_type, force);
 
-	if (sum_type == SUM_TYPE_NATD || sum_type == SUM_TYPE_NATN) {
+	if (is_checkpoint_node(sum_type)) {
 		if (!inc_valid_node_count(sbi, NULL, 1, true))
 			return ERR_PTR(-ENOSPC);
 		addr = alloc_free_node_block(sbi, false);
-		return ADDR(sbi, addr);
-	}
-
-	if (sum_type == SUM_TYPE_CP) {
-		if (!inc_valid_node_count(sbi, NULL, 1, true))
-			return ERR_PTR(-ENOSPC);
-		addr = alloc_free_node_block(sbi, false);
-		memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
+		if (sum_type == SUM_TYPE_CP)
+			memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
 		return ADDR(sbi, addr);
 	}
 
 	if (!inc_gc_block_count(sbi, CURSEG_NODE))
 		return ERR_PTR(-ENOSPC);
-	sbi = HMFS_I_SB(inode);
 	addr = alloc_free_node_block(sbi, true);
 	return ADDR(sbi, addr);
 }
@@ -1027,7 +1020,7 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 
 	//leaf, alloc & copy nat entry block 
 	if (!height) {
-		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATD);
+		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATD, true);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
 
 		hmfs_bug_on(sbi, IS_ERR(cur_stored_node) || !cur_stored_node);
@@ -1056,13 +1049,13 @@ static block_t recursive_flush_nat_pages(struct hmfs_sb_info *sbi,
 
 	if (cur_nat_node == NULL) {
 		//only allocate new node_blk
-		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN);
+		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN, true);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
 		memset_nt(cur_stored_node, 0, HMFS_PAGE_SIZE);
 		(*alloc_cnt) += 1;
 	} else if (old_nat_node == cur_nat_node) {
 		//this node is not wandered before, COW
-		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN);
+		cur_stored_node = alloc_new_node(sbi, nid, NULL, SUM_TYPE_NATN, true);
 		cur_stored_addr = L_ADDR(sbi, cur_stored_node);
 		hmfs_bug_on(sbi, IS_ERR(cur_stored_node) || !cur_stored_node);
 		hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_PAGE_SIZE);

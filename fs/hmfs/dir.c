@@ -80,7 +80,7 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
 
 	if (is_inline_inode(dir)) {
 		hmfs_bug_on(sbi, old_bidx > 0);
-		inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE);
+		inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE, false);
 		if (IS_ERR(inode_block))
 			return DENTRY_BLOCK(inode_block);
 		return DENTRY_BLOCK(inode_block->inline_content);
@@ -333,7 +333,7 @@ int update_dent_inode(struct inode *inode, const struct qstr *name)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct hmfs_node *hn;
 
-	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, false);
 
 	if (IS_ERR(hn))
 		return PTR_ERR(hn);
@@ -391,7 +391,7 @@ static struct hmfs_node *init_inode_metadata(struct inode *inode, struct inode *
 	int err;
 	struct hmfs_node *hn = NULL;
 
-	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE);
+	hn = alloc_new_node(sbi, inode->i_ino, inode, SUM_TYPE_INODE, false);
 	if (IS_ERR(hn))
 		return hn;
 
@@ -526,7 +526,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 		bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
 						NR_DENTRY_IN_INLINE_INODE);
 		if (bit_pos < NR_DENTRY_IN_INLINE_INODE) {
-			inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE);
+			inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE, false);
 			if (IS_ERR(inode_block)) {
 				err = PTR_ERR(inode_block);
 				goto out;

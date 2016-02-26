@@ -481,6 +481,15 @@ static inline void unlock_mmap(struct hmfs_sb_info *sbi)
 }
 
 #ifdef CONFIG_HMFS_DEBUG
+#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
+							__FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define hmfs_dbg_on(condition, fmt, ...) 	\
+			do {							\
+				if (condition) {			\
+					printk(KERN_INFO""fmt, ##__VA_ARGS__);	\
+				}	\
+			} while (0)
+
 #define hmfs_bug_on(sbi, condition)	\
 			do {					\
 				if (condition) {	\
@@ -490,11 +499,10 @@ static inline void unlock_mmap(struct hmfs_sb_info *sbi)
 					BUG();								\
 				}										\
 			} while(0)
-#define hmfs_dbg(fmt, ...) printk(KERN_INFO"%s-%d:"fmt, \
-							__FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define hmfs_bug_on(sbi, condition)
 #define hmfs_dbg(fmt, ...)
+#define hmfs_dbg_on(condition, fmt, ...) 	
 #endif
 
 /* Inline functions */
@@ -758,14 +766,14 @@ static inline void set_summary_start_version(struct hmfs_summary *summary,
 
 /* define prototype function */
 /* super.c */
-int __hmfs_write_inode(struct inode *inode);
+int __hmfs_write_inode(struct inode *inode, bool force);
 int hmfs_sync_fs(struct super_block *sb, int sync);
 
 /* inode.c */
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
-int sync_hmfs_inode(struct inode *inode);
+int sync_hmfs_inode(struct inode *inode, bool force);
 void mark_size_dirty(struct inode *inode, loff_t size);
-int sync_hmfs_inode_size(struct inode *inode);
+int sync_hmfs_inode_size(struct inode *inode, bool force);
 void hmfs_set_inode_flags(struct inode *inode);
 int hmfs_convert_inline_inode(struct inode *inode);
 
@@ -815,7 +823,7 @@ void destroy_node_manager_caches(void);
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t uid);
 bool alloc_nid(struct hmfs_sb_info *sbi, nid_t * nid);
 void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *,
-		     	char sum_type);
+		     	char sum_type, bool force);
 void update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, nid_t ino,
 		      	block_t blk_addr, bool dirty);
 int truncate_inode_blocks(struct inode *, pgoff_t);
