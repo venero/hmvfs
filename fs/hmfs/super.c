@@ -393,7 +393,6 @@ static int hmfs_format(struct super_block *sb)
 	summary = &node_summary_block->entries[0];
 	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
 			SUM_TYPE_INODE);
-	hmfs_dbg("%p %d\n",summary,get_summary_type(summary));
 	set_summary_valid_bit(summary);
 	summary = &node_summary_block->entries[1];
 	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
@@ -685,10 +684,8 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	int ret = 0;
 	
-	hmfs_dbg("\n");
 	if (sync) {
 		lock_gc(sbi);
-	hmfs_dbg("\n");
 		ret = write_checkpoint(sbi, true);
 		unlock_gc(sbi);
 	} else {

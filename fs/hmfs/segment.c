@@ -19,6 +19,49 @@ bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr)
 		return get_seg_entry(sbi, segno)->valid_blocks > 0;
 }
 
+unsigned long total_valid_blocks(struct hmfs_sb_info *sbi)
+{
+	int i;
+	unsigned long sum = 0;
+
+	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
+		sum += get_valid_blocks(sbi, i);
+	}
+
+	return sum;
+}
+
+unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *sbi, seg_t segno)
+{
+	struct hmfs_summary_block *sum_blk;
+	struct hmfs_summary *sum;
+	int off = 0;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	bool is_current;
+	int count = 0;
+	nid_t nid;
+	
+	sum_blk = get_summary_block(sbi, segno);
+	sum = sum_blk->entries;
+
+	//TODO: Set same part in garbage_collect as function
+	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
+		is_current = get_summary_start_version(sum) == cm_i->new_version;
+
+		if (!get_summary_valid_bit(sum) && !is_current)
+			continue;
+
+		if (is_current) {
+			nid = get_summary_nid(sum);
+			if (IS_ERR(get_node(sbi, nid)))
+				continue;
+		}
+
+		count++;
+	}
+	return count;
+}
+
 static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 {
 	if (!__test_and_set_bit(segno, sit_i->dirty_sentries_bitmap))

@@ -140,7 +140,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		/* Stop if we find a segment with none valid blocks */
 		if (get_seg_entry(sbi, segno)->valid_blocks < NR_GC_MIN_BLOCK) {
 			p.min_segno = segno;
-			hmfs_dbg("%lu %lu %s\n", (unsigned long)segno, get_seg_entry(sbi, segno)->valid_blocks,
+			hmfs_dbg("Get victim:%lu vblocks:%d gc_type:%s\n", (unsigned long)segno, get_seg_entry(sbi, segno)->valid_blocks,
 					gc_type == BG_GC ? "BG" : "FG");
 			break;
 		}
@@ -303,7 +303,6 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 	lock_cm(cm_i);
 	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
 	unlock_cm(cm_i);
-	hmfs_dbg("alloc block count:%d\n",cm_i->alloc_block_count);
 }
 
 static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
@@ -601,12 +600,14 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	}
 
 gc_more:
-	hmfs_dbg("Before get victim\n");
+	hmfs_dbg("Before get victim:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+			(unsigned long)CM_I(sbi)->alloc_block_count, 
+			(unsigned long)CM_I(sbi)->valid_block_count);
 	if (!get_victim(sbi, &segno, gc_type))
 		goto out;
 	ret = 0;
 
-	hmfs_dbg("GC Victim:%d\n", (int)segno);
+	hmfs_dbg("GC Victim:%d %d\n", (int)segno, get_valid_blocks(sbi, segno));
 	stat_i->nr_gc_real++;
 
 	/*
@@ -622,6 +623,10 @@ gc_more:
 	}
 
 	garbage_collect(sbi, segno);
+	hmfs_dbg("GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+			(unsigned long)CM_I(sbi)->alloc_block_count, 
+			(unsigned long)CM_I(sbi)->valid_block_count);
+	hmfs_bug_on(sbi, total_valid_blocks(sbi) != CM_I(sbi)->valid_block_count);
 
 	if (start_segno == NULL_SEGNO)
 		start_segno = segno;
@@ -641,7 +646,6 @@ gc_more:
 
 out:
 	if (do_cp) {
-		hmfs_dbg("Before write checkpoint\n");
 		ret= write_checkpoint(sbi, true);
 		hmfs_bug_on(sbi, ret);
 		hmfs_dbg("Write checkpoint done\n");

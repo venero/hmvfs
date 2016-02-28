@@ -850,6 +850,8 @@ void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid,
 				block_t blk_addr);
 
 /* segment.c*/
+unsigned long total_valid_blocks(struct hmfs_sb_info *);
+unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *, seg_t);
 void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 				void *new_nat_root);
 void recovery_sit_entries(struct hmfs_sb_info *sbi,
