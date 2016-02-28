@@ -547,7 +547,7 @@ void destroy_checkpoint_caches(void)
 	kmem_cache_destroy(cp_info_entry_slab);
 }
 
-static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
+static int sync_dirty_inodes(struct hmfs_sb_info *sbi)
 {
 	struct list_head *head, *this, *next;
 	struct hmfs_inode_info *fi;
@@ -557,20 +557,28 @@ static void sync_dirty_inodes(struct hmfs_sb_info *sbi)
 	list_for_each_safe(this, next, head) {
 		fi = list_entry(this, struct hmfs_inode_info, list);
 		ret = __hmfs_write_inode(&fi->vfs_inode, true);
-		//TODO: if (ret) ?
+		if (ret == -ENOSPC)
+			return -ENOSPC;
 	}
+	return 0;
 }
 
-static void block_operations(struct hmfs_sb_info *sbi)
+static int block_operations(struct hmfs_sb_info *sbi)
 {
+	int ret = 0;
+
 retry:
 	mutex_lock_all(sbi);
 		
 	if (!list_empty(&sbi->dirty_inodes_list)) {
 		mutex_unlock_all(sbi);
-		sync_dirty_inodes(sbi);
+		ret = sync_dirty_inodes(sbi);
+		if (ret)
+			return ret;
 		goto retry;
 	}
+
+	return 0;
 }
 
 static void unblock_operations(struct hmfs_sb_info *sbi)
@@ -786,7 +794,9 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 	struct sit_info *sit_i = SIT_I(sbi);
 	int ret;
 
-	block_operations(sbi);
+	ret = block_operations(sbi);
+	if (ret)
+		return ret;
 
 	if (!sit_i->dirty_sentries) {
 		ret = 0;
