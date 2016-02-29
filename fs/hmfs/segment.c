@@ -68,23 +68,22 @@ static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 		sit_i->dirty_sentries++;
 }
 
-void invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
+/* Return amount of blocks which has been invalidated */
+int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
 {
-	struct hmfs_summary *sum = get_summary_by_addr(sbi, addr);
-	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
-	ver_t version = get_summary_start_version(sum);
 	struct sit_info *sit_i = SIT_I(sbi);
 	seg_t segno;
 
-	if (version != CM_I(sbi)->new_version)
-		return;
+	if (!is_new_block(sbi, addr))
+		return 0;
 	
 	segno = GET_SEGNO(sbi, addr);
 	lock_sentry(sit_i);
 	update_sit_entry(sbi, segno, -1);
 	unlock_sentry(sit_i);
 
-	test_and_set_bit(segno, dirty_i->dirty_segmap);
+	test_and_set_bit(segno, DIRTY_I(sbi)->dirty_segmap);
+	return 1;
 }
 
 static void init_min_max_mtime(struct hmfs_sb_info *sbi)

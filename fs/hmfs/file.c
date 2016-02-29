@@ -727,6 +727,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 
 	if (IS_ERR(new_node))
 		return PTR_ERR(new_node);
+
 	for (; count > 0; count--, ofs++) {
 		if (dn->level)
 			addr = raw_node->dn.addr[ofs];
@@ -736,15 +737,14 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		if (addr == NULL_ADDR)
 			continue;
 
-		invalidate_delete_block(sbi, le64_to_cpu(addr));
+		nr_free += invalidate_delete_block(sbi, le64_to_cpu(addr));
 
 		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;
 		else
 			new_node->i.i_addr[ofs] = NULL_ADDR;
-
-		nr_free++;
 	}
+
 	if (nr_free) {
 		dec_valid_block_count(sbi, dn->inode, nr_free);
 		mark_inode_dirty(dn->inode);
@@ -768,10 +768,10 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 
 	for (; ofs < ADDRS_PER_BLOCK ; ofs++, count--, entry++) {
 		if (*entry != NULL_ADDR) {
-			nr_free++;
-			invalidate_delete_block(sbi, le64_to_cpu(*entry));
+			nr_free += invalidate_delete_block(sbi, le64_to_cpu(*entry));
 		}
 	}
+
 	if (nr_free) {
 		dec_valid_block_count(sbi, dn->inode, nr_free);
 		mark_inode_dirty(dn->inode);

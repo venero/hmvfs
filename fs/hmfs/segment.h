@@ -160,6 +160,13 @@ static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 	return SM_I(sbi)->dirty_info;
 }
 
+static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr) {
+	struct hmfs_summary *sum = get_summary_by_addr(sbi, addr);
+	ver_t version = get_summary_start_version(sum);
+	
+	return version == CM_I(sbi)->new_version;
+}
+
 static inline seg_t find_next_inuse(struct free_segmap_info *free_i,
 					   seg_t max, seg_t segno)
 {

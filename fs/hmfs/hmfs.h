@@ -599,7 +599,6 @@ static inline void dec_valid_inode_count(struct hmfs_sb_info *sbi)
 
 	lock_cm(cm_i);
 	cm_i->valid_inode_count--;
-	cm_i->valid_block_count--;
 	unlock_cm(cm_i);
 }
 
@@ -872,7 +871,7 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi);
 void free_prefree_segments(struct hmfs_sb_info *sbi);
 int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg);
 bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr);
-void invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr);
+int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);

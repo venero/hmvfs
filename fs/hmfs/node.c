@@ -38,13 +38,15 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 }
 
 static inline void dec_valid_node_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
+				struct inode *inode, int count, bool dec_valid)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	lock_cm(cm_i);
 	cm_i->valid_node_count -= count;
 	if (likely(inode))
 		inode->i_blocks -= count;
+	if (dec_valid)
+		cm_i->valid_block_count -= count;
 	unlock_cm(cm_i);
 }
 
@@ -261,7 +263,7 @@ void truncate_node(struct dnode_of_data *dn)
 
 	hmfs_bug_on(sbi, ni.blk_addr == NULL_ADDR);
 
-	dec_valid_node_count(sbi, dn->inode, 1);
+	dec_valid_node_count(sbi, dn->inode, 1, is_new_block(sbi, ni.blk_addr));
 	update_nat_entry(nm_i, dn->nid, dn->inode->i_ino, NULL_ADDR,
 			 true);
 
