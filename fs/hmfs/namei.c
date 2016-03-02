@@ -25,7 +25,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_inode_info *i_info;
 	struct inode *inode;
 	nid_t ino;
@@ -76,7 +75,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		set_inode_flag(i_info, FI_INLINE_DATA);
 	}
 
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, true);
+	hmfs_bug_on(sbi, !IS_ERR(get_node(sbi, ino)));
 	err = sync_hmfs_inode(inode, false);
 	if (!err) {
 		inc_valid_inode_count(sbi);

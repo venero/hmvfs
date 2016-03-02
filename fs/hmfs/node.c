@@ -610,9 +610,7 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	 * accelerate speed to grab nat entry, 
 	 * we don't need to search nat entry block
 	 */
-	else if (ni.blk_addr == NEW_ADDR) {
-		return ERR_PTR(-EINVAL);
-	}
+
 	return ADDR(sbi, ni.blk_addr);
 }
 

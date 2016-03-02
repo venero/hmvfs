@@ -65,7 +65,6 @@ enum DATA_RA_TYPE {
 
 enum ADDR_TYPE {
 	NULL_ADDR = 0,
-	NEW_ADDR = 1,
 };
 
 enum READ_DNODE_TYPE {
