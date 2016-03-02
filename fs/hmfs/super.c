@@ -599,6 +599,8 @@ static void hmfs_evict_inode(struct inode *inode)
 
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
+	hmfs_bug_on(sbi, total_valid_blocks(sbi) !=
+			CM_I(sbi)->valid_block_count);
 
 	spin_lock(&sbi->dirty_inodes_lock);
 	list_del(&fi->list);

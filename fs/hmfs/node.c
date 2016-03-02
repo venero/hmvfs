@@ -31,7 +31,6 @@ static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi,
 	cm_i->valid_node_count += count;
 	cm_i->valid_block_count += count;
 	cm_i->alloc_block_count = alloc_valid_block_count;
-	cm_i->left_blocks_count[CURSEG_NODE] -= count;;
 	unlock_cm(cm_i);
 
 	return true;
@@ -648,15 +647,17 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	} else
 		src_addr = 0;
 
-	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1, force))
-		return ERR_PTR(-ENOSPC);
-
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return ERR_PTR(-EPERM);
 
-	blk_addr = alloc_free_node_block(sbi, true);
-	if (blk_addr == NULL_ADDR)
+	if (!inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), 1, force))
 		return ERR_PTR(-ENOSPC);
+
+	blk_addr = alloc_free_node_block(sbi, true);
+	if (blk_addr == NULL_ADDR) {
+		inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), -1, true);
+		return ERR_PTR(-ENOSPC);
+	}
 
 	dest = ADDR(sbi, blk_addr);
 	if (!IS_ERR(src)) {

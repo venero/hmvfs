@@ -201,11 +201,11 @@ static int move_to_new_segment(struct hmfs_sb_info *sbi,
 	return 0;
 }
 
-static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_lock)
+static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, 
+				bool sit_lock)
 {
 	block_t page_addr = 0;
 	struct sit_info *sit_i = SIT_I(sbi);
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
 	int ret;
 
@@ -226,10 +226,6 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_l
 			unlock_curseg(seg_i);
 			return NULL_ADDR;
 		}
-
-		lock_cm(cm_i);
-		cm_i->left_blocks_count[seg_type] += HMFS_PAGE_PER_SEG;
-		unlock_cm(cm_i);
 	}
 	unlock_curseg(seg_i);
 
@@ -559,13 +555,6 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	atomic_set(&array[CURSEG_DATA].segno, le32_to_cpu(hmfs_cp->cur_data_segno));
 	array[CURSEG_DATA].next_segno = NULL_SEGNO;
 	unlock_curseg(&array[CURSEG_DATA]);
-
-	lock_cm(cm_i);
-	node_blkoff = HMFS_PAGE_PER_SEG - node_blkoff;
-	data_blkoff = HMFS_PAGE_PER_SEG - data_blkoff;
-	cm_i->left_blocks_count[CURSEG_NODE] = node_blkoff;
-	cm_i->left_blocks_count[CURSEG_DATA] = data_blkoff;
-	unlock_cm(cm_i);
 
 	return 0;
 }

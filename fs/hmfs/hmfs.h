@@ -164,8 +164,6 @@ struct hmfs_cm_info {
 	pgc_t user_block_count;
 	/* # of blocks of all dirty ,full and current segments */
 	pgc_t alloc_block_count;
-	/* # fo blocks left in current segments */
-	int left_blocks_count[NR_CURSEG_TYPE];
 #ifdef CONFIG_HMFS_DEBUG
 	int nr_bugs;		/* # of bugs found */
 #endif
@@ -612,7 +610,6 @@ static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 		unlock_cm(cm_i);
 		return false;
 	}
-	cm_i->left_blocks_count[seg_type]--;
 	cm_i->alloc_block_count = alloc_block_count;
 	unlock_cm(cm_i);
 	return true;

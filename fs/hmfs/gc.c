@@ -652,7 +652,9 @@ out:
 	}
 
 	unlock_gc(sbi);
-	hmfs_dbg("Exit GC\n");
+	hmfs_dbg("Exit GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+			(unsigned long)CM_I(sbi)->alloc_block_count, 
+			(unsigned long)CM_I(sbi)->valid_block_count);
 	return ret;
 }
 

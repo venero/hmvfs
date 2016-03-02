@@ -27,7 +27,7 @@ static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	lock_cm(cm_i);
 	alloc_block_count = cm_i->alloc_block_count + count;
 
-	if (unlikely(!free_blocks)) {
+	if (unlikely(!free_blocks && count > 0)) {
 		unlock_cm(cm_i);
 		return false;
 	}
@@ -36,7 +36,6 @@ static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 
 	cm_i->alloc_block_count = alloc_block_count;
 	cm_i->valid_block_count += count;
-	cm_i->left_blocks_count[CURSEG_DATA] -= count;
 	unlock_cm(cm_i);
 	return true;
 }
@@ -255,8 +254,11 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
-	if (new_addr == NULL_ADDR)
+	if (new_addr == NULL_ADDR) {
+		inc_valid_block_count(sbi, get_stat_object(inode,
+				src_addr != NULL_ADDR), -1);
 		return ERR_PTR(-ENOSPC);
+	}
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
 	else
@@ -326,8 +328,11 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
-	if (new_addr == NULL_ADDR)
+	if (new_addr == NULL_ADDR) {
+		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
+				!= NULL_ADDR), -1);
 		return ERR_PTR(-ENOSPC);
+	}
 
 	if (dn.level)
 		hn->dn.addr[dn.ofs_in_node] = new_addr;
@@ -390,10 +395,17 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 		return ERR_PTR(-EPERM);
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr 
-									!= NULL_ADDR), 1))
+				!= NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
 	dst_addr = alloc_free_data_block(sbi);
+
+	if (dst_addr == NULL_ADDR) {
+		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
+				!= NULL_ADDR), -1);
+		return ERR_PTR(-ENOSPC);
+	}
+
 	dst = ADDR(sbi, dst_addr);
 
 	if (need_copy && src_addr != NULL_ADDR)
