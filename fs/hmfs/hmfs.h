@@ -268,6 +268,11 @@ struct hmfs_stat_info {
 	int nr_flush_nat_per_block[10];
 	unsigned long flush_nat_sum;
 	unsigned long flush_nat_time;
+
+	char *buffer;			/* buffer for info */
+	int buf_capacity;		/* max size of buffer */
+	int buf_size;
+	struct dentry *root_dir;
 };
 
 /*
