@@ -420,7 +420,9 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 	if (!copied)
 		return 0;
 
+	inode_read_unlock(filp->f_inode);
 	left = __copy_to_user(buf, addr_struct->start_addr, copied);
+	inode_read_lock(filp->f_inode);
 
 	if (left == copied)
 		err = -EFAULT;
@@ -625,8 +627,11 @@ normal_write:
 			break;
 		}
 
+		/* To avoid deadlock between fi->i_lock and mm->mmap_sem in mmap */
+		inode_write_unlock(inode);
 		copied = bytes - __copy_from_user_nocache(xip_mem + offset, 
 								buf, bytes);
+		inode_write_lock(inode);
 
 		if (likely(copied > 0)) {
 			status = copied;
@@ -1146,7 +1151,7 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	if (err != -EBUSY)
 		hmfs_bug_on(HMFS_I_SB(inode), err);
 
-	return VM_FAULT_SIGBUS;
+	return VM_FAULT_NOPAGE;
 }
 
 static const struct vm_operations_struct hmfs_file_vm_ops = {
@@ -1157,6 +1162,7 @@ static const struct vm_operations_struct hmfs_file_vm_ops = {
 static int hmfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	file_accessed(file);
+	vma->vm_flags |= VM_MIXEDMAP;
 	vma->vm_ops = &hmfs_file_vm_ops;
 	return 0;
 }
