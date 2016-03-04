@@ -1,4 +1,5 @@
 ccflags-y += -DCONFIG_HMFS_DEBUG
+ccflags-y += -DCONFIG_HMFS_DEBUG_GC
 ccflags-y += -DCONFIG_HMFS_XATTR
 #ccflags-y += -DCONFIG_HMFS_FAST_READ
 ccflags-y += -DCONFIG_HMFS_ACL

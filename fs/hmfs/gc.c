@@ -580,7 +580,6 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 {
 	int ret = -1;
 	seg_t segno, start_segno = NULL_SEGNO;
-	struct hmfs_stat_info *stat_i = sbi->stat_info;
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
 	bool do_cp = false;
 	int total_segs = TOTAL_SEGS(sbi);
@@ -588,7 +587,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	int max_retry = (total_segs + MAX_SEG_SEARCH - 1) / MAX_SEG_SEARCH;
 
 	hmfs_dbg("Enter GC\n");
-	stat_i->nr_gc_try++;
+	INC_GC_TRY(STAT_I(sbi));
 	if (!(sbi->sb->s_flags & MS_ACTIVE))
 		goto out;
 
@@ -599,6 +598,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 		gc_type = FG_GC;
 	}
 
+	hmfs_dbg("time:%ld %ld\n",CURRENT_TIME.tv_sec,CURRENT_TIME.tv_nsec);
 gc_more:
 	hmfs_dbg("Before get victim:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
@@ -608,7 +608,7 @@ gc_more:
 	ret = 0;
 
 	hmfs_dbg("GC Victim:%d %d\n", (int)segno, get_valid_blocks(sbi, segno));
-	stat_i->nr_gc_real++;
+	INC_GC_REAL(STAT_I(sbi));
 
 	/*
 	 * If a segment does not contains any valid blocks, we do not 
@@ -622,7 +622,11 @@ gc_more:
 		hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
 	}
 
+	COUNT_GC_BLOCKS(STAT_I(sbi), HMFS_PAGE_PER_SEG - 
+			get_valid_blocks(sbi, segno));
+
 	garbage_collect(sbi, segno);
+
 	hmfs_dbg("GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
 			(unsigned long)CM_I(sbi)->valid_block_count);
@@ -783,3 +787,16 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi)
 		hmfs_cp->nr_gc_segs = 0;
 	}
 }
+
+void init_gc_stat(struct hmfs_sb_info *sbi) {
+	struct hmfs_stat_info *si = STAT_I(sbi);
+	int i;
+
+	si->nr_gc_try = 0;
+	si->nr_gc_real = 0;
+	si->nr_gc_blocks = 0;
+	for (i = 0; i < SIZE_GC_RANGE; i++) {
+		si->nr_gc_blocks_range[i] = 0;
+	}
+}
+

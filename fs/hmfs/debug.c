@@ -49,7 +49,7 @@ void update_nat_stat(struct hmfs_sb_info *sbi, int flush_count)
 	lock_hmfs_stat(stat_i);
 	stat_i->flush_nat_sum += flush_count;
 	stat_i->flush_nat_time++;
-	stat_i->nr_flush_nat_per_block[flush_count / 50]++;
+	stat_i->nr_flush_nat_per_block[div64_u64(flush_count, 50)]++;
 	unlock_hmfs_stat(stat_i);
 }
 
@@ -95,7 +95,6 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "max file size:%luk %luM %luG\n",
 		   max_file_size / 1024, max_file_size / 1024 / 1024,
 		   max_file_size / 1024 / 1024 / 1024);
-	seq_printf(s, "GC Real:%d\n", si->nr_gc_real);
 	seq_printf(s, "limit invalid blocks:%lu\n", 
 			(unsigned long)sm_i->limit_invalid_blocks);
 	seq_printf(s, "limit free blocks:%lu\n", 
@@ -110,12 +109,19 @@ static int stat_show(struct seq_file *s, void *v)
 	for (i = 0; i < 10; i++)
 		seq_printf(s, "nr_flush_nat_per_block[%d-%d):%d\n", i * 50,
 				i * 50 + 50, si->nr_flush_nat_per_block[i]);
+#ifdef CONFIG_HMFS_DEBUG_GC
+	seq_printf(s, "GC Real:%d\n", si->nr_gc_real);
+	seq_printf(s, "GC Try:%d\n", si->nr_gc_try);
+	seq_printf(s, "nr gc blocks:%lu\n", si->nr_gc_blocks);
+	for (i = 0; i < SIZE_GC_RANGE; i++)
+		seq_printf(s, "nr_gc_blocks_range[%d-%d):%d\n", i * STAT_GC_RANGE,
+				(i + 1) * STAT_GC_RANGE, si->nr_gc_blocks_range[i]);
+#endif
 
 	head = &cm_i->orphan_inode_list;
 	seq_printf(s, "orphan inode:\n");
 	list_for_each(this, head) {
-		orphan =
-		    list_entry(this, struct orphan_inode_entry, list);
+		orphan = list_entry(this, struct orphan_inode_entry, list);
 		seq_printf(s, "%lu ", (unsigned long)orphan->ino);
 	}
 	seq_printf(s, "\n");
@@ -127,14 +133,16 @@ static int vb_show(struct seq_file *s, void *v)
 {
 	struct hmfs_stat_info *si = s->private;
 	struct hmfs_sb_info *sbi = si->sbi;
-	int i;
+	int i, j;
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 
 	seq_printf(s, "# free\n* dirty\n^ prefree\n@ in use\n");
-	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
-		if (i % 80 == 0)
+	for (i = 0, j = 0; i < TOTAL_SEGS(sbi); i++, j++) {
+		if (j == 79) {
 			seq_printf(s, "\n");
+			j = 0;
+		}
 		if (test_bit(i, dirty_i->dirty_segmap))
 			seq_printf(s, "*");
 		else if (!test_bit(i, free_i->free_segmap))
@@ -277,6 +285,7 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	si->sbi = sbi;
 	spin_lock_init(&si->stat_lock);
 	ret = hmfs_build_info(sbi, 1 << 20 );
+	init_gc_stat(sbi);
 	
 	if (ret) {
 		kfree(si);

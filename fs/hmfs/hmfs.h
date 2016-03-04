@@ -47,6 +47,9 @@
 #define DISTANCE(left, right)	((char *)(right) - (char *)(left))
 #define JUMP(base, gap)			((char *)(base) + gap)
 
+#define STAT_GC_RANGE		50
+#define SIZE_GC_RANGE		(HMFS_PAGE_PER_SEG + STAT_GC_RANGE - 1) / STAT_GC_RANGE
+
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
 typedef unsigned long seg_t;		/* segment number type */
@@ -260,8 +263,12 @@ struct hmfs_stat_info {
 	struct hmfs_sb_info *sbi;
 	spinlock_t stat_lock;
 
+#ifdef CONFIG_HMFS_DEBUG_GC
 	int nr_gc_try;			/* Time of call hmfs_gc */
 	int nr_gc_real;			/* Time of doing GC */
+	unsigned long nr_gc_blocks;		/* Number of blocks that GC module has collected */
+	int nr_gc_blocks_range[SIZE_GC_RANGE];		/* Invalid blocks distribution */
+#endif
 
 	/* stat of flushing nat entries */
 	/* c = nr_flush_nat_per_block[i] means times of flushing [c*50, c*50+50) entries per nat block*/
@@ -936,6 +943,11 @@ int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);
 int init_gc_logs(struct hmfs_sb_info *sbi);
 void reinit_gc_logs(struct hmfs_sb_info *sbi);
+#ifdef CONFIG_HMFS_DEBUG_GC
+void init_gc_stat(struct hmfs_sb_info *);
+#else
+#define init_gc_stat(sbi);
+#endif
 
 /* xattr.c */
 ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);

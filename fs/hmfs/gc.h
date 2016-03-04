@@ -56,6 +56,20 @@ void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi,
 				seg_t mv_segno, unsigned mv_offset, struct hmfs_summary *sum,
 				int type);
 
+#ifdef CONFIG_HMFS_DEBUG_GC
+#define INC_GC_TRY(si)					(si)->nr_gc_try++
+#define INC_GC_REAL(si)					(si)->nr_gc_real++
+#define COUNT_GC_BLOCKS(si, ivblocks)	do {	\
+											(si)->nr_gc_blocks += ivblocks;\
+											(si)->nr_gc_blocks_range[div64_u64(ivblocks, STAT_GC_RANGE)]++;\
+										} while (0)	
+
+#else
+#define INC_GC_TRY(si)
+#define INC_GC_REAL(si)
+#define COUNT_GC_BLOCKS(si, ivblocks)
+#endif
+
 static inline bool need_deep_scan(struct hmfs_sb_info *sbi)
 {
 	return free_user_blocks(sbi) < SM_I(sbi)->severe_free_blocks;
