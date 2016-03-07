@@ -597,6 +597,9 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	struct node_info ni;
 	int err;
 
+	if (nid == NULL_NID)
+		return ERR_PTR(-ENODATA);
+
 	err = get_node_info(sbi, nid, &ni);
 
 	if (err) {
@@ -655,7 +658,8 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 
 	blk_addr = alloc_free_node_block(sbi, true);
 	if (blk_addr == NULL_ADDR) {
-		inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), -1, true);
+		//inc_valid_node_count(sbi, get_stat_object(inode, !IS_ERR(src)), -1, true);
+		hmfs_dbg("\n");
 		return ERR_PTR(-ENOSPC);
 	}
 
@@ -666,7 +670,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		memset_nt(dest, 0, HMFS_PAGE_SIZE);
 	}
 
-	setup_summary_of_new_node(sbi, blk_addr, src_addr, inode->i_ino,
+	setup_summary_of_new_node(sbi, blk_addr, src_addr, nid,
 			ofs_in_node, sum_type);
 	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr,	true);
 

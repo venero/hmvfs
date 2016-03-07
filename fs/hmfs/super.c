@@ -303,6 +303,10 @@ static int hmfs_format(struct super_block *sb)
 	sbi->main_addr_start = main_addr;
 	data_segaddr = area_addr + HMFS_SEGMENT_SIZE;
 
+	/* update SSA */
+	node_summary_block = get_summary_block(sbi, 0);
+	data_summary_block = get_summary_block(sbi, 1);
+
 	/* setup root inode */
 	root_node_addr = node_segaddr;
 	root_node = ADDR(sbi, node_segaddr);
@@ -352,20 +356,43 @@ static int hmfs_format(struct super_block *sb)
 
 	dent_blk->dentry_bitmap[0] = (1 << 1) | (1 << 0);
 
+	summary = &node_summary_block->entries[0];
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
+			SUM_TYPE_INODE);
+	set_summary_valid_bit(summary);
+	
+	summary = &data_summary_block->entries[0];
+	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
+			SUM_TYPE_DATA);
+	set_summary_valid_bit(summary);
+
+
 	/* setup & init nat */
 	nat_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	nat_height = hmfs_get_nat_height(init_size);
 	nat_root = ADDR(sbi, nat_addr);
+
+	
 	while (nat_height > 0) {
 		memset_nt(nat_root, 0, HMFS_PAGE_SIZE);
+		
+		summary = &node_summary_block->entries[node_blkoff];
+		make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
+		set_summary_valid_bit(summary);
+
 		node_blkoff++;
 		nat_root->addr[0] = cpu_to_le64(node_segaddr + HMFS_PAGE_SIZE * node_blkoff);
 		nat_root++;
 		nat_height--;
 	}
-	((struct hmfs_nat_block *)nat_root)->entries[HMFS_ROOT_INO].ino = 
+	
+	summary = &node_summary_block->entries[node_blkoff];
+	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATD);
+	set_summary_valid_bit(summary);
+
+	HMFS_NAT_BLOCK(nat_root)->entries[HMFS_ROOT_INO].ino = 
 			le32_to_cpu(HMFS_ROOT_INO);
-	((struct hmfs_nat_block *)nat_root)->entries[HMFS_ROOT_INO].block_addr =
+	HMFS_NAT_BLOCK(nat_root)->entries[HMFS_ROOT_INO].block_addr =
 			le64_to_cpu(root_node_addr);
 	/* node[1]: nat root */
 	node_blkoff++;
@@ -373,6 +400,11 @@ static int hmfs_format(struct super_block *sb)
 	cp_addr = node_segaddr + HMFS_PAGE_SIZE * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
 	memset_nt(cp, 0, HMFS_PAGE_SIZE);
+	
+	summary = &node_summary_block->entries[node_blkoff];
+	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_CP);
+	set_summary_valid_bit(summary);
+
 	/* node[2]: init cp */
 	node_blkoff += 1;
 	/* segment 0 is first node segment */
@@ -385,27 +417,7 @@ static int hmfs_format(struct super_block *sb)
 	sit_entry = get_sit_entry(sbi, 1);
 	sit_entry->mtime = cpu_to_le32(get_seconds());
 	sit_entry->vblocks = cpu_to_le16(data_blkoff);
-
-	/* update SSA */
-	node_summary_block = get_summary_block(sbi, 0);
-	data_summary_block = get_summary_block(sbi, 1);
-
-	summary = &node_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
-			SUM_TYPE_INODE);
-	set_summary_valid_bit(summary);
-	summary = &node_summary_block->entries[1];
-	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
-	set_summary_valid_bit(summary);
-	summary = &node_summary_block->entries[2];
-	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_CP);
-	set_summary_valid_bit(summary);
-
-	summary = &data_summary_block->entries[0];
-	make_summary_entry(summary, HMFS_ROOT_INO, HMFS_DEF_CP_VER, 0,
-			SUM_TYPE_DATA);
-	set_summary_valid_bit(summary);
-
+	
 	/* prepare checkpoint */
 	set_struct(cp, checkpoint_ver, HMFS_DEF_CP_VER);
 
@@ -448,6 +460,7 @@ static int hmfs_format(struct super_block *sb)
 	/* copy another super block */
 	super = next_super_block(super);
 	hmfs_memcpy(super, ADDR(sbi, 0), sizeof(struct hmfs_super_block));
+	hmfs_dbg("%d %d\n",node_blkoff,data_blkoff);
 	return retval;
 }
 
@@ -599,6 +612,7 @@ static void hmfs_evict_inode(struct inode *inode)
 
 	if (inode->i_blocks > 0)
 		hmfs_truncate(inode);
+	if (CM_I(sbi)->nr_bugs==1)
 	hmfs_bug_on(sbi, total_valid_blocks(sbi) !=
 			CM_I(sbi)->valid_block_count);
 
@@ -884,6 +898,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto free_zero_page;
 
+		hmfs_dbg("%d %d\n",get_valid_blocks(sbi,0),get_seg_vblocks_in_summary(sbi,0));
+		hmfs_dbg("%d %d\n",get_valid_blocks(sbi,1),get_seg_vblocks_in_summary(sbi,1));
 	return 0;
 free_zero_page:
 	destroy_map_zero_page(sbi);
