@@ -86,6 +86,8 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
 		return DENTRY_BLOCK(inode_block->inline_content);
 	}
 
+	if (dir->i_ino==4)
+		hmfs_dbg("%d\n",old_bidx);
 	return alloc_new_data_block(sbi, dir, old_bidx);
 }
 
@@ -690,6 +692,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		/* Inline directory should never reach here */
 		hmfs_bug_on(sbi, is_inline_inode(dir));
 
+		hmfs_dbg("%d\n",bidx);
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
 		if (dir_i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {

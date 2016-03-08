@@ -513,6 +513,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	nid_t nid;
 	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
+	int tmp=0;
 
 	none_valid = !get_seg_entry(sbi, segno)->valid_blocks;
 
@@ -538,7 +539,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 			if (IS_ERR(get_node(sbi, nid)))
 				continue;
 		}
-		
+
 		hmfs_bug_on(sbi, get_summary_valid_bit(sum) && is_current);
 
 		switch (get_summary_type(sum)) {
@@ -572,6 +573,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 		}
 	}
 
+	hmfs_dbg("tmp:%d\n",tmp);
 recycle:
 	recycle_segment(sbi, segno, none_valid);
 }
@@ -598,7 +600,6 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 		gc_type = FG_GC;
 	}
 
-	hmfs_dbg("time:%ld %ld\n",CURRENT_TIME.tv_sec,CURRENT_TIME.tv_nsec);
 gc_more:
 	hmfs_dbg("Before get victim:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
@@ -625,6 +626,7 @@ gc_more:
 	COUNT_GC_BLOCKS(STAT_I(sbi), HMFS_PAGE_PER_SEG - 
 			get_valid_blocks(sbi, segno));
 
+	hmfs_bug_on(sbi, total_valid_blocks(sbi) != CM_I(sbi)->valid_block_count);
 	garbage_collect(sbi, segno);
 
 	hmfs_dbg("GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
