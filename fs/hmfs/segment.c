@@ -72,11 +72,14 @@ static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_summary *summary;
 	seg_t segno;
 
 	if (!is_new_block(sbi, addr))
 		return 0;
 	
+	summary = get_summary_by_addr(sbi, addr);
+	set_summary_nid(summary, NULL_NID);
 	segno = GET_SEGNO(sbi, addr);
 	lock_sentry(sit_i);
 	update_sit_entry(sbi, segno, -1);
@@ -135,8 +138,8 @@ static void reset_curseg(struct curseg_info *seg_i)
 	seg_i->next_segno = NULL_SEGNO;
 }
 
-inline block_t __cal_page_addr(struct hmfs_sb_info *sbi,
-				seg_t segno, int blkoff)
+inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno,
+				int blkoff)
 {
 	return (segno << HMFS_SEGMENT_SIZE_BITS) +
 					(blkoff << HMFS_PAGE_SIZE_BITS)
@@ -210,6 +213,15 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 	int ret;
 
 	lock_curseg(seg_i);
+	
+	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
+		ret = move_to_new_segment(sbi, seg_i);
+		if (ret) {
+			unlock_curseg(seg_i);
+			return NULL_ADDR;
+		}
+	}
+
 	page_addr = cal_page_addr(sbi, seg_i);
 
 	if (sit_lock)
@@ -220,13 +232,7 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 		unlock_sentry(sit_i);
 
 	seg_i->next_blkoff++;
-	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
-		ret = move_to_new_segment(sbi, seg_i);
-		if (ret) {
-			unlock_curseg(seg_i);
-			return NULL_ADDR;
-		}
-	}
+
 	unlock_curseg(seg_i);
 
 	return page_addr;

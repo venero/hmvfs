@@ -842,6 +842,7 @@ static int truncate_blocks(struct inode *inode, block_t from)
 				HMFS_INLINE_SIZE - from);
 		return 0;
 	}
+
 	return __truncate_blocks(inode, from);
 }
 
@@ -855,6 +856,7 @@ void hmfs_truncate(struct inode *inode)
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		mark_inode_dirty(inode);
 	}
+
 }
 
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)

@@ -740,6 +740,11 @@ static inline int get_summary_valid_bit(struct hmfs_summary *summary)
 	return le16_to_cpu(summary->bt) & (~0x7f);
 }
 
+static inline void set_summary_nid(struct hmfs_summary *summary, nid_t nid)
+{
+	summary->nid = cpu_to_le32(nid);
+}
+
 static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 {
 	int bt = le16_to_cpu(summary->bt);

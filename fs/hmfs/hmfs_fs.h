@@ -31,6 +31,7 @@ enum FS_STATE {
 #define HMFS_MAJOR_VERSION		0
 #define HMFS_MINOR_VERSION		1
 
+#define NULL_NID				0
 #define HMFS_ROOT_INO			3
 
 #define HMFS_DEF_CP_VER			1

@@ -565,6 +565,7 @@ start:
 		//FIXME: use bat process to reduce read time
 		if (block >= end_blk) {
 			dentry_blk = alloc_new_data_block(sbi, dir, block);
+
 			bit_pos = 0;
 			end_blk = block + 1;
 			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
@@ -585,6 +586,7 @@ start:
 				bit_pos = 0;
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(sbi, dir, block);
+
 				if (IS_ERR(dentry_blk)) {
 					err = PTR_ERR(dentry_blk);
 					goto out;

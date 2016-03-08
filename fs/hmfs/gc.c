@@ -538,7 +538,7 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 			if (IS_ERR(get_node(sbi, nid)))
 				continue;
 		}
-
+		
 		hmfs_bug_on(sbi, get_summary_valid_bit(sum) && is_current);
 
 		switch (get_summary_type(sum)) {

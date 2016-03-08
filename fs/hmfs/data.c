@@ -254,6 +254,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
+
 	if (new_addr == NULL_ADDR) {
 		inc_valid_block_count(sbi, get_stat_object(inode,
 				src_addr != NULL_ADDR), -1);
@@ -280,7 +281,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	if (fill_zero)
 		memset_nt(dest + left, 0, right - left);
 
-	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
+	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
 	return dest;
 }
@@ -328,6 +329,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi);
+
 	if (new_addr == NULL_ADDR) {
 		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
 				!= NULL_ADDR), -1);
@@ -345,7 +347,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	else memset_nt(dest, 0, HMFS_PAGE_SIZE);
 
-	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
+	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
 	return dest;
 }

@@ -154,7 +154,10 @@ static int vb_show(struct seq_file *s, void *v)
 
 	seq_printf(s, "\n");
 	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
-		seq_printf(s, "%d:%d\n", i, get_valid_blocks(sbi, i));
+		seq_printf(s, "%d:%d %lu\n", i, get_valid_blocks(sbi, i), 
+				get_seg_vblocks_in_summary(sbi, i));
+		hmfs_bug_on(sbi, get_valid_blocks(sbi, i) != 
+				get_seg_vblocks_in_summary(sbi, i));
 	}
 
 	return 0;
@@ -514,7 +517,7 @@ static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from,
 
 	//struct hmfs_summary_block* sum_blk = get_summary_block(sbi, blkidx);
 	for (i = idx_from; i <= idx_to; i++) {
-		res = print_ssa_one(sbi, i << HMFS_PAGE_SIZE_BITS);
+		res = print_ssa_one(sbi, sbi->main_addr_start + (i << HMFS_PAGE_SIZE_BITS));
 		if (res == -1) {
 			return -1;
 		}
