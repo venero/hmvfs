@@ -86,6 +86,8 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
 		return DENTRY_BLOCK(inode_block->inline_content);
 	}
 
+	if (dir->i_ino==4)
+		hmfs_dbg("%d\n",old_bidx);
 	return alloc_new_data_block(sbi, dir, old_bidx);
 }
 
@@ -565,6 +567,9 @@ start:
 		//FIXME: use bat process to reduce read time
 		if (block >= end_blk) {
 			dentry_blk = alloc_new_data_block(sbi, dir, block);
+
+	if (dir->i_ino==4)
+		hmfs_dbg("%d\n",block);
 			bit_pos = 0;
 			end_blk = block + 1;
 			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
@@ -585,6 +590,9 @@ start:
 				bit_pos = 0;
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(sbi, dir, block);
+
+	if (dir->i_ino==4)
+		hmfs_dbg("%d\n",block);
 				if (IS_ERR(dentry_blk)) {
 					err = PTR_ERR(dentry_blk);
 					goto out;
@@ -688,6 +696,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		/* Inline directory should never reach here */
 		hmfs_bug_on(sbi, is_inline_inode(dir));
 
+		hmfs_dbg("%d\n",bidx);
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
 		if (dir_i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {

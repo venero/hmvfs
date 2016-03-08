@@ -57,6 +57,26 @@ unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *sbi, seg_t segno)
 				continue;
 		}
 
+		int type = get_summary_type(sum);
+		hmfs_bug_on(sbi, is_current && (type >=SUM_TYPE_NATN ));
+		if (is_current&&type==SUM_TYPE_DATA){
+				int ofs=get_summary_offset(sum);
+		struct hmfs_node *this=get_node(sbi,nid);
+		struct hmfs_summary *par_sum=get_summary_by_addr(sbi,L_ADDR(sbi,this));
+		int par_type=get_summary_type(par_sum);
+		block_t addr_in_par;
+		if (par_type == SUM_TYPE_INODE)
+			addr_in_par = le64_to_cpu(this->i.i_addr[ofs]);
+		else if (par_type==SUM_TYPE_DN) {
+		addr_in_par=le64_to_cpu(this->dn.addr[ofs]);
+		}
+		if (CM_I(sbi)->nr_bugs<4 && 
+(						par_type==SUM_TYPE_INODE ||par_type==SUM_TYPE_DN)&&addr_in_par!=__cal_page_addr(sbi,segno,off)){
+		hmfs_dbg("%d %d %d %d %d %d %d %d %p\n",nid,ofs,par_type,type,addr_in_par,__cal_page_addr(sbi,segno,off),segno,off,par_sum);
+		hmfs_bug_on(sbi,(par_type==SUM_TYPE_INODE ||par_type==SUM_TYPE_DN)&&addr_in_par!=__cal_page_addr(sbi,segno,off));
+		}
+		}
+	
 		count++;
 	}
 	return count;
@@ -72,11 +92,14 @@ static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_summary *summary;
 	seg_t segno;
 
 	if (!is_new_block(sbi, addr))
 		return 0;
 	
+	summary = get_summary_by_addr(sbi, addr);
+	set_summary_nid(summary, NULL_NID);
 	segno = GET_SEGNO(sbi, addr);
 	lock_sentry(sit_i);
 	update_sit_entry(sbi, segno, -1);
@@ -210,6 +233,15 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 	int ret;
 
 	lock_curseg(seg_i);
+	
+	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
+		ret = move_to_new_segment(sbi, seg_i);
+		if (ret) {
+			unlock_curseg(seg_i);
+			return NULL_ADDR;
+		}
+	}
+
 	page_addr = cal_page_addr(sbi, seg_i);
 
 	if (sit_lock)
@@ -220,13 +252,6 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 		unlock_sentry(sit_i);
 
 	seg_i->next_blkoff++;
-	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
-		ret = move_to_new_segment(sbi, seg_i);
-		if (ret) {
-			unlock_curseg(seg_i);
-			return NULL_ADDR;
-		}
-	}
 	unlock_curseg(seg_i);
 
 	return page_addr;

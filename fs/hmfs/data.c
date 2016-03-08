@@ -280,7 +280,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	if (fill_zero)
 		memset_nt(dest + left, 0, right - left);
 
-	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
+	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
 	return dest;
 }
@@ -329,8 +329,9 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	new_addr = alloc_free_data_block(sbi);
 	if (new_addr == NULL_ADDR) {
-		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), -1);
+//		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
+//				!= NULL_ADDR), -1);
+		hmfs_dbg("\n");
 		return ERR_PTR(-ENOSPC);
 	}
 
@@ -345,8 +346,13 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
 	else memset_nt(dest, 0, HMFS_PAGE_SIZE);
 
-	setup_summary_of_new_data_block(sbi, new_addr, inode->i_ino,
+	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
+	if (new_addr==6111232){
+		hmfs_dbg("%d %d %d\n",dn.level,dn.ofs_in_node, block);
+		struct hmfs_summary *par_sum = get_summary_by_addr(sbi, L_ADDR(sbi,hn));
+		hmfs_dbg("%d %p\n",get_summary_type(par_sum),par_sum);
+	}
 	return dest;
 }
 

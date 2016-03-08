@@ -842,6 +842,7 @@ static int truncate_blocks(struct inode *inode, block_t from)
 				HMFS_INLINE_SIZE - from);
 		return 0;
 	}
+
 	return __truncate_blocks(inode, from);
 }
 
@@ -851,9 +852,22 @@ void hmfs_truncate(struct inode *inode)
 			|| S_ISLNK(inode->i_mode)))
 		return;
 
+	int i=0;
+	struct hmfs_sb_info *sbi=HMFS_I_SB(inode);
+	for (i=0;i<20;i++){
+		if (CM_I(sbi)->nr_bugs<4){
+				hmfs_dbg("%d %d\n",get_valid_blocks(sbi,i),get_seg_vblocks_in_summary(sbi,i));
+		hmfs_bug_on(sbi,get_valid_blocks(sbi,i)!=get_seg_vblocks_in_summary(sbi,i));
+		}
+	}
 	if (!truncate_blocks(inode, i_size_read(inode))) {
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		mark_inode_dirty(inode);
+	}
+
+	for (i=0;i<20;i++){
+		if (CM_I(sbi)->nr_bugs<4)
+		hmfs_bug_on(sbi,get_valid_blocks(sbi,i)!=get_seg_vblocks_in_summary(sbi,i));
 	}
 }
 
