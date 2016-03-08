@@ -738,6 +738,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	block_t ssa_addr, sit_addr;
 	unsigned long long input_size;
 
+	printk(KERN_ERR "##### call %s #####\n", __func__);
+
 	/* sbi initialization */
 	sbi = kzalloc(sizeof(struct hmfs_sb_info), GFP_KERNEL);
 	if (sbi == NULL) {
@@ -933,6 +935,11 @@ static int __init init_inodecache(void)
 
 static void destroy_inodecache(void)
 {
+	/*
+	 * Make sure all delayed rcu free inodes are flushed before we
+	 * destroy cache.
+	 */
+	rcu_barrier();
 	kmem_cache_destroy(hmfs_inode_cachep);
 }
 
