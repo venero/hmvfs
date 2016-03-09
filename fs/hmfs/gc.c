@@ -137,7 +137,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 			continue;
 		}
 
-		/* Stop if we find a segment with none valid blocks */
+		/* Stop if we find a segment whose cost is small enough */
 		if (get_seg_entry(sbi, segno)->valid_blocks < NR_GC_MIN_BLOCK) {
 			p.min_segno = segno;
 			hmfs_dbg("Get victim:%lu vblocks:%d gc_type:%s\n", (unsigned long)segno, get_seg_entry(sbi, segno)->valid_blocks,
@@ -294,7 +294,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 		}
 		unlock_write_segmap(free_i);
 	} else {
-		/* set free bit */
+		/* set prefree bit */
 		if (test_and_set_bit(segno, free_i->prefree_segmap))
 			hmfs_bug_on(sbi, 1);
 	}
@@ -366,6 +366,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
 
 	if (is_current) {
+		//update NAT cache
 		gc_update_nat_entry(NM_I(sbi), args.nid, args.dest_addr);
 		return;
 	}
@@ -459,11 +460,11 @@ static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct gc_move_arg args;
 	struct hmfs_checkpoint *hmfs_cp;
 	block_t cp_addr;
-
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_NODE);
-	cp_addr = le64_to_cpu(*((__le64 *)args.src));
-	hmfs_cp = ADDR(sbi, cp_addr);
+	hmfs_cp = args.cp_i->cp;
+	cp_addr = le64_to_cpu(hmfs_cp->orphan_addrs[get_summary_offset(src_sum)]);
+	hmfs_bug_on(sbi, cp_addr != L_ADDR(args.src));
 	hmfs_cp->orphan_addrs[get_summary_offset(src_sum)] = 
 			cpu_to_le64(args.dest_addr);
 
