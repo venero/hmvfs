@@ -462,9 +462,8 @@ static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	block_t cp_addr;
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
 			TYPE_NODE);
-	hmfs_cp = args.cp_i->cp;
-	cp_addr = le64_to_cpu(hmfs_cp->orphan_addrs[get_summary_offset(src_sum)]);
-	hmfs_bug_on(sbi, cp_addr != L_ADDR(args.src));
+	cp_addr = le64_to_cpu(*((__le64 *)args.src));
+	hmfs_cp = ADDR(sbi, cp_addr);
 	hmfs_cp->orphan_addrs[get_summary_offset(src_sum)] = 
 			cpu_to_le64(args.dest_addr);
 
