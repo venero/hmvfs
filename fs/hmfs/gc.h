@@ -1,15 +1,21 @@
-#ifndef GC_H
-#define GC_H
+#ifndef HMFS_GC_H
+#define HMFS_GC_H
 #include <linux/wait.h>
 #include "segment.h"
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
-#define GC_THREAD_MIN_SLEEP_TIME	30000	/* milliseconds */
+#define GC_THREAD_MIN_SLEEP_TIME	3000	/* milliseconds */
 #define GC_THREAD_MAX_SLEEP_TIME	60000
 #define GC_THREAD_NOGC_SLEEP_TIME	300000	/* 5 min */
 
 #define MAX_SEG_SEARCH				16
+
+/* 
+ * If number of invalid blocks of segment is less than xx, GC process
+ * would stop scaning
+ */
+#define NR_GC_MIN_BLOCK				100
 
 struct hmfs_gc_kthread {
 	struct task_struct *hmfs_gc_task;
@@ -18,11 +24,9 @@ struct hmfs_gc_kthread {
 
 struct gc_move_arg {
 	unsigned int start_version;
-	unsigned int dead_version;
 	unsigned int nid;
 	unsigned int ofs_in_node;
 	int nrchange;
-	int count;
 	block_t src_addr, dest_addr, parent_addr;
 	char *dest, *src;
 	struct hmfs_summary *dest_sum, *parent_sum;
@@ -31,7 +35,6 @@ struct gc_move_arg {
 
 struct victim_sel_policy {
 	int gc_mode;
-	unsigned long *dirty_segmap;
 	unsigned int offset;
 	unsigned int min_cost;
 	unsigned int min_segno;
@@ -49,54 +52,56 @@ enum {
 	GC_GREEDY = 0, GC_CB
 };
 
-static inline u64 free_user_blocks(struct hmfs_sb_info *sbi)
+void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi,
+				seg_t mv_segno, unsigned mv_offset, struct hmfs_summary *sum,
+				int type);
+
+#ifdef CONFIG_HMFS_DEBUG_GC
+#define INC_GC_TRY(si)					(si)->nr_gc_try++
+#define INC_GC_REAL(si)					(si)->nr_gc_real++
+#define COUNT_GC_BLOCKS(si, ivblocks)	do {	\
+											(si)->nr_gc_blocks += ivblocks;\
+											(si)->nr_gc_blocks_range[div64_u64(ivblocks, STAT_GC_RANGE)]++;\
+										} while (0)	
+
+#else
+#define INC_GC_TRY(si)
+#define INC_GC_REAL(si)
+#define COUNT_GC_BLOCKS(si, ivblocks)
+#endif
+
+static inline bool need_deep_scan(struct hmfs_sb_info *sbi)
 {
-	if (free_segments(sbi) < overprovision_segments(sbi))
-		return 0;
-	else
-		return (free_segments(sbi) - overprovision_segments(sbi))
-		 << HMFS_PAGE_PER_SEG_BITS;
+	return free_user_blocks(sbi) < SM_I(sbi)->severe_free_blocks;
 }
 
-static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
+static inline bool need_more_scan(struct hmfs_sb_info *sbi, seg_t segno,
+				seg_t start_segno)
 {
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct hmfs_sm_info *sm_i = SM_I(sbi);
-	unsigned long invalid_user_blocks = cm_i->alloc_block_count
-	 - cm_i->valid_block_count;
-
-	BUG_ON(cm_i->alloc_block_count < cm_i->valid_block_count);
-
-	if (invalid_user_blocks > sm_i->limit_invalid_blocks
-	    && free_user_blocks(sbi) < sm_i->limit_free_blocks)
-		return true;
-	return false;
+	if (segno >= start_segno)
+		return segno - start_segno < sbi->nr_max_fg_segs;
+	return segno + TOTAL_SEGS(sbi) - start_segno< sbi->nr_max_fg_segs; 
 }
 
-static inline bool has_not_enough_free_segs(struct hmfs_sb_info *sbi)
-{
-	return free_user_blocks(sbi) < SM_I(sbi)->limit_free_blocks;
-}
-
-static inline long increase_sleep_time(long wait)
+static inline long increase_sleep_time(struct hmfs_sb_info *sbi, long wait)
 {
 	if (wait == GC_THREAD_NOGC_SLEEP_TIME)
 		return wait;
 
-	wait += GC_THREAD_MIN_SLEEP_TIME;
-	if (wait > GC_THREAD_MAX_SLEEP_TIME)
-		wait = GC_THREAD_MAX_SLEEP_TIME;
+	wait += sbi->gc_thread_time_step;
+	if (wait > sbi->gc_thread_max_sleep_time)
+		wait = sbi->gc_thread_max_sleep_time;
 	return wait;
 }
 
-static inline long decrease_sleep_time(long wait)
+static inline long decrease_sleep_time(struct hmfs_sb_info *sbi, long wait)
 {
 	if (wait == GC_THREAD_NOGC_SLEEP_TIME)
-		wait = GC_THREAD_MAX_SLEEP_TIME;
+		wait = sbi->gc_thread_max_sleep_time;
 
-	wait -= GC_THREAD_MIN_SLEEP_TIME;
-	if (wait <= GC_THREAD_MIN_SLEEP_TIME)
-		wait = GC_THREAD_MIN_SLEEP_TIME;
+	wait -= sbi->gc_thread_time_step;
+	if (wait <= sbi->gc_thread_min_sleep_time)
+		wait = sbi->gc_thread_min_sleep_time;
 	return wait;
 }
 

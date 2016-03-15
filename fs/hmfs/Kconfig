@@ -1,0 +1,31 @@
+config HMFS_FS
+	tristate "HMFS filesystem support (EXPERIMENTAL)"
+	depends on BLOCK
+	help
+	  If unsure, say N.
+
+config HMFS_DEBUG
+	bool "HMFS debug support"
+	depends on HMFS_FS
+	help
+	  /sys/kernel/debug/hmfs/status includes:
+
+config HMFS_FAST_READ
+	bool "HMFS Fast-Read of read-only file"
+	depends on HMFS_FS
+	help
+	  If unsure, say N.
+
+config HMFS_XATTR
+	bool "HMFS extended attributes"
+	default y
+	depends on HMFS_FS
+	help
+		if unsure, say N
+
+config HMFS_ACL
+	bool "HMFS ACL"
+	select FS_POSIX_ACL
+	default y
+	help
+		if not sure

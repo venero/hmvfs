@@ -1,16 +1,34 @@
+/*
+ * fs/hmfs/namei.c
+ *
+ * Copyright (c) 2012 Samsung Electronics Co., Ltd.
+ *             http://www.samsung.com/
+ * Copyright (c) 2015 SJTU RadLab
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include <linux/fs.h>
+#include <linux/xattr.h>
+#include <linux/posix_acl.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
+
+static bool hmfs_may_set_inline_data(struct inode *dir)
+{
+	return test_opt(HMFS_I_SB(dir), INLINE_DATA);
+}
 
 static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
-	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_inode_info *i_info;
 	struct inode *inode;
 	nid_t ino;
-	int err, ilock;
+	int err;
 	bool nid_free = false;
 
 	inode = new_inode(sb);
@@ -21,7 +39,6 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		err = -ENOSPC;
 		goto fail;
 	}
-
 	inode->i_uid = current_fsuid();
 
 	if (dir->i_mode & S_ISGID) {
@@ -52,13 +69,14 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		nid_free = true;
 		goto out;
 	}
-	//TODO: sync with nvm
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
-	update_nat_entry(nm_i, ino, ino, NEW_ADDR, CM_I(sbi)->new_version, true);
-	ilock = mutex_lock_op(sbi);
-	err = sync_hmfs_inode(inode);
-	mutex_unlock_op(sbi, ilock);
+	if (hmfs_may_set_inline_data(dir)) {
+		set_inode_flag(i_info, FI_INLINE_DATA);
+	}
+
+	hmfs_bug_on(sbi, !IS_ERR(get_node(sbi, ino)));
+	err = sync_hmfs_inode(inode, false);
 	if (!err) {
 		inc_valid_inode_count(sbi);
 		return inode;
@@ -76,23 +94,29 @@ fail:
 }
 
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
-			       umode_t mode)
+				umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct hmfs_sb_info *sbi = HMFS_SB(sb);
 	struct inode *inode;
 	int err = 0, ilock;
 
-	inode = hmfs_new_inode(dir, mode);
-	if (IS_ERR(inode))
-		return inode;
 	ilock = mutex_lock_op(sbi);
+
+	inode = hmfs_new_inode(dir, mode);
+	if (IS_ERR(inode)) {
+		mutex_unlock_op(sbi, ilock);
+		return inode;
+	}
+
 	err = hmfs_add_link(dentry, inode);
+
 	mutex_unlock_op(sbi, ilock);
 	if (err)
 		goto out;
 	return inode;
-out:	clear_nlink(inode);
+out:
+	clear_nlink(inode);
 	unlock_new_inode(inode);
 	make_bad_inode(inode);
 	iput(inode);
@@ -101,7 +125,7 @@ out:	clear_nlink(inode);
 }
 
 static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
-		      dev_t rdev)
+				dev_t rdev)
 {
 	struct inode *inode;
 
@@ -122,7 +146,7 @@ static int hmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 }
 
 static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
-		       bool excl)
+				bool excl)
 {
 	struct inode *inode;
 
@@ -131,7 +155,7 @@ static int hmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		return PTR_ERR(inode);
 	inode->i_op = &hmfs_file_inode_operations;
 	inode->i_fop = &hmfs_file_operations;
-	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
 	d_instantiate(dentry, inode);
 	unlock_new_inode(inode);
@@ -149,7 +173,7 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 
 	inode->i_op = &hmfs_dir_inode_operations;
 	inode->i_fop = &hmfs_dir_operations;
-	inode->i_mapping->a_ops = &hmfs_dblock_aops;
+	inode->i_mapping->a_ops = &hmfs_aops_xip;
 
 	d_instantiate(dentry, inode);
 	unlock_new_inode(inode);
@@ -158,12 +182,12 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 }
 
 static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
-		     struct dentry *dentry)
+				struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
-	struct hmfs_sb_info *sbi = HMFS_SB(inode->i_sb);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int err, ilock;
-
+	
 	inode->i_ctime = CURRENT_TIME;
 	ihold(inode);
 
@@ -175,7 +199,8 @@ static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
 		goto out;
 	d_instantiate(dentry, inode);
 	return 0;
-out:	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
+out:	
+	clear_inode_flag(HMFS_I(inode), FI_INC_LINK);
 	iput(inode);
 	return err;
 }
@@ -199,19 +224,23 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto fail;
 
 	ilock = mutex_lock_op(sbi);
-	res_blk = alloc_new_data_block(dir, bidx);
+
+	inode_write_lock(dir);
+	res_blk = get_dentry_block_for_write(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
 		mutex_unlock_op(sbi, ilock);
 		goto fail;
 	}
+
 	de = &res_blk->dentry[ofs_in_blk];
-	//FIXME: mutex?
 	hmfs_delete_entry(de, res_blk, dir, inode, bidx);
+	inode_write_unlock(dir);
 
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
-fail:	return err;
+fail:
+	return err;
 }
 
 static int hmfs_rmdir(struct inode *dir, struct dentry *dentry)
@@ -242,14 +271,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto out;
 
 	ilock = mutex_lock_op(sbi);
-
-	old_dentry_blk = alloc_new_data_block(old_dir, old_bidx);
-	if (IS_ERR(old_dentry_blk)) {
-		err = PTR_ERR(old_dentry_blk);
-		goto out_k;
-	}
-	old_entry = &old_dentry_blk->dentry[old_ofs];
-
+	
 	if (S_ISDIR(old_inode->i_mode)) {
 		err = -EIO;
 		// .. in hmfs_dentry_block of old_inode
@@ -258,19 +280,19 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out_k;
 	}
 
+	inode_write_lock(new_dir);
 	if (new_inode) {
 		err = -ENOTEMPTY;
 		if (old_dir_entry && !hmfs_empty_dir(new_inode))
 			goto out_k;
 
 		err = -ENOENT;
-		new_entry =
-		 hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
+		new_entry = hmfs_find_entry(new_dir, &new_dentry->d_name, &new_bidx,
 				 &new_ofs);
 		if (!new_entry)
 			goto out_k;
 
-		new_dentry_blk = alloc_new_data_block(new_dir, new_bidx);
+		new_dentry_blk = get_dentry_block_for_write(new_dir, new_bidx);
 		if (IS_ERR(new_dentry_blk)) {
 			err = PTR_ERR(new_dentry_blk);
 			goto out_k;
@@ -304,9 +326,19 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	old_inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(old_inode);
+	
+	if (old_dir != new_dir)
+		inode_write_lock(old_dir);
 
-	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, old_inode,
-			  old_bidx);
+	old_dentry_blk = get_dentry_block_for_write(old_dir, old_bidx);
+	if (IS_ERR(old_dentry_blk)) {
+		err = PTR_ERR(old_dentry_blk);
+		goto unlock_old;
+	}
+	old_entry = &old_dentry_blk->dentry[old_ofs];
+
+	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
+			old_bidx);
 
 	if (old_dir_entry) {
 		if (old_dir != new_dir) {
@@ -315,8 +347,14 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(old_dir);
 		mark_inode_dirty(old_dir);
 	}
-out_k:	mutex_unlock_op(sbi, ilock);
-out:	return err;
+unlock_old:
+	if (old_dir != new_dir)
+		inode_write_unlock(old_dir);
+out_k:
+	inode_write_unlock(new_dir);
+	mutex_unlock_op(sbi, ilock);
+out:
+	return err;
 }
 
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
@@ -328,6 +366,7 @@ int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	return 0;
 }
 
+#ifdef CONFIG_HMFS_ACL
 static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
@@ -338,37 +377,64 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 		inode->i_gid = attr->ia_gid;
 	if (ia_valid & ATTR_ATIME)
 		inode->i_atime = timespec_trunc(attr->ia_atime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MTIME)
 		inode->i_mtime = timespec_trunc(attr->ia_mtime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_CTIME)
 		inode->i_ctime = timespec_trunc(attr->ia_ctime,
-						inode->i_sb->s_time_gran);
+								inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
 			mode &= ~S_ISGID;
-		inode->i_mode = mode;
+		set_acl_inode(HMFS_I(inode), mode);
 	}
 }
+#else
+#define __setattr_copy setattr_copy
+#endif
 
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	struct inode *inode = dentry->d_inode;
-	int err = 0;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct posix_acl *acl;
+	int err = 0, ilock;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
 	err = inode_change_ok(inode, attr);
 	if (err)
 		return err;
 
+	ilock = mutex_lock_op(sbi);
+
+	inode_write_lock(inode);
 	if ((attr->ia_valid & ATTR_SIZE) && attr->ia_size != i_size_read(inode)) {
 		truncate_setsize(inode, attr->ia_size);
+
 		hmfs_truncate(inode);
 	}
 
 	__setattr_copy(inode, attr);
 
+	if (attr->ia_valid & ATTR_MODE) {
+		acl = hmfs_get_acl(inode, ACL_TYPE_ACCESS);
+		if (!acl || IS_ERR(acl)) {
+			err = PTR_ERR(acl);
+			goto out;
+		}
+		err = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
+		err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
+		if (err || is_inode_flag_set(fi, FI_ACL_MODE)) {
+			inode->i_mode = fi->i_acl_mode;
+			clear_inode_flag(fi, FI_ACL_MODE);
+		}
+	}
+
+out:
+	inode_write_unlock(inode);
+	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
 	return err;
 }
@@ -382,7 +448,9 @@ static struct dentry *hmfs_lookup(struct inode *dir, struct dentry *dentry,
 	if (dentry->d_name.len > HMFS_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
 
+	inode_read_lock(dir);
 	de = hmfs_find_entry(dir, &dentry->d_name, NULL, NULL);
+	inode_read_unlock(dir);
 	if (de) {
 		inode = hmfs_iget(dir->i_sb, de->ino);
 		if (IS_ERR(inode))
@@ -404,9 +472,23 @@ const struct inode_operations hmfs_dir_inode_operations = {
 	.setattr = hmfs_setattr,
 	.rmdir = hmfs_rmdir,
 	.rename = hmfs_rename,
+	.get_acl = hmfs_get_acl,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif
 };
 
 const struct inode_operations hmfs_special_inode_operations = {
 	.getattr = hmfs_getattr,
 	.setattr = hmfs_setattr,
+	.get_acl = hmfs_get_acl,
+#ifdef CONFIG_HMFS_XATTR
+	.setxattr = generic_setxattr,
+	.getxattr = generic_getxattr,
+	.listxattr = hmfs_listxattr,
+	.removexattr = generic_removexattr,
+#endif
 };
