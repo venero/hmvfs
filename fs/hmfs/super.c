@@ -467,7 +467,7 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, cur_blkoff[SEG_DATA_INDEX], data_blkoff);
 	for (i = SEG_DATA_INDEX + 1; i < HMFS_MAX_CUR_SEG_COUNT; i++) {
 		set_struct(cp, cur_segno[i], NULL_SEGNO);
-		set_struct(cp, cur_blkoff[i], segment_size >> HMFS_BLOCK_SIZE_BITS[i]);
+		set_struct(cp, cur_blkoff[i], segment_size >> HMFS_MIN_PAGE_SIZE_BITS);
 	}
 	set_struct(cp, valid_inode_count, 1);
 	/* sit, nat, root */
