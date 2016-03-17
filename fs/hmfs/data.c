@@ -149,7 +149,7 @@ int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct dnode_of_data dn;
 	block_t addr;
-	block_t max_blk = hmfs_max_file_size() >> HMFS_PAGE_SIZE_BITS;
+	block_t max_blk = hmfs_max_file_size() >> HMFS_BLOCK_SIZE_BITS[HMFS_I(inode)->i_blk_type];
 	int i;
 	int ofs_in_node = 0;
 	int end_blk_id = -1;
@@ -222,6 +222,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	int err;
 	struct hmfs_summary *summary = NULL;
 	char sum_type;
+	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
@@ -250,14 +251,14 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	}
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
-				src_addr != NULL_ADDR), 1))
+				src_addr != NULL_ADDR), HMFS_BLOCK_SIZE_4K[seg_type]))
 		return ERR_PTR(-ENOSPC);
 
-	new_addr = alloc_free_data_block(sbi);
+	new_addr = alloc_free_data_block(sbi, seg_type);
 
 	if (new_addr == NULL_ADDR) {
 		inc_valid_block_count(sbi, get_stat_object(inode,
-				src_addr != NULL_ADDR), -1);
+				src_addr != NULL_ADDR), -HMFS_BLOCK_SIZE_4K[seg_type]);
 		return ERR_PTR(-ENOSPC);
 	}
 	if (dn.level)
@@ -270,12 +271,12 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	if (src_addr != NULL_ADDR) {
 		if (left)
 			hmfs_memcpy(dest, src, left);
-		if (right < HMFS_PAGE_SIZE)
+		if (right < HMFS_BLOCK_SIZE[seg_type])
 			hmfs_memcpy(dest + right, src + right,
-					HMFS_PAGE_SIZE - right);
+					HMFS_BLOCK_SIZE[seg_type] - right);
 	} else if (fill_zero) {
 		left = 0;
-		right = HMFS_PAGE_SIZE;
+		right = HMFS_BLOCK_SIZE[seg_type];
 	}
 
 	if (fill_zero)
@@ -297,6 +298,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	int err;
 	struct hmfs_summary *summary = NULL;
 	char sum_type;
+	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
@@ -325,14 +327,14 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-EPERM);
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), 1))
+				!= NULL_ADDR), HMFS_BLOCK_SIZE_4K[seg_type]))
 		return ERR_PTR(-ENOSPC);
 
-	new_addr = alloc_free_data_block(sbi);
+	new_addr = alloc_free_data_block(sbi, seg_type);
 
 	if (new_addr == NULL_ADDR) {
 		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), -1);
+				!= NULL_ADDR), -HMFS_BLOCK_SIZE_4K[seg_type]);
 		return ERR_PTR(-ENOSPC);
 	}
 
@@ -344,14 +346,18 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	dest = ADDR(sbi, new_addr);
 
 	if (src_addr != NULL_ADDR)
-		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
-	else memset_nt(dest, 0, HMFS_PAGE_SIZE);
+		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
+	else memset_nt(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
 
 	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
 	return dest;
 }
 
+/*
+ * @block: 	-- index of data block for NORMAL inode;
+ * 			-- type of data block for GC
+ */
 void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, 
 				int block)
 {
@@ -360,10 +366,10 @@ void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode,
 	if (likely(inode))
 		return __alloc_new_data_block(inode, block);
 
-	if (!inc_gc_block_count(sbi, CURSEG_DATA))
+	if (!inc_gc_block_count(sbi, block))
 		return ERR_PTR(-ENOSPC);
 
-	addr = alloc_free_data_block(sbi);
+	addr = alloc_free_data_block(sbi, block);
 	return ADDR(sbi, addr);
 }
 
@@ -400,7 +406,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 				!= NULL_ADDR), 1))
 		return ERR_PTR(-ENOSPC);
 
-	dst_addr = alloc_free_data_block(sbi);
+	dst_addr = alloc_free_data_block(sbi, SEG_DATA_INDEX);
 
 	if (dst_addr == NULL_ADDR) {
 		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
@@ -411,9 +417,9 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	dst = ADDR(sbi, dst_addr);
 
 	if (need_copy && src_addr != NULL_ADDR)
-		hmfs_memcpy(dst, src, HMFS_PAGE_SIZE);
+		hmfs_memcpy(dst, src, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 	else
-		memset_nt(dst, 0, HMFS_PAGE_SIZE);
+		memset_nt(dst, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 
 	summary = get_summary_by_addr(sbi, dst_addr);
 	make_summary_entry(summary, inode->i_ino, CM_I(sbi)->new_version, 0,

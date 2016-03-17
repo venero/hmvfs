@@ -16,7 +16,7 @@
 
 #define HMFS_XATTR_VALUE_LEN		255
 
-#define HMFS_XATTR_BLOCK_SIZE		HMFS_PAGE_SIZE
+#define HMFS_XATTR_BLOCK_SIZE		HMFS_MIN_PAGE_SIZE
 
 #define XATTR_HDR(ptr)		((struct hmfs_xattr_header *)(ptr))
 #define XATTR_ENTRY(ptr)	((struct hmfs_xattr_entry *)(ptr))

@@ -4,8 +4,8 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
 
-#define FREE_NID_BLK_SIZE		(HMFS_PAGE_SIZE * 2)
-#define BUILD_FREE_NID_COUNT	(HMFS_PAGE_SIZE / sizeof(nid_t))
+#define FREE_NID_BLK_SIZE		(PAGE_SIZE * 2)
+#define BUILD_FREE_NID_COUNT	(PAGE_SIZE / sizeof(nid_t))
 
 #define IS_NAT_ROOT(nid)	(!nid)
 
@@ -91,10 +91,10 @@ static inline char hmfs_get_nat_height(unsigned long long initsize)
 	unsigned long long nr_blk = 0, nr_current = NAT_ADDR_PER_NODE;
 	char height = 1;
 
-	if (initsize >> (BITS_PER_NID + HMFS_PAGE_SIZE_BITS))
+	if (initsize >> (BITS_PER_NID + HMFS_MIN_PAGE_SIZE_BITS))
 		max_nid = 1 << (BITS_PER_NID - 1);
 	else
-		max_nid = initsize >> HMFS_PAGE_SIZE_BITS;
+		max_nid = initsize >> HMFS_MIN_PAGE_SIZE_BITS;
 
 	if (max_nid <= NAT_ENTRY_PER_BLOCK)
 		return 0;

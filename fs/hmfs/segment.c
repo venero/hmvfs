@@ -10,13 +10,14 @@ bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr)
 {
 	seg_t segno = GET_SEGNO(sbi, addr);
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;
+	int i;
+
+	for (i = 0; i < HMFS_MAX_CUR_SEG_COUNT; i++) {
+		if (segno == le32_to_cpu(hmfs_cp->cur_segno[i]))
+			return GET_SEG_OFS(sbi, addr) <= le32_to_cpu(hmfs_cp->cur_blkoff[i]);
+	}
 	
-	if (segno == le32_to_cpu(hmfs_cp->cur_data_segno))
-		return GET_SEG_OFS(sbi, addr) <= le16_to_cpu(hmfs_cp->cur_data_blkoff);
-	else if (segno == le32_to_cpu(hmfs_cp->cur_node_segno))
-		return GET_SEG_OFS(sbi, addr) <= le16_to_cpu(hmfs_cp->cur_node_blkoff);
-	else
-		return get_seg_entry(sbi, segno)->valid_blocks > 0;
+	return get_seg_entry(sbi, segno)->valid_blocks > 0;
 }
 
 unsigned long total_valid_blocks(struct hmfs_sb_info *sbi)
@@ -33,19 +34,19 @@ unsigned long total_valid_blocks(struct hmfs_sb_info *sbi)
 
 unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *sbi, seg_t segno)
 {
-	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
 	int off = 0;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	bool is_current;
 	int count = 0;
 	nid_t nid;
+	const unsigned char seg_type = get_seg_entry(sbi, segno)->type;
+	const unsigned int block_size = HMFS_BLOCK_SIZE_4K[seg_type];
 	
-	sum_blk = get_summary_block(sbi, segno);
-	sum = sum_blk->entries;
+	sum = get_summary_block(sbi, segno);
 
 	//TODO: Set same part in garbage_collect as function
-	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
+	for (off = 0; off < SM_I(sbi)->page_4k_per_seg; off += block_size, sum++) {
 		is_current = get_summary_start_version(sum) == cm_i->new_version;
 
 		if (!get_summary_valid_bit(sum) && !is_current)
@@ -69,7 +70,8 @@ static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 }
 
 /* Return amount of blocks which has been invalidated */
-int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
+int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, 
+				unsigned long vblocks)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_summary *summary;
@@ -82,11 +84,11 @@ int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr)
 	set_summary_nid(summary, NULL_NID);
 	segno = GET_SEGNO(sbi, addr);
 	lock_sentry(sit_i);
-	update_sit_entry(sbi, segno, -1);
+	update_sit_entry(sbi, segno, -vblocks);
 	unlock_sentry(sit_i);
 
 	test_and_set_bit(segno, DIRTY_I(sbi)->dirty_segmap);
-	return 1;
+	return vblocks;
 }
 
 static void init_min_max_mtime(struct hmfs_sb_info *sbi)
@@ -119,12 +121,13 @@ void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
 	se = get_seg_entry(sbi, segno);
 	new_vblocks = se->valid_blocks + del;
 
-	hmfs_dbg_on(new_vblocks < 0 || new_vblocks > HMFS_PAGE_PER_SEG,
+	hmfs_dbg_on(new_vblocks < 0 || new_vblocks > SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[0],
 			"Invalid value of valid_blocks: %ld free:%d prefree:%d dirty:%d\n",
 			new_vblocks, test_bit(segno, FREE_I(sbi)->free_segmap),
 			test_bit(segno, FREE_I(sbi)->prefree_segmap), 
 			test_bit(segno, DIRTY_I(sbi)->dirty_segmap));
-	hmfs_bug_on(sbi, new_vblocks < 0 || new_vblocks > HMFS_PAGE_PER_SEG);
+	hmfs_bug_on(sbi, new_vblocks < 0 || new_vblocks > 
+			SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[0]);
 
 	se->valid_blocks = new_vblocks;
 	se->mtime = get_mtime(sbi);
@@ -138,11 +141,12 @@ static void reset_curseg(struct curseg_info *seg_i)
 	seg_i->next_segno = NULL_SEGNO;
 }
 
+//TODO:check blkoff
 inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno,
 				int blkoff)
 {
-	return (segno << HMFS_SEGMENT_SIZE_BITS) +
-					(blkoff << HMFS_PAGE_SIZE_BITS)
+	return (segno << SM_I(sbi)->segment_size_bits) +
+					(blkoff << HMFS_MIN_PAGE_SIZE_BITS)
 					+ sbi->main_addr_start;
 }
 
@@ -185,7 +189,7 @@ retry:
 	*newseg = segno;
 	/* Need to clear SSA */
 	ssa = get_summary_block(sbi, segno);
-	memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
+	memset_nt(ssa, 0, SM_I(sbi)->page_4k_per_seg * sizeof(struct hmfs_summary));
 unlock:
 	unlock_write_segmap(free_i);
 	return ret;
@@ -214,7 +218,7 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 
 	lock_curseg(seg_i);
 	
-	if (seg_i->next_blkoff == HMFS_PAGE_PER_SEG) {
+	if (seg_i->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
 		ret = move_to_new_segment(sbi, seg_i);
 		if (ret) {
 			unlock_curseg(seg_i);
@@ -226,26 +230,26 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 
 	if (sit_lock)
 		lock_sentry(sit_i);
-	update_sit_entry(sbi, atomic_read(&seg_i->segno), 1);
+	update_sit_entry(sbi, atomic_read(&seg_i->segno), HMFS_BLOCK_SIZE_4K[seg_type]);
 	
 	if (sit_lock)
 		unlock_sentry(sit_i);
 
-	seg_i->next_blkoff++;
+	seg_i->next_blkoff += HMFS_BLOCK_SIZE_4K[seg_type];
 
 	unlock_curseg(seg_i);
 
 	return page_addr;
 }
 
-block_t alloc_free_data_block(struct hmfs_sb_info * sbi)
+block_t alloc_free_data_block(struct hmfs_sb_info * sbi, char seg_type)
 {
-	return get_free_block(sbi, CURSEG_DATA, true);
+	return get_free_block(sbi, seg_type, true);
 }
 
 block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
 {
-	return get_free_block(sbi, CURSEG_NODE, sit_lock);
+	return get_free_block(sbi, SEG_NODE_INDEX, sit_lock);
 }
 
 void recovery_sit_entries(struct hmfs_sb_info *sbi,
@@ -256,6 +260,7 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 	struct hmfs_sit_entry *sit_entry;
 	block_t seg_addr;
 	seg_t sit_segno, segno;
+	const unsigned long logs_entry_per_seg = LOGS_ENTRY_PER_SEG(sbi);
 
 	nr_logs = le16_to_cpu(hmfs_cp->nr_logs);
 	nr_segs = hmfs_cp->nr_segs;
@@ -271,7 +276,7 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 			
 			num++;
 			sit_log++;
-			if (num % LOGS_ENTRY_PER_SEG == 0)
+			if (num % logs_entry_per_seg == 0)
 				break;
 		}
 	}
@@ -290,6 +295,7 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
 	int i;
 	int offset = 0;
 
+
 	while(1) {
 		offset = find_next_bit(bitmap, total_segs, offset);
 		if (offset < total_segs) {
@@ -303,8 +309,8 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
 			 */
 			if (sbi->recovery_doing) {
 				seg_entry->valid_blocks = 0;
-				summary = get_summary_block(sbi, offset)->entries;
-				for (i = 0; i < SUM_ENTRY_PER_BLOCK; i++, summary++) {
+				summary = get_summary_block(sbi, offset);
+				for (i = 0; i < SM_I(sbi)->page_4k_per_seg; i++, summary++) {
 					if (get_summary_valid_bit(summary))
 						seg_entry->valid_blocks++;
 				}
@@ -341,6 +347,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	seg_t sit_segno;
 	block_t seg_addr;
+	const unsigned long logs_entry_per_seg = LOGS_ENTRY_PER_SEG(sbi);
 
 #ifdef CONFIG_HMFS_DEBUG
 	pgc_t nrdirty = 0;
@@ -359,8 +366,8 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 
 	/* First, prepare free segments to store dirty sit logs */
 	nr_logs = sit_i->dirty_sentries;
-	nr_segs = (nr_logs + LOGS_ENTRY_PER_SEG - 1) / LOGS_ENTRY_PER_SEG - 1;
-	sit_segno = le32_to_cpu(hmfs_cp->cur_data_segno);
+	nr_segs = (nr_logs + logs_entry_per_seg - 1) / logs_entry_per_seg - 1;
+	sit_segno = le32_to_cpu(hmfs_cp->cur_segno[SEG_NODE_INDEX]);
 	do {
 retry:
 		sit_segno = find_next_zero_bit(free_i->free_segmap, total_segs,
@@ -384,7 +391,7 @@ retry:
 			seg_addr = __cal_page_addr(sbi, 
 							le32_to_cpu(hmfs_cp->sit_logs[nr_segs]), 0);
 			sit_log = ADDR(sbi, seg_addr);
-			i = LOGS_ENTRY_PER_SEG;
+			i = logs_entry_per_seg;
 			nr_segs++;
 		}
 		if (offset < total_segs) {
@@ -392,6 +399,7 @@ retry:
 			sit_log->segno = cpu_to_le32(offset);
 			sit_log->mtime = cpu_to_le32(seg_entry->mtime);
 			sit_log->vblocks = cpu_to_le32(seg_entry->valid_blocks);
+			sit_log->type = seg_entry->type;
 			sit_log++;
 			nr_logs++;
 			i--;
@@ -536,31 +544,21 @@ static int build_curseg(struct hmfs_sb_info *sbi)
 	struct curseg_info *array;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
-	unsigned short node_blkoff, data_blkoff;
+	int i;
 
-	array = kzalloc(sizeof(struct curseg_info) * NR_CURSEG_TYPE,
+	array = kzalloc(sizeof(struct curseg_info) * sbi->nr_page_types,
 					GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
 	SM_I(sbi)->curseg_array = array;
-
-	mutex_init(&array[CURSEG_NODE].curseg_mutex);
-	mutex_init(&array[CURSEG_DATA].curseg_mutex);
-
-	lock_curseg(&array[CURSEG_NODE]);
-	node_blkoff = le16_to_cpu(hmfs_cp->cur_node_blkoff);
-	array[CURSEG_NODE].next_blkoff = node_blkoff;
-	atomic_set(&array[CURSEG_NODE].segno, le32_to_cpu(hmfs_cp->cur_node_segno));
-	array[CURSEG_NODE].next_segno = NULL_SEGNO;
-	unlock_curseg(&array[CURSEG_NODE]);
-
-	lock_curseg(&array[CURSEG_DATA]);
-	data_blkoff = le16_to_cpu(hmfs_cp->cur_data_blkoff);
-	array[CURSEG_DATA].next_blkoff = data_blkoff;
-	atomic_set(&array[CURSEG_DATA].segno, le32_to_cpu(hmfs_cp->cur_data_segno));
-	array[CURSEG_DATA].next_segno = NULL_SEGNO;
-	unlock_curseg(&array[CURSEG_DATA]);
+	
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		mutex_init(&array[i].curseg_mutex);
+		array[i].next_blkoff = le32_to_cpu(hmfs_cp->cur_blkoff[i]);
+		atomic_set(&array[i].segno, le32_to_cpu(hmfs_cp->cur_segno[i]));
+		array[i].next_segno = NULL_SEGNO;
+	}
 
 	return 0;
 }
@@ -601,8 +599,10 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 
 	/* set use the current segments */
 	curseg_t = CURSEG_I(sbi);
-	for (i = 0; i < NR_CURSEG_TYPE; i++)
-		__set_test_and_inuse(sbi, atomic_read(&curseg_t[i].segno));
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		if (atomic_read(&curseg_t[i].segno) != NULL_SEGNO)
+			__set_test_and_inuse(sbi, atomic_read(&curseg_t[i].segno));
+	}
 }
 
 static void init_dirty_segmap(struct hmfs_sb_info *sbi)
@@ -621,14 +621,16 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 			break;
 		offset = segno + 1;
 		valid_blocks = get_seg_entry(sbi, segno)->valid_blocks;
-		if (valid_blocks >= HMFS_PAGE_PER_SEG || !valid_blocks)
+		if (valid_blocks >= SM_I(sbi)->page_4k_per_seg || !valid_blocks)
 			continue;
 		test_and_set_bit(segno, dirty_i->dirty_segmap);
 	}
 
 	/* Clear the current segments */
-	for (i = 0; i < NR_CURSEG_TYPE; i++)
-		clear_bit(atomic_read(&curseg_t[i].segno), dirty_i->dirty_segmap);
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		if (atomic_read(&curseg_t[i].segno) != NULL_SEGNO)
+			clear_bit(atomic_read(&curseg_t[i].segno), dirty_i->dirty_segmap);
+	}
 }
 
 static int build_dirty_segmap(struct hmfs_sb_info *sbi)
@@ -666,16 +668,21 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 
 	/* init sm info */
 	sbi->sm_info = sm_info;
-	sm_info->segment_count = le64_to_cpu(raw_super->segment_count);
 	main_segments = le64_to_cpu(raw_super->segment_count_main);
-	sm_info->main_segments = main_segments;
-	user_segments = sm_info->main_segments * (100 - DEF_OP_SEGMENTS) / 100;
-	sm_info->ovp_segments = sm_info->main_segments - user_segments;
-	sm_info->limit_invalid_blocks = main_segments * HMFS_PAGE_PER_SEG
-			* LIMIT_INVALID_BLOCKS / 100;
-	sm_info->limit_free_blocks = main_segments * HMFS_PAGE_PER_SEG 
+	user_segments = main_segments * (100 - DEF_OP_SEGMENTS) / 100;
+	sm_info->segment_size = calculate_segment_size(sbi->max_page_size);
+	sm_info->segment_size_bits = calculate_segment_size_bits(sbi->max_page_size_bits);
+	sm_info->segment_size_mask = ~(sm_info->segment_size - 1);
+	sm_info->page_4k_per_seg = sm_info->segment_size >> HMFS_MIN_PAGE_SIZE_BITS;
+	sm_info->page_4k_per_seg_bits = sm_info->segment_size_bits
+			- HMFS_MIN_PAGE_SIZE_BITS;
+
+	sm_info->ovp_segments = main_segments - user_segments;
+	sm_info->limit_invalid_blocks = main_segments * sm_info->page_4k_per_seg *
+			LIMIT_INVALID_BLOCKS / 100;
+	sm_info->limit_free_blocks = main_segments * sm_info->page_4k_per_seg
 			* LIMIT_FREE_BLOCKS / 100;
-	sm_info->severe_free_blocks = main_segments * HMFS_PAGE_PER_SEG 
+	sm_info->severe_free_blocks = main_segments * sm_info->page_4k_per_seg
 			* SEVERE_FREE_BLOCKS / 100;
 
 	err = build_sit_info(sbi);
@@ -761,13 +768,10 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 	kfree(sm_info);
 }
 
-struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
+struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
 				seg_t segno)
 {
-	struct hmfs_summary_block *summary_blk;
-	
-	summary_blk = HMFS_SUMMARY_BLOCK(sbi->ssa_entries);
-	return &summary_blk[segno];
+	return sbi->ssa_entries + (segno << SM_I(sbi)->page_4k_per_seg_bits);
 }
 
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
@@ -775,11 +779,10 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 {
 	seg_t segno;
 	unsigned int blkoff;
-	struct hmfs_summary_block *summary_blk = NULL;
 
 	segno = GET_SEGNO(sbi, blk_addr);
 	blkoff = GET_SEG_OFS(sbi, blk_addr);
-	summary_blk = get_summary_block(sbi, segno);
 
-	return &summary_blk->entries[blkoff];
+	return sbi->ssa_entries + (segno << SM_I(sbi)->page_4k_per_seg_bits)
+			+ blkoff;
 }

@@ -77,7 +77,7 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "valid_block_count:%lu\n",
 		   (unsigned long)cm_i->valid_block_count);
 	seq_printf(s, "free_block_count:%lu\n",
-			(unsigned long)free_i->free_segments << HMFS_PAGE_PER_SEG_BITS);
+			(unsigned long)free_i->free_segments << sm_i->page_4k_per_seg_bits);
 	seq_printf(s, "alloc_block_count:%lu\n",
 		   (unsigned long)cm_i->alloc_block_count);
 	seq_printf(s, "valid_node_count:%lu\n", cm_i->valid_node_count);
@@ -102,7 +102,7 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "limit severe free blocks:%lu\n", 
 			(unsigned long)sm_i->severe_free_blocks);
 	seq_printf(s, "overprovision blocks:%lu\n", 
-			(unsigned long)sm_i->ovp_segments << HMFS_PAGE_PER_SEG_BITS);
+			(unsigned long)sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
 	if (si->flush_nat_time)
 		seq_printf(s, "flush_nat_per_block:%lu\n", 
 				si->flush_nat_sum / si->flush_nat_time);
@@ -113,7 +113,7 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "GC Real:%d\n", si->nr_gc_real);
 	seq_printf(s, "GC Try:%d\n", si->nr_gc_try);
 	seq_printf(s, "nr gc blocks:%lu\n", si->nr_gc_blocks);
-	for (i = 0; i < SIZE_GC_RANGE; i++)
+	for (i = 0; i < si->size_gc_range; i++)
 		seq_printf(s, "nr_gc_blocks_range[%d-%d):%d\n", i * STAT_GC_RANGE,
 				(i + 1) * STAT_GC_RANGE, si->nr_gc_blocks_range[i]);
 #endif
@@ -287,13 +287,14 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	si = sbi->stat_info;
 	si->sbi = sbi;
 	spin_lock_init(&si->stat_lock);
-	ret = hmfs_build_info(sbi, 1 << 20 );
-	init_gc_stat(sbi);
+	ret = hmfs_build_info(sbi, 1 << 20);
 	
-	if (ret) {
-		kfree(si);
-		return -ENOMEM;
-	}
+	if (ret) 
+		goto free_si;
+
+	ret = init_gc_stat(sbi);
+	if (ret)
+		goto free_info;
 
 	sprintf(name, "%ld", (unsigned long) sbi->phys_addr);
 	root = debugfs_create_dir(name, debugfs_root);
@@ -305,6 +306,11 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	}
 
 	return 0;
+free_info:
+	kfree(si->buffer);
+free_si:
+	kfree(si);
+	return -ENOMEM;
 }
 
 void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
@@ -315,6 +321,7 @@ void hmfs_destroy_stats(struct hmfs_sb_info *sbi)
 	si->root_dir = NULL;
 
 	hmfs_destroy_info(sbi);
+	destroy_gc_stat(sbi);
 
 	kfree(si);
 }
@@ -376,14 +383,11 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 					le64_to_cpu(cp->valid_block_count));
 		len += hmfs_print(si, 1, "free_segment_count: %u\n",
 					le64_to_cpu(cp->free_segment_count));
-		len += hmfs_print(si, 1, "cur_node_segno: %u\n",
-					le32_to_cpu(cp->cur_node_segno));
-		len += hmfs_print(si, 1, "cur_node_blkoff: %u\n",
-					le16_to_cpu(cp->cur_node_blkoff));
-		len += hmfs_print(si, 1, "cur_data_segno: %u\n",
-					le32_to_cpu(cp->cur_data_segno));
-		len += hmfs_print(si, 1, "cur_data_blkoff: %u\n",
-					le16_to_cpu(cp->cur_data_blkoff));
+
+		for (i = 0; i < sbi->nr_page_types; i++) {
+			len += hmfs_print(si, 1, "current segment (%d)[%lu, %lu]", i,
+						le32_to_cpu(cp->cur_segno[i]), le32_to_cpu(cp->cur_blkoff[i]));
+		}
 		len += hmfs_print(si, 1, "prev_cp_addr: %x\n",
 					le64_to_cpu(cp->prev_cp_addr));
 		len += hmfs_print(si, 1, "next_cp_addr: %x\n",
@@ -498,7 +502,7 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 
 	sum_entry = get_summary_by_addr(sbi, blk_addr);
 
-	len += hmfs_print(si, 1, "-- [%016x] --\n", blk_addr >> HMFS_PAGE_SIZE_BITS);
+	len += hmfs_print(si, 1, "-- [%016x] --\n", blk_addr >> HMFS_MIN_PAGE_SIZE_BITS);
 	len += hmfs_print(si, 1, "  nid: %u\n", le32_to_cpu(sum_entry->nid));
 	len += hmfs_print(si, 1, "  start_version: %u\n",
 			   le32_to_cpu(sum_entry->start_version));
@@ -517,7 +521,7 @@ static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from,
 
 	//struct hmfs_summary_block* sum_blk = get_summary_block(sbi, blkidx);
 	for (i = idx_from; i <= idx_to; i++) {
-		res = print_ssa_one(sbi, sbi->main_addr_start + (i << HMFS_PAGE_SIZE_BITS));
+		res = print_ssa_one(sbi, sbi->main_addr_start + (i << HMFS_MIN_PAGE_SIZE_BITS));
 		if (res == -1) {
 			return -1;
 		}
@@ -528,8 +532,8 @@ static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from,
 
 static size_t print_ssa_per_seg(struct hmfs_sb_info *sbi, block_t segno)
 {
-	block_t idx_from = segno << HMFS_PAGE_PER_SEG_BITS;
-	return print_ssa_range(sbi, idx_from, idx_from + HMFS_PAGE_PER_SEG - 1);
+	block_t idx_from = segno << SM_I(sbi)->page_4k_per_seg_bits;
+	return print_ssa_range(sbi, idx_from, idx_from + SM_I(sbi)->page_4k_per_seg - 1);
 }
 
 /*
@@ -581,15 +585,13 @@ static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args,
 	int blk_id = 0;
 	seg_t segno = 0;
 
-	struct hmfs_summary_block *ssa_blk;
 	struct hmfs_summary *ssa_entry;
 
 
 	for (segno = 0; segno < TOTAL_SEGS(sbi); ++segno) {
-		ssa_blk = get_summary_block(sbi, segno);
-		ssa_entry = ssa_blk->entries;
+		ssa_entry = get_summary_block(sbi, segno);
 		ssa_blk_cnt = 0;
-		for (blk_id = 0; blk_id < HMFS_PAGE_PER_SEG; ++blk_id) {
+		for (blk_id = 0; blk_id < SM_I(sbi)->page_4k_per_seg; ++blk_id) {
 			if (get_summary_valid_bit(ssa_entry))//seems that le16 is ok
 				++ssa_blk_cnt;
 			ssa_entry++;

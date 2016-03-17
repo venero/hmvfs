@@ -10,7 +10,7 @@
 
 #define hmfs_bitmap_size(nr)			\
 	(BITS_TO_LONGS(nr) * sizeof(unsigned long))
-#define TOTAL_SEGS(sbi)	(SM_I(sbi)->main_segments)
+#define TOTAL_SEGS(sbi)	(sbi->segment_count_main)
 
 /* constant macro */
 #define NULL_SEGNO			((unsigned int)(~0))
@@ -20,9 +20,12 @@
 #define SEVERE_FREE_BLOCKS		45	/* percentage of free blocks over total in emergency case */
 #define NR_MAX_FG_SEGS			200
 
+#define LOGS_ENTRY_PER_SEG(sbi)	(SM_I(sbi)->segment_size / sizeof(struct hmfs_sit_log_entry))
+
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
 	unsigned long mtime;	/* modification time of the segment */
+	unsigned char type;		/* Type of segments */
 };
 
 struct sit_info {
@@ -57,7 +60,7 @@ struct free_segmap_info {
 struct curseg_info {
 	struct mutex curseg_mutex;	/* lock for consistency */
 	atomic_t segno;				/* current segment number */
-	unsigned short next_blkoff;	/* next block offset to write */
+	unsigned int next_blkoff;	/* next block offset to write */
 	seg_t next_segno;			/* preallocated segment */
 };
 
@@ -67,13 +70,16 @@ struct hmfs_sm_info {
 	struct dirty_seglist_info *dirty_info;	/* dirty segment information */
 	struct curseg_info *curseg_array;		/* active segment information */
 
-	pgc_t segment_count;				/* total # of segments */
-	pgc_t main_segments;				/* # of segments in main area */
 	pgc_t reserved_segments;			/* # of reserved segments */
 	pgc_t ovp_segments;				/* # of overprovision segments */
 	pgc_t limit_invalid_blocks;		/* # of limit invalid blocks */
 	pgc_t limit_free_blocks;		/* # of limit free blocks */
 	pgc_t severe_free_blocks;		/* # of free blocks in emergency case */
+	unsigned long page_4k_per_seg;
+	unsigned int page_4k_per_seg_bits;
+	unsigned long segment_size;
+	unsigned long segment_size_bits;
+	unsigned long segment_size_mask;
 };
 
 /* Segment inlined functions */
@@ -160,11 +166,32 @@ static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 	return SM_I(sbi)->dirty_info;
 }
 
+static inline unsigned long calculate_segment_size(unsigned long max_page_size)
+{
+	return max_page_size;
+}
+
+static inline unsigned int calculate_segment_size_bits(unsigned int max_page_size_bits)
+{
+	return max_page_size_bits;
+}
+
 static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr) {
 	struct hmfs_summary *sum = get_summary_by_addr(sbi, addr);
 	ver_t version = get_summary_start_version(sum);
 	
 	return version == CM_I(sbi)->new_version;
+}
+
+static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
+{
+	return (addr - sbi->main_addr_start) >> SM_I(sbi)->segment_size;
+}
+
+static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)
+{
+	return ((addr - sbi->main_addr_start) & (~SM_I(sbi)->segment_size_mask)) >>
+				HMFS_MIN_PAGE_SIZE_BITS;
 }
 
 static inline seg_t find_next_inuse(struct free_segmap_info *free_i,
@@ -201,7 +228,7 @@ static inline pgc_t free_user_blocks(struct hmfs_sb_info *sbi)
 		return 0;
 	else
 		return (free_segments(sbi) - overprovision_segments(sbi))
-						<< HMFS_PAGE_PER_SEG_BITS;
+						<< (SM_I(sbi)->page_4k_per_seg_bits);
 }
 
 static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
@@ -244,13 +271,16 @@ static inline void seg_info_from_raw_sit(struct seg_entry *se,
 {
 	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
 	se->mtime = le32_to_cpu(raw_entry->mtime);
+	se->type = raw_entry->type;
 }
 
+//TODO:use memcpy?
 static inline void seg_info_to_raw_sit(struct seg_entry *se,
 				       struct hmfs_sit_entry *raw_entry)
 {
 	raw_entry->vblocks = cpu_to_le16(se->valid_blocks);
 	raw_entry->mtime = cpu_to_le32(se->mtime);
+	raw_entry->type = se->type;
 }
 
 static inline void __set_inuse(struct hmfs_sb_info *sbi, seg_t segno)

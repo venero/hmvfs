@@ -622,10 +622,9 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 			make_summary_entry(summary, 0, cm_i->new_version, i,
 					SUM_TYPE_ORPHAN);
 			orphan_addrs[i++] = orphan_addr;
-			orphan_block = ADDR(sbi, orphan_addr);
+			end = (__le32 *)JUMP(orphan_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			/* Reseverd for checkpoint address */
 			orphan_block = (__le32 *)JUMP(orphan_block, sizeof(__le64));
-			end = (__le32 *)JUMP(orphan_block, HMFS_PAGE_SIZE);
 		}
 		*orphan_block = cpu_to_le32(entry->ino);
 		orphan_block++;
@@ -680,7 +679,7 @@ int recover_orphan_inodes(struct hmfs_sb_info *sbi)
 		if (!orphan_addr)
 			return 0;
 		orphan_block = ADDR(sbi, orphan_addr);
-		end = (__le32 *)JUMP(orphan_block, HMFS_PAGE_SIZE);
+		end = (__le32 *)JUMP(orphan_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		orphan_block = (__le32 *)JUMP(orphan_block, sizeof(__le64));
 		while (orphan_block != end) {
 			ino = le32_to_cpu(*orphan_block);
@@ -708,6 +707,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *store_checkpoint;
 	struct curseg_info *curseg_i = SM_I(sbi)->curseg_array;
 	int ret;
+	int i;
 
 	prev_checkpoint = cm_i->last_cp_i->cp;
 	next_checkpoint = ADDR(sbi, le64_to_cpu(prev_checkpoint->next_cp_addr));
@@ -746,14 +746,10 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	set_struct(store_checkpoint, valid_node_count, cm_i->valid_node_count);
 	set_struct(store_checkpoint, alloc_block_count, cm_i->alloc_block_count);
 	set_struct(store_checkpoint, free_segment_count, free_i->free_segments);
-	set_struct(store_checkpoint, cur_node_segno, 
-			atomic_read(&curseg_i[CURSEG_NODE].segno));
-	set_struct(store_checkpoint, cur_node_blkoff,
-			curseg_i[CURSEG_NODE].next_blkoff);
-	set_struct(store_checkpoint, cur_data_segno,
-			atomic_read(&curseg_i[CURSEG_DATA].segno));
-	set_struct(store_checkpoint, cur_data_blkoff,
-			curseg_i[CURSEG_DATA].next_blkoff);
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		set_struct(store_checkpoint, cur_segno[i], atomic_read(&curseg_i[i].segno));
+		set_struct(store_checkpoint, cur_blkoff[i],	curseg_i[i].next_blkoff);
+	}
 	set_struct(store_checkpoint, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(store_checkpoint, elapsed_time, get_mtime(sbi));
 

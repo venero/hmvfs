@@ -25,9 +25,10 @@ static void recovery_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	bool modify_vb = false;
 	block_t addr_in_par;
 	int par_type;
+	const unsigned char seg_type = get_seg_entry(sbi, src_segno)->type;
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
-			TYPE_DATA);
+			seg_type);
 
 	while (1) {
 		this = __get_node(sbi, args.cp_i, args.nid);
@@ -99,7 +100,7 @@ static void recovery_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	int x_tag;
 
 	prepare_move_argument(&arg, sbi, src_segno, src_off, src_sum,
-			TYPE_DATA);
+			HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 
 	while (1) {
 		this = __get_node(sbi, arg.cp_i, arg.nid);
@@ -144,7 +145,7 @@ static void recovery_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	block_t addr_in_par;
 	bool modify_vb = false;
 
-	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, SEG_NODE_INDEX);
 
 	while (1) {
 		this = get_nat_entry_block(sbi, args.cp_i->version, args.nid);
@@ -190,7 +191,7 @@ static void recovery_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int sr
 	nid_t par_nid;
 	block_t addr_in_par;
 
-	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, SEG_NODE_INDEX);
 
 	while (1) {
 		if (IS_NAT_ROOT(args.nid))
@@ -249,7 +250,7 @@ static void recovery_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	block_t cp_addr, orphan_addr;
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
-			TYPE_NODE);
+			SEG_NODE_INDEX);
 	cp_addr = le64_to_cpu(*((__le64 *)args.src));
 	hmfs_cp = ADDR(sbi, cp_addr);
 	orphan_addr = le64_to_cpu(hmfs_cp->orphan_addrs[get_summary_offset(src_sum)]);
@@ -310,7 +311,7 @@ static void recovery_gc_segment(struct hmfs_sb_info *sbi, seg_t segno)
 	seg_addr = __cal_page_addr(sbi, segno, 0);
 	sum = get_summary_by_addr(sbi, seg_addr);
 
-	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
+	for (off = 0; off < SM_I(sbi)->page_4k_per_seg; ++off, sum++) {
 		is_current = get_summary_start_version(sum)	== cm_i->new_version;
 
 		if ((!get_summary_valid_bit(sum) && !is_current) || is_current)

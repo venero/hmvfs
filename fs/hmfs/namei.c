@@ -21,6 +21,15 @@ static bool hmfs_may_set_inline_data(struct inode *dir)
 	return test_opt(HMFS_I_SB(dir), INLINE_DATA);
 }
 
+static int calculate_data_block_type(struct inode *dir, struct inode *inode)
+{
+	if (!S_ISREG(inode->i_mode))
+		return SEG_DATA_INDEX;
+
+	/* Do calculation */
+	return SEG_DATA_INDEX;
+}
+
 static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
@@ -49,16 +58,19 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		inode->i_gid = current_fsgid();
 	}
 
+	i_info = HMFS_I(inode);
+	i_info->i_pino = dir->i_ino;
 	inode->i_ino = ino;
 	inode->i_mode = mode | HMFS_DEF_FILE_MODE;
 	inode->i_blocks = 0;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
+	i_info->i_blk_type = calculate_data_block_type(dir, inode);
 
 	if (S_ISDIR(mode)) {
 		set_inode_flag(HMFS_I(inode), FI_INC_LINK);
-		inode->i_size = HMFS_PAGE_SIZE;
+		inode->i_size = HMFS_BLOCK_SIZE[i_info->i_blk_type];
 	} else if (S_ISLNK(mode)) {
-		inode->i_size = HMFS_PAGE_SIZE;
+		inode->i_size = HMFS_BLOCK_SIZE[i_info->i_blk_type];
 	} else {
 		inode->i_size = 0;
 	}
@@ -69,8 +81,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 		nid_free = true;
 		goto out;
 	}
-	i_info = HMFS_I(inode);
-	i_info->i_pino = dir->i_ino;
+
 	if (hmfs_may_set_inline_data(dir)) {
 		set_inode_flag(i_info, FI_INLINE_DATA);
 	}

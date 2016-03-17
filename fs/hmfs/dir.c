@@ -19,8 +19,9 @@
 /* calculate how many blocks does a file have. */
 static unsigned long dir_blocks(struct inode *inode)
 {
-	return ((unsigned long long)(i_size_read(inode) + HMFS_PAGE_SIZE - 1)) 
-					>> HMFS_PAGE_SIZE_BITS;
+	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	return ((unsigned long long)(i_size_read(inode) + HMFS_BLOCK_SIZE[seg_type] - 1)) 
+					>> HMFS_BLOCK_SIZE_BITS[seg_type];
 }
 
 /* calculate how many buckets in a level. */
@@ -513,6 +514,8 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 	void *blocks[4];
 	struct hmfs_inode *inode_block;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	const unsigned char seg_type = HMFS_I(dir)->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
 
 	dentry_hash = hmfs_dentry_hash(name);
 
@@ -549,7 +552,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 		level = HMFS_I(dir)->clevel;
 		HMFS_I(dir)->chash = 0;
 	}
-	end_blk = dir->i_size >> HMFS_PAGE_SIZE_BITS;
+	end_blk = dir->i_size >> block_size_bits;
 start:
 	if (unlikely(current_depth == MAX_DIR_HASH_DEPTH))
 		return -ENOSPC;
@@ -570,7 +573,7 @@ start:
 
 			bit_pos = 0;
 			end_blk = block + 1;
-			mark_size_dirty(dir, end_blk << HMFS_PAGE_SIZE_BITS);
+			mark_size_dirty(dir, end_blk << block_size_bits);
 			goto add_dentry;
 		} else {
 			err = get_data_blocks(dir, block, block + 1, blocks, &size,
@@ -689,16 +692,18 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 	}
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK) {
+		const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+		const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
 		/* Inline directory should never reach here */
 		hmfs_bug_on(sbi, is_inline_inode(dir));
 
 		hmfs_dbg("%d\n",bidx);
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
-		if (dir_i_size >> HMFS_PAGE_SIZE_BITS == bidx + 1) {
+		if (dir_i_size >> block_size_bits == bidx + 1) {
 			dir_i_size = hmfs_dir_seek_data_reverse(dir, bidx + 1)
-					<< HMFS_PAGE_SIZE_BITS; 
-			mark_size_dirty(dir, dir_i_size + HMFS_PAGE_SIZE);
+					<< block_size_bits; 
+			mark_size_dirty(dir, dir_i_size + HMFS_BLOCK_SIZE[seg_type]);
 		}
 	}
 }
@@ -803,7 +808,8 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 			NR_DENTRY_IN_INLINE_INODE;
 	unsigned int n = ((unsigned long)ctx->pos / nr_dentry_in_block);
 
-	buf = vzalloc(HMFS_PAGE_SIZE);
+	//TODO:not use dynamic memory
+	buf = vzalloc(PAGE_SIZE);
 
 	if (!buf)
 		return -ENOMEM;

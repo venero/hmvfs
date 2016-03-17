@@ -59,7 +59,7 @@ int hmfs_convert_inline_inode(struct inode *inode)
 	hmfs_memcpy(data_block, old_inode_block->inline_content, 
 					i_size);
 	if (S_ISDIR(mode))
-		mark_size_dirty(inode,HMFS_PAGE_SIZE);
+		mark_size_dirty(inode, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 
 	clear_inode_flag(HMFS_I(inode), FI_INLINE_DATA);
 	return 0;
@@ -100,6 +100,7 @@ static int do_read_inode(struct inode *inode)
 	fi->flags = 0;
 	fi->i_advise = hi->i_advise;
 	fi->i_pino = le32_to_cpu(hi->i_pino);
+	fi->i_blk_type = hi->i_blk_type;
 	return 0;
 }
 
@@ -177,6 +178,7 @@ int sync_hmfs_inode(struct inode *inode, bool force)
 	hi->i_flags = cpu_to_le32(inode_i->i_flags);
 	hi->i_pino = cpu_to_le32(inode_i->i_pino);
 	hi->i_advise = inode_i->i_advise;
+	hi->i_blk_type = inode_i->i_blk_type;
 
 	return 0;
 }

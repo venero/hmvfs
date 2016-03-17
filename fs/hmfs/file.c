@@ -109,7 +109,8 @@ unsigned int hmfs_dir_seek_data_reverse(struct inode *dir, unsigned int end_blk)
 static unsigned int hmfs_file_seek_hole_data(struct inode *inode, 
 				unsigned int end_blk, unsigned int start_pos, char type)
 {
-	int i = start_pos >> HMFS_PAGE_SIZE_BITS, j = 0;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	int i = start_pos >> HMFS_BLOCK_SIZE_BITS[seg_type], j = 0;
 	struct dnode_of_data dn;
 	struct direct_node *direct_node = NULL;
 	struct hmfs_inode *inode_block = NULL;
@@ -174,6 +175,10 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
 	struct hmfs_inode *inode_block;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned long long block_ofs_mask = block_size - 1;
 
 	pos = *ppos;
 	isize = i_size_read(inode);
@@ -198,10 +203,10 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		goto out;
 	}
 
-	index = pos >> HMFS_PAGE_SIZE_BITS;	
-	offset = pos & ~HMFS_PAGE_MASK;
+	index = pos >> block_size_bits;	
+	offset = pos & block_ofs_mask;
 
-	end_index = (isize - 1) >> HMFS_PAGE_SIZE_BITS;
+	end_index = (isize - 1) >> block_size_bits;
 
 	/*
 	 * nr : read length for this loop
@@ -216,11 +221,11 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		int size;
 
 		/* nr is the maximum number of bytes to copy from this page */
-		nr = HMFS_PAGE_SIZE;	//HMFS_SIZE
+		nr = block_size;
 		if (index >= end_index) {
 			if (index > end_index)
 				goto out;
-			nr = ((isize - 1) & ~HMFS_PAGE_MASK) + 1;
+			nr = ((isize - 1) & block_ofs_mask) + 1;
 			if (nr <= offset) {
 				goto out;
 			}
@@ -228,7 +233,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
-		hmfs_bug_on(HMFS_I_SB(inode), nr > HMFS_PAGE_SIZE);
+		hmfs_bug_on(HMFS_I_SB(inode), nr > block_size);
 		error = get_data_blocks(inode, index, index + 1, xip_mem, 
 						&size, RA_END);
 
@@ -252,8 +257,8 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		}
 		copied += (nr - left);
 		offset += (nr - left);
-		index += offset >> HMFS_PAGE_SIZE_BITS;
-		offset &= ~HMFS_PAGE_MASK;
+		index += offset >> block_size_bits;
+		offset &= block_ofs_mask;
 	} while (copied < len);
 
 out:
@@ -302,7 +307,7 @@ static int remap_file_range(struct inode *inode, struct page **pages, int count)
 	u64 pfn;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 
-	blocks_buf = kzalloc(HMFS_PAGE_SIZE, GFP_KERNEL);
+	blocks_buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!blocks_buf)
 		return -ENOMEM;
 
@@ -357,7 +362,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	if (!size || fi->read_addr)
 		return 0;
 
-	count = align_page_right(size) >> HMFS_PAGE_SIZE_BITS;
+	count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	pages = kzalloc(count * sizeof(struct page *), GFP_KERNEL);
 	if (!pages)
 		return 0;
@@ -519,10 +524,13 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	loff_t maxsize = inode->i_sb->s_maxbytes;
 	loff_t eof = i_size_read(inode);
 	unsigned pg_index, end_blk;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
 
 	mutex_lock(&inode->i_mutex);
 
-	end_blk = (eof + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
+	end_blk = (eof + block_size - 1) >> block_size_bits;
 
 	switch (whence) {
 	case SEEK_END:		
@@ -547,7 +555,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			break;
 		}
 		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_DATA);
-		offset = pg_index << HMFS_PAGE_SIZE_BITS;
+		offset = pg_index << block_size_bits;
 		break;
 	case SEEK_HOLE:
 		/*
@@ -563,7 +571,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 			break;
 		}
 		pg_index = hmfs_file_seek_hole_data(inode, end_blk, offset, SEEK_HOLE);
-		offset = pg_index << HMFS_PAGE_SIZE_BITS;
+		offset = pg_index << block_size_bits;
 		break;
 	}
 
@@ -582,6 +590,10 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	size_t bytes;
 	ssize_t written = 0;
 	struct hmfs_inode *inode_block;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned long long block_ofs_mask = block_size - 1;
 
 	if (is_inline_inode(inode)) {
 		if (pos + count > HMFS_INLINE_SIZE) {
@@ -615,9 +627,9 @@ normal_write:
 		size_t copied;
 		void *xip_mem;
 
-		offset = pos & ~HMFS_PAGE_MASK;
-		index = pos >> HMFS_PAGE_SIZE_BITS;
-		bytes = HMFS_PAGE_SIZE - offset;
+		offset = pos & block_ofs_mask;
+		index = pos >> block_size_bits;
+		bytes = block_size - offset;
 		if (bytes > count)
 			bytes = count;
 
@@ -723,6 +735,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	struct hmfs_summary *node_sum = NULL;
 	nid_t nid;
 	char sum_type;
+	unsigned char seg_type = HMFS_I(dn->inode)->i_blk_type;
 
 	node_sum = get_summary_by_addr(sbi, L_ADDR(sbi, raw_node));
 	nid = get_summary_nid(node_sum);
@@ -742,7 +755,8 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		if (addr == NULL_ADDR)
 			continue;
 
-		nr_free += invalidate_delete_block(sbi, le64_to_cpu(addr));
+		nr_free += invalidate_delete_block(sbi, le64_to_cpu(addr), 
+						HMFS_BLOCK_SIZE_4K[seg_type]);
 
 		if (dn->level)
 			new_node->dn.addr[ofs] = NULL_ADDR;
@@ -770,10 +784,12 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 	int count = ADDRS_PER_BLOCK;
 	int nr_free = 0, ofs = 0;
 	__le64 *entry = node_block->addr;
+	unsigned char seg_type = HMFS_I(dn->inode)->i_blk_type;
 
 	for (; ofs < ADDRS_PER_BLOCK ; ofs++, count--, entry++) {
 		if (*entry != NULL_ADDR) {
-			nr_free += invalidate_delete_block(sbi, le64_to_cpu(*entry));
+			nr_free += invalidate_delete_block(sbi, le64_to_cpu(*entry),
+							HMFS_BLOCK_SIZE_4K[seg_type]);
 		}
 	}
 
@@ -785,12 +801,15 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 
 static void truncate_partial_data_page(struct inode *inode, block_t from)
 {
-	unsigned offset = from & (HMFS_PAGE_SIZE - 1);
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
+	unsigned offset = from & (block_size - 1);
 
 	if (!offset)
 		return;
-	alloc_new_data_partial_block(inode, from >> HMFS_PAGE_SIZE_BITS, offset,
-			HMFS_PAGE_SIZE, true);
+	alloc_new_data_partial_block(inode, from >> block_size_bits, offset,
+			block_size          , true);
 	return;
 }
 
@@ -800,8 +819,9 @@ static int __truncate_blocks(struct inode *inode, block_t from)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int count, err;
 	block_t free_from;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
-	free_from = (from + HMFS_PAGE_SIZE - 1) >> HMFS_PAGE_SIZE_BITS;
+	free_from = (from + HMFS_BLOCK_SIZE[seg_type] - 1) >> HMFS_BLOCK_SIZE_BITS[seg_type];
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
@@ -893,11 +913,14 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	loff_t off_start, off_end;
 	loff_t blk_start, blk_end;
 	int ret = 0;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 
-	pg_start = ((unsigned long long) offset) >> HMFS_PAGE_SIZE_BITS;
-	pg_end = ((unsigned long long) offset + len) >> HMFS_PAGE_SIZE_BITS;
-	off_start = offset & (HMFS_PAGE_SIZE - 1);
-	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
+	pg_start = ((unsigned long long) offset) >> block_size_bits;
+	pg_end = ((unsigned long long) offset + len) >> block_size_bits;
+	off_start = offset & (block_size - 1);
+	off_end = (offset + len) & (block_size - 1);
 
 	if (is_inline_inode(inode)) {
 		if (offset + len > HMFS_INLINE_SIZE) {
@@ -918,14 +941,13 @@ punch:
 		fill_zero(inode, pg_start, off_start, off_end - off_start);
 	} else {
 		if (off_start)
-			fill_zero(inode, pg_start++, off_start,
-				  HMFS_PAGE_SIZE - off_start);
+			fill_zero(inode, pg_start++, off_start, block_size - off_start);
 		if (off_end)
 			fill_zero(inode, pg_end, 0, off_end);
 
 		if (pg_start < pg_end) {
-			blk_start = pg_start << HMFS_PAGE_SIZE_BITS;
-			blk_end = pg_end << HMFS_PAGE_SIZE_BITS;
+			blk_start = pg_start << block_size_bits;
+			blk_end = pg_end << block_size_bits;
 
 			ret = truncate_hole(inode, pg_start, pg_end);
 		}
@@ -948,16 +970,19 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	loff_t off_start, off_end;
 	struct dnode_of_data dn;
 	int ret;
+	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 
 	ret = inode_newsize_ok(inode, (len + offset));
 	if (ret)
 		return ret;
 
-	pg_start = ((unsigned long long) offset) >> HMFS_PAGE_SIZE_BITS;
-	pg_end = ((unsigned long long) offset + len) >> HMFS_PAGE_SIZE_BITS;
+	pg_start = ((unsigned long long) offset) >> block_size_bits;
+	pg_end = ((unsigned long long) offset + len) >> block_size_bits;
 
-	off_start = offset & (HMFS_PAGE_SIZE - 1);
-	off_end = (offset + len) & (HMFS_PAGE_SIZE - 1);
+	off_start = offset & (block_size - 1);
+	off_end = (offset + len) & (block_size - 1);
 
 	if (is_inline_inode(inode)) {
 		if (offset + len > HMFS_INLINE_SIZE) {
@@ -982,11 +1007,11 @@ expand:
 		if (pg_start == pg_end)
 			new_size = offset + len;
 		else if (index == pg_start && off_start)
-			new_size = (index + 1) << HMFS_PAGE_SIZE_BITS;
+			new_size = (index + 1) << block_size_bits;
 		else if (index == pg_end)
-			new_size = (index << HMFS_PAGE_SIZE_BITS) + off_end;
+			new_size = (index << block_size_bits) + off_end;
 		else
-			new_size += HMFS_PAGE_SIZE;
+			new_size += block_size;
 	}
 
 out:

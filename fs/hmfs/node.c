@@ -198,7 +198,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 
 	nm_i->max_nid = hmfs_max_nid(sbi);
 	nm_i->nat_cnt = 0;
-	nm_i->free_nids = kzalloc(HMFS_PAGE_SIZE * 2, GFP_KERNEL);
+	nm_i->free_nids = kzalloc(PAGE_SIZE * 2, GFP_KERNEL);
 	nm_i->next_scan_nid = le32_to_cpu(cp->next_scan_nid);
 	nm_i->journaling_threshold = HMFS_JOURNALING_THRESHOLD;
 	nm_i->nid_wrapped = 0;
@@ -273,7 +273,7 @@ void truncate_node(struct dnode_of_data *dn)
 		mark_inode_dirty(dn->inode);
 	}
 
-	invalidate_delete_block(sbi, ni.blk_addr);
+	invalidate_delete_block(sbi, ni.blk_addr, 1);
 
 invalidate:
 	dn->node_block = NULL;
@@ -665,9 +665,9 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 
 	dest = ADDR(sbi, blk_addr);
 	if (!IS_ERR(src)) {
-		hmfs_memcpy(dest, src, HMFS_PAGE_SIZE);
+		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	} else {
-		memset_nt(dest, 0, HMFS_PAGE_SIZE);
+		memset_nt(dest, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	}
 
 	setup_summary_of_new_node(sbi, blk_addr, src_addr, nid,
@@ -690,11 +690,11 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 			return ERR_PTR(-ENOSPC);
 		addr = alloc_free_node_block(sbi, false);
 		if (sum_type == SUM_TYPE_CP)
-			memset_nt(ADDR(sbi, addr), 0, HMFS_PAGE_SIZE);
+			memset_nt(ADDR(sbi, addr), 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		return ADDR(sbi, addr);
 	}
 
-	if (!inc_gc_block_count(sbi, CURSEG_NODE))
+	if (!inc_gc_block_count(sbi, SEG_NODE_INDEX))
 		return ERR_PTR(-ENOSPC);
 	addr = alloc_free_node_block(sbi, true);
 	return ADDR(sbi, addr);
@@ -1032,7 +1032,7 @@ static block_t __flush_nat_entries(struct hmfs_sb_info *sbi,
 		hmfs_bug_on(sbi, IS_ERR(cur_stored_node) || !cur_stored_node);
 		hmfs_bug_on(sbi, !nat_entry_page);
 
-		hmfs_memcpy(cur_stored_node, nat_entry_page, HMFS_PAGE_SIZE);
+		hmfs_memcpy(cur_stored_node, nat_entry_page, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		summary = get_summary_by_addr(sbi, cur_stored_addr);
 		make_summary_entry(summary, nid, cur_version, ofs_in_par, SUM_TYPE_NATD);
 		
@@ -1060,9 +1060,9 @@ static block_t __flush_nat_entries(struct hmfs_sb_info *sbi,
 		hmfs_bug_on(sbi, IS_ERR(cur_stored_node) || !cur_stored_node);
 
 		if (cur_nat_node) {
-			hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_PAGE_SIZE);
+			hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		} else {
-			memset_nt(cur_stored_node, 0, HMFS_PAGE_SIZE);
+			memset_nt(cur_stored_node, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		}
 
 		summary = get_summary_by_addr(sbi, cur_stored_addr);
@@ -1359,7 +1359,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 	lock_write_nat(nm_i);
 
 	if (old_entry_block)
-		hmfs_memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+		hmfs_memcpy(new_entry_block, old_entry_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 
 	list_for_each_entry_from(ne, &nm_i->dirty_nat_entries, list) {
 		new_blk_order = (ne->ni.nid) / NAT_ENTRY_PER_BLOCK;
@@ -1387,9 +1387,9 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 					     			old_blk_order * NAT_ENTRY_PER_BLOCK);
 
 			if (old_entry_block) {
-				memcpy(new_entry_block, old_entry_block, HMFS_PAGE_SIZE);
+				memcpy(new_entry_block, old_entry_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			} else {
-				memset_nt(new_entry_block, 0, HMFS_PAGE_SIZE);
+				memset_nt(new_entry_block, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			}
 			lock_write_nat(nm_i);
 		}

@@ -27,8 +27,8 @@ void prepare_move_argument(struct gc_move_arg *arg,
 	if (sbi->recovery_doing)
 		return;
 
-	if (type == TYPE_DATA) {
-		arg->dest = alloc_new_data_block(sbi, NULL, 0);
+	if (type != SEG_NODE_INDEX) {
+		arg->dest = alloc_new_data_block(sbi, NULL, type);
 	} else {
 		arg->dest = alloc_new_node(sbi, 0, NULL, 0, true);
 	}
@@ -38,7 +38,7 @@ void prepare_move_argument(struct gc_move_arg *arg,
 	arg->dest_addr = L_ADDR(sbi, arg->dest);
 	arg->dest_sum = get_summary_by_addr(sbi, arg->dest_addr);
 	
-	hmfs_memcpy(arg->dest, arg->src, HMFS_PAGE_SIZE);
+	hmfs_memcpy(arg->dest, arg->src, HMFS_BLOCK_SIZE[type]);
 }
 
 static unsigned int get_cb_cost(struct hmfs_sb_info *sbi, unsigned int segno)
@@ -52,7 +52,7 @@ static unsigned int get_cb_cost(struct hmfs_sb_info *sbi, unsigned int segno)
 	mtime = get_seg_entry(sbi, segno)->mtime;
 	vblocks = get_seg_entry(sbi, segno)->valid_blocks;
 
-	u = (vblocks * 100) >> HMFS_PAGE_PER_SEG_BITS;
+	u = (vblocks * 100) >> SM_I(sbi)->page_4k_per_seg_bits;
 
 	if (mtime < sit_i->min_mtime)
 		sit_i->min_mtime = mtime;
@@ -69,7 +69,7 @@ static unsigned int get_max_cost(struct hmfs_sb_info *sbi,
 				 struct victim_sel_policy *p)
 {
 	if (p->gc_mode == GC_GREEDY)
-		return HMFS_PAGE_PER_SEG;
+		return SM_I(sbi)->page_4k_per_seg;
 	else if (p->gc_mode == GC_CB)
 		return UINT_MAX;
 	else
@@ -133,7 +133,7 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		 * It's not allowed to move node segment where last checkpoint
 		 * locate. Because we need to log GC segments in it.
 		 */
-		if (segno == le32_to_cpu(hmfs_cp->cur_node_segno)) {
+		if (segno == le32_to_cpu(hmfs_cp->cur_segno[SEG_NODE_INDEX])) {
 			continue;
 		}
 
@@ -192,7 +192,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	/* 1. read summary of source blocks */
 	/* 2. move blocks */
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
-			TYPE_DATA);
+			get_seg_entry(sbi, src_segno)->type);
 
 	while (1) {
 		/* 3. get the parent node which hold the pointer point to source node */
@@ -301,7 +301,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 
 	/* Now we have recycle HMFS_PAGE_PER_SEG blocks and update cm_i */
 	lock_cm(cm_i);
-	cm_i->alloc_block_count -= HMFS_PAGE_PER_SEG;
+	cm_i->alloc_block_count -= SM_I(sbi)->page_4k_per_seg;
 	unlock_cm(cm_i);
 }
 
@@ -318,7 +318,7 @@ static void move_xdata_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	is_current = get_summary_start_version(src_sum) == cm_i->new_version;
 
 	prepare_move_argument(&arg, sbi, src_segno, src_off, src_sum,
-			TYPE_DATA);
+			SEG_DATA_INDEX);
 
 	while(1) {
 		this = __get_node(sbi, arg.cp_i, arg.nid);
@@ -363,7 +363,7 @@ static void move_node_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 	is_current = get_summary_start_version(src_sum) == cm_i->new_version;
 
-	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, SEG_NODE_INDEX);
 
 	if (is_current) {
 		//update NAT cache
@@ -408,7 +408,7 @@ static void move_nat_block(struct hmfs_sb_info *sbi, seg_t src_segno, int src_of
 	nid_t par_nid;
 	block_t addr_in_par;
 
-	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, TYPE_NODE);
+	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum, SEG_NODE_INDEX);
 
 	while (1) {
 		if (IS_NAT_ROOT(args.nid))
@@ -461,10 +461,9 @@ static void move_orphan_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	struct hmfs_checkpoint *hmfs_cp;
 	block_t cp_addr;
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
-			TYPE_NODE);
-	hmfs_cp = args.cp_i->cp;
-	cp_addr = le64_to_cpu(hmfs_cp->orphan_addrs[get_summary_offset(src_sum)]);
-	hmfs_bug_on(sbi, cp_addr != L_ADDR(args.src));
+			SEG_NODE_INDEX);
+	cp_addr = le64_to_cpu(*((__le64 *)args.src));
+	hmfs_cp = ADDR(sbi, cp_addr);
 	hmfs_cp->orphan_addrs[get_summary_offset(src_sum)] = 
 			cpu_to_le64(args.dest_addr);
 
@@ -482,7 +481,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	__le64 *orphan;
 
 	prepare_move_argument(&args, sbi, src_segno, src_off, src_sum,
-			TYPE_NODE);
+			SEG_NODE_INDEX);
 
 	cp_i = get_checkpoint_info(sbi, args.start_version, false);
 	hmfs_bug_on(sbi, !cp_i);
@@ -512,7 +511,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	bool is_current, none_valid;
 	nid_t nid;
-	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
 	int tmp=0;
 
@@ -521,10 +519,9 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	if (none_valid)
 		goto recycle;
 
-	sum_blk = get_summary_block(sbi, segno);
-	sum = sum_blk->entries;
+	sum = get_summary_block(sbi, segno);
 
-	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
+	for (off = 0; off < SM_I(sbi)->page_4k_per_seg; ++off, sum++) {
 		is_current  = get_summary_start_version(sum) == cm_i->new_version;
 		
 		/*
@@ -624,7 +621,7 @@ gc_more:
 		hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
 	}
 
-	COUNT_GC_BLOCKS(STAT_I(sbi), HMFS_PAGE_PER_SEG - 
+	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
 			get_valid_blocks(sbi, segno));
 
 	hmfs_bug_on(sbi, total_valid_blocks(sbi) != CM_I(sbi)->valid_block_count);
@@ -791,15 +788,25 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi)
 	}
 }
 
-void init_gc_stat(struct hmfs_sb_info *sbi) {
+int init_gc_stat(struct hmfs_sb_info *sbi) {
 	struct hmfs_stat_info *si = STAT_I(sbi);
 	int i;
 
 	si->nr_gc_try = 0;
 	si->nr_gc_real = 0;
 	si->nr_gc_blocks = 0;
-	for (i = 0; i < SIZE_GC_RANGE; i++) {
+	si->size_gc_range = SM_I(sbi)->segment_size >> HMFS_MIN_PAGE_SIZE_BITS;
+	si->nr_gc_blocks_range = kmalloc(sizeof(int) * si->size_gc_range, GFP_KERNEL);
+	if (!si->nr_gc_blocks_range)
+		return -ENOMEM;
+
+	for (i = 0; i < si->size_gc_range; i++) {
 		si->nr_gc_blocks_range[i] = 0;
 	}
+	return 0;
 }
 
+void destroy_gc_stat(struct hmfs_sb_info *sbi) {
+	kfree(STAT_I(sbi)->nr_gc_blocks_range);
+	STAT_I(sbi)->nr_gc_blocks_range = NULL;
+}

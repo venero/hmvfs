@@ -17,11 +17,8 @@
 
 #define DEF_OP_SEGMENTS		6	/* default percentage of overprovision segments */
 
-#define CURSEG_DATA			1
-#define CURSEG_NODE			0
-#define	NR_CURSEG_DATA_TYPE	(1)
-#define NR_CURSEG_NODE_TYPE	(1)
-#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
+#define SEG_NODE_INDEX			0
+#define SEG_DATA_INDEX			1
 
 /* IO Control Command */
 #define HMFS_IOC_GETVERSION		FS_IOC_GETVERSION
@@ -48,7 +45,6 @@
 #define JUMP(base, gap)			((char *)(base) + gap)
 
 #define STAT_GC_RANGE		50
-#define SIZE_GC_RANGE		(HMFS_PAGE_PER_SEG + STAT_GC_RANGE - 1) / STAT_GC_RANGE
 
 typedef unsigned int nid_t;
 typedef unsigned int ver_t;		/* version type */
@@ -56,10 +52,6 @@ typedef unsigned long seg_t;		/* segment number type */
 typedef unsigned long pgc_t;	/* page count type */
 
 
-
-enum SEG_TYPE {
-	TYPE_NODE = 0, TYPE_DATA = 1
-};
 
 enum DATA_RA_TYPE {
 	RA_DB_END,		/* get data block address within a direct node */
@@ -209,9 +201,12 @@ struct hmfs_sb_info {
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
 	block_t main_addr_start;			/* Start address of main area */
 	block_t main_addr_end;
-	char nat_height;							/* Height of nat tree in cp */
+	unsigned char nat_height;							/* Height of nat tree in cp */
+	unsigned long max_page_size;		/* Maximum page size */
+	unsigned char max_page_size_bits;
+	unsigned char nr_page_types;	/* # of types of blocks */
 
-	/* Managet Structure */
+	/* Management Structure */
 	struct hmfs_cm_info *cm_info;				/* checkpoint manager */
 	struct hmfs_stat_info *stat_info;			/* debug info manager */
 	struct hmfs_nm_info *nm_info;				/* node manager */
@@ -246,6 +241,7 @@ struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
 	unsigned char i_advise;				/* use to give file attribute hints */
+	unsigned char i_blk_type;			/* data block type */
 	hmfs_hash_t chash;					/* hash value of given file name */
 	unsigned int i_current_depth;		/* use only in directory structure */
 	unsigned int clevel;				/* maximum level of given file name */
@@ -267,7 +263,8 @@ struct hmfs_stat_info {
 	int nr_gc_try;			/* Time of call hmfs_gc */
 	int nr_gc_real;			/* Time of doing GC */
 	unsigned long nr_gc_blocks;		/* Number of blocks that GC module has collected */
-	int nr_gc_blocks_range[SIZE_GC_RANGE];		/* Invalid blocks distribution */
+	int size_gc_range;
+	int *nr_gc_blocks_range;		/* Invalid blocks distribution */
 #endif
 
 	/* stat of flushing nat entries */
@@ -515,17 +512,6 @@ static inline void unlock_mmap(struct hmfs_sb_info *sbi)
 #endif
 
 /* Inline functions */
-static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
-{
-	return (addr - sbi->main_addr_start) >> HMFS_SEGMENT_SIZE_BITS;
-}
-
-static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)
-{
-	return ((addr - sbi->main_addr_start) & (~HMFS_SEGMENT_MASK)) >>
-				HMFS_PAGE_SIZE_BITS;
-}
-
 static inline struct kmem_cache *hmfs_kmem_cache_create(const char *name,
 				size_t size, void (*ctor) (void *))
 {
@@ -617,7 +603,7 @@ static inline bool inc_gc_block_count(struct hmfs_sb_info *sbi, int seg_type)
 	pgc_t alloc_block_count;
 
 	lock_cm(cm_i);
-	alloc_block_count = cm_i->alloc_block_count + 1;
+	alloc_block_count = cm_i->alloc_block_count + HMFS_BLOCK_SIZE_4K[seg_type];
 	if (alloc_block_count > sbi->page_count_main) {
 		unlock_cm(cm_i);
 		return false;
@@ -643,7 +629,7 @@ static inline loff_t hmfs_max_file_size(void)
 	res += 2 * ADDRS_PER_BLOCK;
 	res += 2 * ADDRS_PER_BLOCK * NIDS_PER_BLOCK;
 	res += NIDS_PER_BLOCK * NIDS_PER_BLOCK * ADDRS_PER_BLOCK;
-	res = (res << HMFS_PAGE_SIZE_BITS);
+	res = (res << HMFS_MIN_PAGE_SIZE_BITS);
 
 	if (res > MAX_LFS_FILESIZE)
 		res = MAX_LFS_FILESIZE;
@@ -870,11 +856,11 @@ void recovery_sit_entries(struct hmfs_sb_info *sbi,
 				struct hmfs_checkpoint *hmfs_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
-struct hmfs_summary_block *get_summary_block(struct hmfs_sb_info *sbi,
+struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
 				seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 				block_t blk_addr);
-block_t alloc_free_data_block(struct hmfs_sb_info *sbi);
+block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
 block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
@@ -884,7 +870,7 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi);
 void free_prefree_segments(struct hmfs_sb_info *sbi);
 int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg);
 bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr);
-int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr);
+int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, unsigned long);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);
@@ -949,9 +935,11 @@ void stop_gc_thread(struct hmfs_sb_info *sbi);
 int init_gc_logs(struct hmfs_sb_info *sbi);
 void reinit_gc_logs(struct hmfs_sb_info *sbi);
 #ifdef CONFIG_HMFS_DEBUG_GC
-void init_gc_stat(struct hmfs_sb_info *);
+int init_gc_stat(struct hmfs_sb_info *);
+void destroy_gc_stat(struct hmfs_sb_info *);
 #else
 #define init_gc_stat(sbi);
+#define destroy_gc_stat(sbi);
 #endif
 
 /* xattr.c */
