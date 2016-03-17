@@ -66,35 +66,32 @@ static int stat_show(struct seq_file *s, void *v)
 
 	seq_printf(s, "=============General Infomation=============\n");
 	seq_printf(s, "physical address:%lu\n",
-		   (unsigned long)si->sbi->phys_addr);
+			(unsigned long)si->sbi->phys_addr);
 	seq_printf(s, "virtual address:%p\n", si->sbi->virt_addr);
-	seq_printf(s, "initial size:%lu\n",
-		   (unsigned long)si->sbi->initsize);
+	seq_printf(s, "initial size:%llu\n", si->sbi->initsize);
+	seq_printf(s, "segment size:%lu %luM\n", SM_I(si->sbi)->segment_size,
+			SM_I(si->sbi)->segment_size >> 20);
 	seq_printf(s, "page count:%lu\n",
-		   (unsigned long)cm_i->user_block_count);
+			cm_i->user_block_count);
 	seq_printf(s, "segment count:%lu\n",
-		   (unsigned long)si->sbi->segment_count);
+			(unsigned long)si->sbi->segment_count);
+	seq_printf(s, "main segment count:%lu\n",
+			(unsigned long)si->sbi->segment_count_main);
 	seq_printf(s, "valid_block_count:%lu\n",
-		   (unsigned long)cm_i->valid_block_count);
+			(unsigned long)cm_i->valid_block_count);
 	seq_printf(s, "free_block_count:%lu\n",
 			(unsigned long)free_i->free_segments << sm_i->page_4k_per_seg_bits);
 	seq_printf(s, "alloc_block_count:%lu\n",
-		   (unsigned long)cm_i->alloc_block_count);
+			(unsigned long)cm_i->alloc_block_count);
 	seq_printf(s, "valid_node_count:%lu\n", cm_i->valid_node_count);
-	seq_printf(s, "valid_inode_count:%lu\n",
-		   cm_i->valid_inode_count);
-	seq_printf(s, "SSA start address:%lu\n",
-		   (unsigned long)((char *)si->sbi->ssa_entries -
-				   (char *)si->sbi->virt_addr));
-	seq_printf(s, "SIT start address:%lu\n",
-		   (unsigned long)((char *)si->sbi->sit_entries -
-				   (char *)si->sbi->virt_addr));
-	seq_printf(s, "main area range:%lu - %lu\n",
-		   (unsigned long)si->sbi->main_addr_start,
-		   (unsigned long)si->sbi->main_addr_end);
-	seq_printf(s, "max file size:%luk %luM %luG\n",
-		   max_file_size / 1024, max_file_size / 1024 / 1024,
-		   max_file_size / 1024 / 1024 / 1024);
+	seq_printf(s, "valid_inode_count:%lu\n", cm_i->valid_inode_count);
+	seq_printf(s, "SSA start address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->ssa_entries));
+	seq_printf(s, "SIT start address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->sit_entries));
+	seq_printf(s, "Waste space address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->waste_space));
+	seq_printf(s, "main area range:%llu - %llu\n", si->sbi->main_addr_start, 
+			si->sbi->main_addr_end);
+	seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size >> 10, 
+			max_file_size >> 20, max_file_size >>30);
 	seq_printf(s, "limit invalid blocks:%lu\n", 
 			(unsigned long)sm_i->limit_invalid_blocks);
 	seq_printf(s, "limit free blocks:%lu\n", 

@@ -777,12 +777,5 @@ struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 				block_t blk_addr)
 {
-	seg_t segno;
-	unsigned int blkoff;
-
-	segno = GET_SEGNO(sbi, blk_addr);
-	blkoff = GET_SEG_OFS(sbi, blk_addr);
-
-	return sbi->ssa_entries + (segno << SM_I(sbi)->page_4k_per_seg_bits)
-			+ blkoff;
+	return sbi->ssa_entries + ((blk_addr - sbi->main_addr_start) >> HMFS_MIN_PAGE_SIZE_BITS);
 }

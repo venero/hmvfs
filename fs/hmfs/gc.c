@@ -795,7 +795,8 @@ int init_gc_stat(struct hmfs_sb_info *sbi) {
 	si->nr_gc_try = 0;
 	si->nr_gc_real = 0;
 	si->nr_gc_blocks = 0;
-	si->size_gc_range = SM_I(sbi)->segment_size >> HMFS_MIN_PAGE_SIZE_BITS;
+	si->size_gc_range = (SM_I(sbi)->segment_size >> HMFS_MIN_PAGE_SIZE_BITS) /
+			STAT_GC_RANGE;
 	si->nr_gc_blocks_range = kmalloc(sizeof(int) * si->size_gc_range, GFP_KERNEL);
 	if (!si->nr_gc_blocks_range)
 		return -ENOMEM;

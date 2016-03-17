@@ -233,7 +233,7 @@ bad_opt:
 static int hmfs_max_page_size_bits(unsigned long long initsize)
 {
 	int page_size_bits = 0;
-	int max_page_size = initsize >> 10;
+	int max_page_size = initsize >> 4;
 
 	while (max_page_size >>= 1) {
 		page_size_bits++;
@@ -241,8 +241,8 @@ static int hmfs_max_page_size_bits(unsigned long long initsize)
 	
 	if (page_size_bits < HMFS_MAX_PAGE_SIZE_BITS) {
 		return (page_size_bits - HMFS_MIN_PAGE_SIZE_BITS ) / 
-					HMFS_PAGE_SIZE_BITS_INC * HMFS_PAGE_SIZE_BITS_INC
-					+ HMFS_MIN_PAGE_SIZE_BITS;
+				HMFS_PAGE_SIZE_BITS_INC * HMFS_PAGE_SIZE_BITS_INC
+				+ HMFS_MIN_PAGE_SIZE_BITS;
 	} else
 		return HMFS_MAX_PAGE_SIZE_BITS;
 }
@@ -461,9 +461,9 @@ static int hmfs_format(struct super_block *sb)
 	set_struct(cp, alloc_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, valid_block_count, (node_blkoff + data_blkoff));
 	set_struct(cp, free_segment_count, (user_segments_count - 2));
-	set_struct(cp, cur_segno[SEG_NODE_INDEX], GET_SEGNO(sbi, node_segaddr));
+	set_struct(cp, cur_segno[SEG_NODE_INDEX], 0);
 	set_struct(cp, cur_blkoff[SEG_NODE_INDEX], node_blkoff);
-	set_struct(cp, cur_segno[SEG_DATA_INDEX], GET_SEGNO(sbi, data_segaddr));
+	set_struct(cp, cur_segno[SEG_DATA_INDEX], 1);
 	set_struct(cp, cur_blkoff[SEG_DATA_INDEX], data_blkoff);
 	for (i = SEG_DATA_INDEX + 1; i < HMFS_MAX_CUR_SEG_COUNT; i++) {
 		set_struct(cp, cur_segno[i], NULL_SEGNO);
@@ -781,7 +781,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	int retval = 0;
 	int i = 0;
 	block_t end_addr;
-	block_t ssa_addr, sit_addr;
+	block_t ssa_addr, sit_addr, waste_addr;
 	unsigned long long input_size;
 
 	/* sbi initialization */
@@ -846,6 +846,9 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sit_addr = le64_to_cpu(super->sit_blkaddr);
 	sbi->ssa_entries = ADDR(sbi, ssa_addr);
 	sbi->sit_entries = ADDR(sbi, sit_addr);
+	waste_addr = sit_addr + sbi->segment_count_main * SIT_ENTRY_SIZE;
+	waste_addr = (waste_addr + HMFS_MIN_PAGE_SIZE - 1) & HMFS_MIN_PAGE_MASK; 
+	sbi->waste_space = ADDR(sbi, waste_addr); 
 	sbi->nat_height = super->nat_height;
 	sbi->nr_max_fg_segs = NR_MAX_FG_SEGS;
 	sbi->max_page_size_bits = hmfs_max_page_size_bits(sbi->initsize);
