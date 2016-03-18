@@ -621,6 +621,8 @@ gc_more:
 		hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
 	}
 
+	int tmpb=SM_I(sbi)->page_4k_per_seg-get_valid_blocks(sbi,segno);
+	hmfs_dbg("%d %d\n",tmpb,div64_u64(tmpb,STAT_GC_RANGE));
 	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
 			get_valid_blocks(sbi, segno));
 
@@ -795,8 +797,8 @@ int init_gc_stat(struct hmfs_sb_info *sbi) {
 	si->nr_gc_try = 0;
 	si->nr_gc_real = 0;
 	si->nr_gc_blocks = 0;
-	si->size_gc_range = (SM_I(sbi)->segment_size >> HMFS_MIN_PAGE_SIZE_BITS) /
-			STAT_GC_RANGE;
+	si->size_gc_range = ((SM_I(sbi)->segment_size >> HMFS_MIN_PAGE_SIZE_BITS)
+			+ STAT_GC_RANGE - 1) / STAT_GC_RANGE;
 	si->nr_gc_blocks_range = kmalloc(sizeof(int) * si->size_gc_range, GFP_KERNEL);
 	if (!si->nr_gc_blocks_range)
 		return -ENOMEM;
