@@ -27,11 +27,7 @@ static int calculate_data_block_type(struct inode *dir, struct inode *inode)
 		return SEG_DATA_INDEX;
 
 	/* Do calculation */
-	if (inode->i_ino & 1) {
-		return SEG_DATA_INDEX;
-	}else{
-		return SEG_DATA_INDEX + 1;
-	}
+	return SEG_DATA_INDEX + (inode->i_ino % (HMFS_I_SB(inode)->nr_page_types - 1));
 }
 
 static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)

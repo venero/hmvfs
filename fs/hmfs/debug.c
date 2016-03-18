@@ -19,6 +19,7 @@
 			"    sit   --   show SIT info.\n" \
 			"    nat   --   show nat info.\n" \
 			"    data  --   show nat info.\n" \
+			"    inode --   show inode info.\n"\
 			"    help  --   show this usage.\n" \
 			"=========================================\n"
 
@@ -33,6 +34,9 @@
 
 #define USAGE_SIT	"=============== SIT USAGE ==============\n" \
 			"=========================================\n"
+
+#define USAGE_INODE	"=============== INODE USAGE ==============\n" \
+			"inode <ino>\n"
 
 #define USAGE_NAT "nat"
 #define USAGE_DATA "data"
@@ -53,59 +57,62 @@ void update_nat_stat(struct hmfs_sb_info *sbi, int flush_count)
 	unlock_hmfs_stat(stat_i);
 }
 
+static int pc_to_mega(pgc_t pc) {
+	return pc >> (20 - HMFS_MIN_PAGE_SIZE_BITS);
+}
+
 static int stat_show(struct seq_file *s, void *v)
 {
 	struct hmfs_stat_info *si = s->private;
-	struct hmfs_cm_info *cm_i = CM_I(si->sbi);
+	struct hmfs_sb_info *sbi = si->sbi;
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct list_head *head, *this;
 	struct orphan_inode_entry *orphan = NULL;
-	struct free_segmap_info *free_i = FREE_I(si->sbi);
-	struct hmfs_sm_info *sm_i = SM_I(si->sbi);
+	struct free_segmap_info *free_i = FREE_I(sbi);
+	struct hmfs_sm_info *sm_i = SM_I(sbi);
 	unsigned long max_file_size = hmfs_max_file_size();
+	struct curseg_info * curseg_i = CURSEG_I(sbi);
 	int i;
 
 	seq_printf(s, "=============General Infomation=============\n");
 	seq_printf(s, "physical address:%lu\n",
 			(unsigned long)si->sbi->phys_addr);
-	seq_printf(s, "virtual address:%p\n", si->sbi->virt_addr);
-	seq_printf(s, "initial size:%llu\n", si->sbi->initsize);
-	seq_printf(s, "segment size:%lu %luM\n", SM_I(si->sbi)->segment_size,
-			SM_I(si->sbi)->segment_size >> 20);
-	seq_printf(s, "page count:%lu\n",
-			cm_i->user_block_count);
-	seq_printf(s, "segment count:%lu\n",
-			(unsigned long)si->sbi->segment_count);
-	seq_printf(s, "main segment count:%lu\n",
-			(unsigned long)si->sbi->segment_count_main);
-	seq_printf(s, "valid_block_count:%lu\n",
-			(unsigned long)cm_i->valid_block_count);
-	seq_printf(s, "free_block_count:%lu\n",
-			(unsigned long)free_i->free_segments << sm_i->page_4k_per_seg_bits);
-	seq_printf(s, "alloc_block_count:%lu\n",
-			(unsigned long)cm_i->alloc_block_count);
+	seq_printf(s, "virtual address:%p\n", sbi->virt_addr);
+	seq_printf(s, "initial size:%llu\n", sbi->initsize);
+	seq_printf(s, "segment size:%lu %luM\n", sm_i->segment_size, sm_i->segment_size >> 20);
+	seq_printf(s, "page count:%lu\n", cm_i->user_block_count);
+	seq_printf(s, "segment count:%lu\n", sbi->segment_count);
+	seq_printf(s, "main segment count:%lu\n", sbi->segment_count_main);
+	seq_printf(s, "valid_block_count:%lu %dM\n", cm_i->valid_block_count,
+			pc_to_mega(cm_i->valid_block_count));
+	seq_printf(s, "free_block_count:%lu %dM\n", free_i->free_segments << sm_i->page_4k_per_seg_bits,
+			pc_to_mega(free_i->free_segments << sm_i->page_4k_per_seg_bits));
+	seq_printf(s, "alloc_block_count:%lu %dM\n", cm_i->alloc_block_count,
+			pc_to_mega(cm_i->alloc_block_count));
 	seq_printf(s, "valid_node_count:%lu\n", cm_i->valid_node_count);
 	seq_printf(s, "valid_inode_count:%lu\n", cm_i->valid_inode_count);
-	seq_printf(s, "SSA start address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->ssa_entries));
-	seq_printf(s, "SIT start address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->sit_entries));
-	seq_printf(s, "Waste space address:%lu\n", DISTANCE(si->sbi->virt_addr, si->sbi->waste_space));
-	seq_printf(s, "main area range:%llu - %llu\n", si->sbi->main_addr_start, 
-			si->sbi->main_addr_end);
+	seq_printf(s, "SSA start address:%lu\n", DISTANCE(sbi->virt_addr, sbi->ssa_entries));
+	seq_printf(s, "SIT start address:%lu\n", DISTANCE(sbi->virt_addr, sbi->sit_entries));
+	seq_printf(s, "Waste space address:%lu\n", DISTANCE(sbi->virt_addr, sbi->waste_space));
+	seq_printf(s, "main area range:%llu - %llu\n", sbi->main_addr_start, sbi->main_addr_end);
 	seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size >> 10, 
 			max_file_size >> 20, max_file_size >>30);
-	seq_printf(s, "limit invalid blocks:%lu\n", 
-			(unsigned long)sm_i->limit_invalid_blocks);
-	seq_printf(s, "limit free blocks:%lu\n", 
-			(unsigned long)sm_i->limit_free_blocks);
-	seq_printf(s, "limit severe free blocks:%lu\n", 
-			(unsigned long)sm_i->severe_free_blocks);
-	seq_printf(s, "overprovision blocks:%lu\n", 
-			(unsigned long)sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
+	seq_printf(s, "limit invalid blocks:%lu\n", sm_i->limit_invalid_blocks);
+	seq_printf(s, "limit free blocks:%lu\n", sm_i->limit_free_blocks);
+	seq_printf(s, "limit severe free blocks:%lu\n", sm_i->severe_free_blocks);
+	seq_printf(s, "overprovision blocks:%lu\n", sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		seq_printf(s, "current segment[%d %u]\n", atomic_read(&curseg_i[i].segno),
+				curseg_i[i].next_blkoff);
+	}
+
 	if (si->flush_nat_time)
 		seq_printf(s, "flush_nat_per_block:%lu\n", 
 				si->flush_nat_sum / si->flush_nat_time);
-	for (i = 0; i < 10; i++)
+	for (i = 0; i < 10; i++) {
 		seq_printf(s, "nr_flush_nat_per_block[%d-%d):%d\n", i * 50,
 				i * 50 + 50, si->nr_flush_nat_per_block[i]);
+	}
 #ifdef CONFIG_HMFS_DEBUG_GC
 	seq_printf(s, "GC Real:%d\n", si->nr_gc_real);
 	seq_printf(s, "GC Try:%d\n", si->nr_gc_try);
@@ -785,6 +792,78 @@ static int hmfs_parse_cmd(const char *cmd, size_t len,
 	return args;
 }
 
+static char *judge_file_type(__le16 v) {
+	mode_t mode = le16_to_cpu(v);
+	
+	switch (mode & S_IFMT) {
+	case S_IFREG:
+		return "REG";
+	case S_IFDIR:
+		return "DIR";
+	case S_IFLNK:
+		return "LNK";
+	case S_IFCHR:
+		return "CHR";
+	case S_IFBLK:
+		return "BLK";
+	default:
+		return "OTR";
+	}
+}
+
+static int hmfs_print_inode(struct hmfs_sb_info *sbi, int args,
+				char argv[][MAX_ARG_LEN + 1])
+{
+	struct hmfs_stat_info *si= STAT_I(sbi);
+	unsigned long long ino;
+	int len = 0;
+	struct hmfs_node *hn;
+	struct hmfs_summary *sum;
+	int i;
+	block_t addr;
+
+	if (2 == args) {
+		ino = simple_strtoull(argv[1], NULL, 0);
+		len += hmfs_print(si, 0, "Inode %d infomation\n", ino);
+		hn = get_node(sbi, ino);
+		if (IS_ERR(hn)) {
+			len += hmfs_print(si, 1, "Not exist\n");
+			goto out;
+		}
+		sum = get_summary_by_addr(sbi, L_ADDR(sbi, hn));
+		switch (get_summary_type(sum)) {
+		case SUM_TYPE_INODE:
+			len += hmfs_print(si, 1, "Node type: Inode\n");
+			len += hmfs_print(si, 1, "mode:%s\n", judge_file_type(hn->i.i_mode));
+			len += hmfs_print(si, 1, "size:%lu\n", le64_to_cpu(hn->i.i_size));
+			len += hmfs_print(si, 1, "name:%s\n", hn->i.i_name);
+			len += hmfs_print(si, 1, "block type:%d %d\n", hn->i.i_blk_type, 
+						HMFS_BLOCK_SIZE[hn->i.i_blk_type]);
+			for (i = 0; i < NORMAL_ADDRS_PER_INODE; i++) {
+				addr = le64_to_cpu(hn->i.i_addr[i]);
+				len += hmfs_print(si, 1, "i_addr[%d]:%lu(%d %d)\n", i, addr,
+							GET_SEGNO(sbi, addr), GET_SEG_OFS(sbi, addr));
+			}
+			break;
+		case SUM_TYPE_DN:
+			len += hmfs_print(si, 1, "Node type: Direct node\n");
+			for (i = 0; i < ADDRS_PER_BLOCK; i++) {
+				addr = le64_to_cpu(hn->dn.addr[i]);
+				len += hmfs_print(si, 1, "addr[%d]:%lu(%d %d)\n", i, addr,
+							GET_SEGNO(sbi, addr), GET_SEG_OFS(sbi, addr));
+			}
+			break;
+		case SUM_TYPE_IDN:
+			len += hmfs_print(si, 1, "Node type: Indirect node\n");
+		}
+	} else {
+		len += hmfs_print(si, 0, "Invalid arguments\n");
+	}
+
+out:
+	return len;
+}
+
 /*
  * DESCRIPTION:
  * 	When we trying to write a debugfs file, it is trated command.
@@ -843,6 +922,12 @@ static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd,
 			return 0;
 		}
 		res = hmfs_print_data(sbi, args, argv);
+	} else if (0 == strncasecmp(argv[0], "inode", 5)) {
+		if (args <= 1) {
+			hmfs_print(si, 0, USAGE_INODE);
+			return 0;
+		}
+		res = hmfs_print_inode(sbi, args, argv);
 	} else if (0 == strncasecmp(argv[0], "consis", 6)) {
 		res = hmfs_consis(sbi);
 	} else {
