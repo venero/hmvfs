@@ -173,7 +173,8 @@ static inline unsigned long calculate_segment_size(unsigned long max_page_size)
 
 static inline unsigned int calculate_segment_size_bits(unsigned int max_page_size_bits)
 {
-	return max_page_size_bits;
+	return max_page_size_bits < HMFS_MIN_SEGMENT_SIZE_BITS ? HMFS_MIN_SEGMENT_SIZE_BITS :
+				max_page_size_bits;
 }
 
 static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr) {
@@ -185,7 +186,7 @@ static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr) {
 
 static inline unsigned long GET_SEGNO(struct hmfs_sb_info *sbi, block_t addr)
 {
-	return (addr - sbi->main_addr_start) >> SM_I(sbi)->segment_size;
+	return (addr - sbi->main_addr_start) >> SM_I(sbi)->segment_size_bits;
 }
 
 static inline unsigned int GET_SEG_OFS(struct hmfs_sb_info *sbi, block_t addr)

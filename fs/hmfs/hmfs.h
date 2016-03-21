@@ -199,6 +199,7 @@ struct hmfs_sb_info {
 	int s_dirty;								/* FS is dirty or not */
 	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
+	void *waste_space;			/* Waste space due to segment alignment */
 	block_t main_addr_start;			/* Start address of main area */
 	block_t main_addr_end;
 	unsigned char nat_height;							/* Height of nat tree in cp */
