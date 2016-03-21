@@ -18,8 +18,8 @@ struct hmfs_acl_entry_short {
 
 struct hmfs_acl_header {
 	__le16 a_magic;
-	__le32 a_version;
 	__le16 acl_access_ofs;
+	__le32 a_version;
 	__le16 acl_default_ofs;
 	__le16 acl_end;
 } __attribute__ ((packed));

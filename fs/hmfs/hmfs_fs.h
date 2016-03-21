@@ -141,13 +141,13 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 #define NIDS_PER_BLOCK		2			/* # of nid stored in indirect node */
 #define NUM_NAT_JOURNALS_IN_CP		8
 #else
-#define NORMAL_ADDRS_PER_INODE	465		/* # of address stored in inode */
+#define NORMAL_ADDRS_PER_INODE	461		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
-#define NUM_NAT_JOURNALS_IN_CP	(3880 / sizeof(struct hmfs_nat_journal))
+#define NUM_NAT_JOURNALS_IN_CP	(3884 / sizeof(struct hmfs_nat_journal))
 #endif
 #define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) +\
-		5 * sizeof(__le32))
+		5 * sizeof(__le32) + 35)
 
 /* the number of dentry in a block */
 /* [4096 - 214 * (11 + 8)] / 8 > 214 */
@@ -184,25 +184,22 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 
 /* For superblock */
 struct hmfs_super_block {
-	__le32 magic;		/* Magic Number */
-	__le16 major_ver;	/* Major Version */
-	__le16 minor_ver;	/* Minor Version */
-	__le64 segment_count;	/* total # of segments */
 	__le64 init_size;	/* total # of Bytes */
-
-	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le64 segment_count;	/* total # of segments */
 	__le64 segment_count_ssa;	/* # of segments for SSA */
 	__le64 segment_count_main;	/* # of segments for main area */
 	__le64 user_block_count;	/* # of user blocks */
-
 	__le64 cp_page_addr;	/* start block address of checkpoint */
 	__le64 sit_blkaddr;	/* start block address of SIT area */
 	__le64 ssa_blkaddr;	/* start block address of SSA */
 	__le64 main_blkaddr;	/* start block address of main area */
-
+	__le32 magic;		/* Magic Number */
+	__le32 segment_count_sit;	/* # of segments for SIT */
+	__le16 major_ver;	/* Major Version */
+	__le16 minor_ver;	/* Minor Version */
 	u8 nat_height;
-	__le16 checksum;
 
+	__le16 checksum;
 } __attribute__ ((packed));
 
 /* hmfs inode */
@@ -216,35 +213,37 @@ struct hmfs_super_block {
  * an inode contain.
  */
 struct hmfs_inode {
-	__le16 i_mode;		/* file mode */
-	__u8 i_advise;		/* file hints */
-	__u8 i_inline;		/* file inline flags */
-	__le32 i_uid;		/* user ID */
-	__le32 i_gid;		/* group ID */
-	__le32 i_links;		/* links count */
 	__le64 i_size;		/* file size in bytes */
 	__le64 i_blocks;	/* file size in blocks */
 	__le64 i_atime;		/* access time */
 	__le64 i_ctime;		/* change time */
 	__le64 i_mtime;		/* modification time */
-	__le32 i_generation;	/* file version (for NFS) */
-	__le32 i_current_depth;	/* only for directory depth */
 	__le64 i_xattr_addr;	/* address to save xattr */
 	__le64 i_acl_addr;	/* address to save acl */
+	__le32 i_uid;		/* user ID */
+	__le32 i_gid;		/* group ID */
+	__le32 i_links;		/* links count */
+	__le32 i_current_depth;	/* only for directory depth */
 	__le32 i_flags;		/* file attributes */
 	__le32 i_pino;		/* parent inode number */
 	__le32 i_namelen;	/* file name length */
-	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
+	__le32 i_generation;	/* file version (for NFS) */
+	__le16 i_mode;		/* file mode */
+	__u8 i_advise;		/* file hints */
+	__u8 i_inline;		/* file inline flags */
 	__u8 i_dir_level;	/* dentry_level for large dir */
 	__u8 i_blk_type;	/* data block type */
+	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
 
 	union {
 		struct {
+			__u8 i_pad[35];
 			__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 
 			/* direct(2), indirect(2), double_indirect(1) node id */
 			__le32 i_nid[5];
 		} __attribute__ ((packed));
+		/* Should modify HMFS_INLINE_SIZE once change size of i_pad */
 		__u8 inline_content[HMFS_INLINE_SIZE];
 	};
 } __attribute__ ((packed));
@@ -277,7 +276,7 @@ struct hmfs_nat_entry {
 	__le64 block_addr;	/* block address */
 } __attribute__ ((packed));
 
-#define NAT_ENTRY_PER_BLOCK		(HMFS_MIN_PAGE_SIZE/sizeof(struct hmfs_nat_entry))
+#define NAT_ENTRY_PER_BLOCK		(HMFS_MIN_PAGE_SIZE / sizeof(struct hmfs_nat_entry))
 /* nat data block */
 struct hmfs_nat_block {
 	struct hmfs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
@@ -331,22 +330,20 @@ struct hmfs_dentry_block {
 #define NUM_SIT_LOGS_SEG		10
 /* checkpoint */
 struct hmfs_checkpoint {
-	__le32 checkpoint_ver;	/* checkpoint block version number */
 	__le64 alloc_block_count;	/* # of alloc blocks in main area */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
 	__le64 free_segment_count;	/* # of free segments in main area */
+	__le64 prev_cp_addr;	/* previous checkpoint address */
+	__le64 next_cp_addr;	/* next checkpoint address */
+	__le64 nat_addr;	/* nat file physical address bias */
+	__le64 orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
+	__le32 checkpoint_ver;	/* checkpoint block version number */
 	__le32 valid_inode_count;	/* Total number of valid inodes */
 	__le32 valid_node_count;	/* total number of valid nodes */
 
 	/* information of current segments */
 	__le32 cur_segno[HMFS_MAX_CUR_SEG_COUNT];
 	__le32 cur_blkoff[HMFS_MAX_CUR_SEG_COUNT];
-	__le64 prev_cp_addr;	/* previous checkpoint address */
-	__le64 next_cp_addr;	/* next checkpoint address */
-	__le64 nat_addr;	/* nat file physical address bias */
-	__le64 orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
-
-	/* 88 bytes */
 
 	__le32 next_scan_nid;
 	__le32 elapsed_time;
@@ -355,6 +352,12 @@ struct hmfs_checkpoint {
 	__le32 nr_gc_segs;
 
 	__u8 state;				/* fs state, use set_fs_state */
+
+	__u8 nr_segs;
+	__le16 nr_logs;
+
+	/* 160 bytes */
+
 	/*
 	 * HMFS_GC_DATA: it represents (segno + 1) of current segment,
 	 * because segment 0 is a valid segment, and we use state_arg 0
@@ -365,11 +368,8 @@ struct hmfs_checkpoint {
 	__le64 state_arg;		/* fs state arguments, for recovery */
 	__le64 state_arg_2;
 
-	__u8 nr_segs;
-	__le16 nr_logs;
 	__le32 sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
 
-	/* 164 bytes */
 
 	/* NAT */
 	struct hmfs_nat_journal nat_journals[NUM_NAT_JOURNALS_IN_CP];

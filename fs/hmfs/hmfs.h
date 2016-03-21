@@ -84,9 +84,9 @@ enum {
 struct free_nid;
 
 struct hmfs_mmap_block {
-	struct mm_struct *mm;
 	unsigned long pgoff;
 	unsigned long vaddr;
+	struct mm_struct *mm;
 	struct list_head list;
 };
 
@@ -94,15 +94,15 @@ struct hmfs_mmap_block {
 struct hmfs_dentry_ptr {
 	const void *bitmap;
 	struct hmfs_dir_entry *dentry;
-	__u8(*filename)[HMFS_SLOT_LEN];
 	int max;
+	__u8 (*filename)[HMFS_SLOT_LEN];
 };
 
 struct checkpoint_info {
-	struct list_head list;			/* cp_info list */
-	ver_t version;					/* cp version */
 	struct hmfs_nat_node *nat_root;
 	struct hmfs_checkpoint *cp;
+	struct list_head list;			/* cp_info list */
+	ver_t version;					/* cp version */
 };
 
 struct orphan_inode_entry {

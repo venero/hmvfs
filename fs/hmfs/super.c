@@ -995,15 +995,15 @@ static void destroy_inodecache(void)
 
 static void hmfs_check_struct_size(void)
 {
-	BUG_ON(sizeof(struct hmfs_super_block) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_inode) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct direct_node) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct indirect_node) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_node) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_nat_node) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_nat_block) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_dentry_block) > HMFS_MIN_PAGE_SIZE);
-	BUG_ON(sizeof(struct hmfs_checkpoint) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_super_block) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_inode) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct direct_node) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct indirect_node) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_node) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_nat_node) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_nat_block) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_dentry_block) > HMFS_MIN_PAGE_SIZE);
+	BUILD_BUG_ON(sizeof(struct hmfs_checkpoint) > HMFS_MIN_PAGE_SIZE);
 }
 
 int init_hmfs(void)
