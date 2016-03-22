@@ -92,6 +92,8 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "main area range:%lu - %lu\n",
 		   (unsigned long)si->sbi->main_addr_start,
 		   (unsigned long)si->sbi->main_addr_end);
+	seq_printf(s, "GC Logs Segment Number:%lu\n", GET_SEGNO(si->sbi, 
+			L_ADDR(si->sbi, si->sbi->gc_logs)));
 	seq_printf(s, "max file size:%luk %luM %luG\n",
 		   max_file_size / 1024, max_file_size / 1024 / 1024,
 		   max_file_size / 1024 / 1024 / 1024);
@@ -129,13 +131,25 @@ static int stat_show(struct seq_file *s, void *v)
 	return 0;
 }
 
+static char get_segment_state(struct hmfs_sb_info *sbi, seg_t i)
+{
+	struct free_segmap_info *free_i = FREE_I(sbi);
+	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
+
+	if (test_bit(i, dirty_i->dirty_segmap))
+		return '*';
+	else if (!test_bit(i, free_i->free_segmap))
+		return '#';
+	else if (test_bit(i, free_i->prefree_segmap)) 
+		return '^';
+	else return '@';
+}
+
 static int vb_show(struct seq_file *s, void *v)
 {
 	struct hmfs_stat_info *si = s->private;
 	struct hmfs_sb_info *sbi = si->sbi;
 	int i, j;
-	struct free_segmap_info *free_i = FREE_I(sbi);
-	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 
 	seq_printf(s, "# free\n* dirty\n^ prefree\n@ in use\n");
 	for (i = 0, j = 0; i < TOTAL_SEGS(sbi); i++, j++) {
@@ -143,21 +157,13 @@ static int vb_show(struct seq_file *s, void *v)
 			seq_printf(s, "\n");
 			j = 0;
 		}
-		if (test_bit(i, dirty_i->dirty_segmap))
-			seq_printf(s, "*");
-		else if (!test_bit(i, free_i->free_segmap))
-			seq_printf(s, "#");
-		else if (test_bit(i, free_i->prefree_segmap)) 
-			seq_printf(s, "^");
-		else seq_printf(s, "@");
+		seq_printf(s, "%c", get_segment_state(sbi, i));	
 	}
 
 	seq_printf(s, "\n");
 	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
-		seq_printf(s, "%d:%d %lu\n", i, get_valid_blocks(sbi, i), 
-				get_seg_vblocks_in_summary(sbi, i));
-		hmfs_bug_on(sbi, get_valid_blocks(sbi, i) != 
-				get_seg_vblocks_in_summary(sbi, i));
+		seq_printf(s, "%d(%c):%d %lu\n", i, get_segment_state(sbi, i), 
+				get_valid_blocks(sbi, i), get_seg_vblocks_in_summary(sbi, i));
 	}
 
 	return 0;
@@ -206,7 +212,7 @@ static ssize_t info_read(struct file *file, char __user * buffer, size_t count,
 	if (count + *ppos > si->buf_size)
 		count = si->buf_size - *ppos;
 
-	if (copy_to_user(buffer, si->buffer, count)) {
+	if (copy_to_user(buffer, si->buffer + *ppos, count)) {
 		return -EFAULT;
 	}
 
@@ -497,8 +503,7 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 	}
 
 	sum_entry = get_summary_by_addr(sbi, blk_addr);
-
-	len += hmfs_print(si, 1, "-- [%016x] --\n", blk_addr >> HMFS_PAGE_SIZE_BITS);
+	len += hmfs_print(si, 1, "-- [%d %d] --\n", GET_SEGNO(sbi, blk_addr), GET_SEG_OFS(sbi, blk_addr));
 	len += hmfs_print(si, 1, "  nid: %u\n", le32_to_cpu(sum_entry->nid));
 	len += hmfs_print(si, 1, "  start_version: %u\n",
 			   le32_to_cpu(sum_entry->start_version));

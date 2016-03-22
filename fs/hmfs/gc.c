@@ -513,7 +513,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	nid_t nid;
 	struct hmfs_summary_block *sum_blk;
 	struct hmfs_summary *sum;
-	int tmp=0;
 
 	none_valid = !get_seg_entry(sbi, segno)->valid_blocks;
 
@@ -526,29 +525,20 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	//#ERROR: inconsistent of segno->valid_blocks
 	for (off = 0; off < HMFS_PAGE_PER_SEG; ++off, sum++) {
 		is_current  = get_summary_start_version(sum) == cm_i->new_version;
+
 		/*
 		 * We ignore two kinds of blocks:
 		 * 	- invalid blocks in older version
 		 * 	- newest blocks in newest version(checkpoint is not written)
 		 */
-		 //#DEBUGING
-		 if (get_summary_valid_bit(sum))
-		 	printk(KERN_ERR "is_current: %d\n", is_current);
-		 //////////////////////////////
 		if (!get_summary_valid_bit(sum) && !is_current)
 			continue;
 
 		if (is_current) {
 			nid = get_summary_nid(sum);
-			//#DEBUGING
 			if (IS_ERR(get_node(sbi, nid))){
-				printk(KERN_ERR "here !!!!\n");
 				continue;
 			}
-			//////////////////////////////////////
-			//if (IS_ERR(get_node(sbi, nid)))
-			//	continue;
-			//-----------------------------------
 		}
 
 		hmfs_bug_on(sbi, get_summary_valid_bit(sum) && is_current);
@@ -583,7 +573,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 		}
 	}
 
-	hmfs_dbg("tmp:%d\n",tmp);
 recycle:
 	recycle_segment(sbi, segno, none_valid);
 }

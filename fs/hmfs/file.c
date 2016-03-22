@@ -750,6 +750,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 			new_node->i.i_addr[ofs] = NULL_ADDR;
 	}
 
+
 	if (nr_free) {
 		dec_valid_block_count(sbi, dn->inode, nr_free);
 		mark_inode_dirty(dn->inode);

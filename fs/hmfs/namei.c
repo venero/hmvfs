@@ -238,7 +238,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 	inode_write_unlock(dir);
 
 	mutex_unlock_op(sbi, ilock);
-	mark_inode_dirty(inode);
+	mark_inode_dirty(dir);
 fail:
 	return err;
 }

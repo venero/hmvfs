@@ -183,7 +183,7 @@ retry:
 	hmfs_bug_on(sbi, test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
 	*newseg = segno;
-	/* Need to clear SSA */
+	/* TODO: Need not to clear SSA */
 	ssa = get_summary_block(sbi, segno);
 	memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
 unlock:
@@ -479,6 +479,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 	int total_segs = TOTAL_SEGS(sbi);
 	unsigned long *bitmap = free_i->prefree_segmap;
 	seg_t segno = 0;
+	void *ssa;
 
 	lock_write_segmap(free_i);
 	while (1) {
@@ -489,6 +490,8 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 		if (test_and_clear_bit(segno, free_i->free_segmap)) {
 			free_i->free_segments++;
 		}
+		ssa = get_summary_block(sbi, segno);
+		memset_nt(ssa, 0, HMFS_SUMMARY_BLOCK_SIZE);
 		segno++;
 	}
 	unlock_write_segmap(free_i);
