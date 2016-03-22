@@ -379,6 +379,7 @@ struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 				struct checkpoint_info *cp_i, nid_t nid)
 {
 	struct hmfs_nat_entry *nat_entry;
+	struct hmfs_summary *sum;
 	block_t node_addr;
 
 	if (cp_i->version == CM_I(sbi)->new_version)
@@ -387,7 +388,27 @@ struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 	nat_entry = get_nat_entry(sbi, cp_i->version, nid);
 	if (!nat_entry)
 		return NULL;
-	node_addr = le64_to_cpu(nat_entry->block_addr);
+
+	sum = get_summary_by_addr(sbi, L_ADDR(sbi, nat_entry));
+	if (get_summary_start_version(sum) == cp_i->version) {
+		node_addr = le64_to_cpu(nat_entry->block_addr);
+	} else {
+		/* Address might be stored in journals */
+		int i;
+		nid_t local_nid;
+		struct hmfs_checkpoint *hmfs_cp = cp_i->cp;
+
+		node_addr = NULL_ADDR;
+		for (i = 0; i < NUM_NAT_JOURNALS_IN_CP; ++i) {
+			local_nid = le32_to_cpu(hmfs_cp->nat_journals[i].nid);
+			if (local_nid == nid) {
+				node_addr = le64_to_cpu(hmfs_cp->nat_journals[i].entry.block_addr);
+				break;
+			}
+		}
+		if (node_addr == NULL_ADDR)
+			return NULL;
+	}
 
 	return ADDR(sbi, node_addr);
 }

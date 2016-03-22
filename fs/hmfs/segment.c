@@ -773,14 +773,12 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 	kfree(sm_info);
 }
 
-struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
-				seg_t segno)
+struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	return sbi->ssa_entries + (segno << SM_I(sbi)->page_4k_per_seg_bits);
 }
 
-struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-				block_t blk_addr)
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
 	return sbi->ssa_entries + ((blk_addr - sbi->main_addr_start) >> HMFS_MIN_PAGE_SIZE_BITS);
 }
