@@ -624,8 +624,8 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 			orphan_addrs[i++] = orphan_addr;
 			orphan_block = ADDR(sbi, orphan_addr);
 			/* Reseverd for checkpoint address */
-			orphan_block = (__le32 *)JUMP(orphan_block, sizeof(__le64));
 			end = (__le32 *)JUMP(orphan_block, HMFS_PAGE_SIZE);
+			orphan_block = (__le32 *)JUMP(orphan_block, sizeof(__le64));
 		}
 		*orphan_block = cpu_to_le32(entry->ino);
 		orphan_block++;
