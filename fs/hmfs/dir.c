@@ -697,7 +697,6 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 		/* Inline directory should never reach here */
 		hmfs_bug_on(sbi, is_inline_inode(dir));
 
-		hmfs_dbg("%d\n",bidx);
 		dir_i_size = i_size_read(dir);
 		truncate_hole(dir, bidx, bidx + 1);
 		if (dir_i_size >> block_size_bits == bidx + 1) {

@@ -512,7 +512,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 	bool is_current, none_valid;
 	nid_t nid;
 	struct hmfs_summary *sum;
-	int tmp=0;
 
 	none_valid = !get_seg_entry(sbi, segno)->valid_blocks;
 
@@ -571,7 +570,6 @@ static void garbage_collect(struct hmfs_sb_info *sbi, seg_t segno)
 		}
 	}
 
-	hmfs_dbg("tmp:%d\n",tmp);
 recycle:
 	recycle_segment(sbi, segno, none_valid);
 }
@@ -621,8 +619,6 @@ gc_more:
 		hmfs_memcpy_atomic(&hmfs_cp->nr_gc_segs, &sbi->nr_gc_segs, 4);
 	}
 
-	int tmpb=SM_I(sbi)->page_4k_per_seg-get_valid_blocks(sbi,segno);
-	hmfs_dbg("%d %d\n",tmpb,div64_u64(tmpb,STAT_GC_RANGE));
 	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
 			get_valid_blocks(sbi, segno));
 
