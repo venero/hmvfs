@@ -280,7 +280,7 @@ void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
 	}
 
 	if (fill_zero)
-		memset_nt(dest + left, 0, right - left);
+		memset(dest + left, 0, right - left);
 
 	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
@@ -347,7 +347,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	if (src_addr != NULL_ADDR)
 		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
-	else memset_nt(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
+	else memset(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
 
 	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
 			dn.ofs_in_node);
@@ -419,7 +419,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	if (need_copy && src_addr != NULL_ADDR)
 		hmfs_memcpy(dst, src, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 	else
-		memset_nt(dst, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
+		memset(dst, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 
 	summary = get_summary_by_addr(sbi, dst_addr);
 	make_summary_entry(summary, inode->i_ino, CM_I(sbi)->new_version, 0,

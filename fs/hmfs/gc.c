@@ -742,7 +742,7 @@ void stop_gc_thread(struct hmfs_sb_info *sbi)
 
 int init_gc_logs(struct hmfs_sb_info *sbi)
 {
-	seg_t segno;
+	seg_t segno = 0;
 	int ret;
 	block_t addr;
 	struct hmfs_checkpoint *hmfs_cp = CM_I(sbi)->last_cp_i->cp;

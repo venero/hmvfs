@@ -285,7 +285,7 @@ static int hmfs_format(struct super_block *sb)
 	end_addr = init_size & (~(segment_size - 1));
 
 	if (sbi->deep_fmt) {
-		memset_nt(super, 0, init_size);
+		memset(super, 0, init_size);
 	}
 
 	pages_count = init_size >> HMFS_MIN_PAGE_SIZE_BITS;
@@ -303,7 +303,7 @@ static int hmfs_format(struct super_block *sb)
 			* sizeof(struct hmfs_summary) + HMFS_MIN_PAGE_SIZE - 1) >> 
 			HMFS_MIN_PAGE_SIZE_BITS;
 	if (!sbi->deep_fmt)
-		memset_nt(sbi->ssa_entries, 0, ssa_pages_count << HMFS_MIN_PAGE_SIZE_BITS);
+		memset(sbi->ssa_entries, 0, ssa_pages_count << HMFS_MIN_PAGE_SIZE_BITS);
 
 	/* prepare SIT area */
 	area_addr += (ssa_pages_count << HMFS_MIN_PAGE_SIZE_BITS);
@@ -311,7 +311,7 @@ static int hmfs_format(struct super_block *sb)
 	sbi->sit_entries = ADDR(sbi, sit_addr);
 	sit_area_size = main_segments_count * SIT_ENTRY_SIZE;
 	if (!sbi->deep_fmt)
-		memset_nt(sbi->sit_entries, 0, sit_area_size);
+		memset(sbi->sit_entries, 0, sit_area_size);
 
 	/* prepare main area */
 	area_addr += sit_area_size;
@@ -338,7 +338,7 @@ static int hmfs_format(struct super_block *sb)
 	/* setup root inode */
 	root_node_addr = node_segaddr;
 	root_node = ADDR(sbi, node_segaddr);
-	memset_nt(root_node, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+	memset(root_node, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	/* node[0]: root inode */
 	node_blkoff += 1;
 
@@ -370,7 +370,7 @@ static int hmfs_format(struct super_block *sb)
 	root_node->i.i_addr[0] = cpu_to_le64(data_segaddr);
 	data_blkoff += 1;
 	dent_blk = ADDR(sbi, data_segaddr);
-	memset_nt(dent_blk, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
+	memset(dent_blk, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 	dent_blk->dentry[0].hash_code = HMFS_DOT_HASH;
 	dent_blk->dentry[0].ino = cpu_to_le32(HMFS_ROOT_INO);
 	dent_blk->dentry[0].name_len = cpu_to_le16(1);
@@ -403,7 +403,7 @@ static int hmfs_format(struct super_block *sb)
 
 	
 	while (nat_height > 0) {
-		memset_nt(nat_root, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+		memset(nat_root, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		
 		summary = &node_summary_block[node_blkoff];
 		make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_NATN);
@@ -429,7 +429,7 @@ static int hmfs_format(struct super_block *sb)
 
 	cp_addr = node_segaddr + HMFS_BLOCK_SIZE[SEG_NODE_INDEX] * node_blkoff;
 	cp = ADDR(sbi, cp_addr);
-	memset_nt(cp, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+	memset(cp, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	
 	summary = &node_summary_block[node_blkoff];
 	make_summary_entry(summary, 0, HMFS_DEF_CP_VER, 0, SUM_TYPE_CP);

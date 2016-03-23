@@ -351,7 +351,7 @@ static void do_make_empty_dir(struct inode *inode, struct inode *parent,
 {
 	struct hmfs_dir_entry *de;
 
-	memset_nt((void *)d->bitmap, 0, SIZE_OF_DENTRY_BITMAP);
+	memset((void *)d->bitmap, 0, SIZE_OF_DENTRY_BITMAP);
 	de = &d->dentry[0];
 	de->name_len = cpu_to_le16(1);
 	de->hash_code = 0;

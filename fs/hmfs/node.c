@@ -688,7 +688,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	if (!IS_ERR(src)) {
 		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	} else {
-		memset_nt(dest, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+		memset(dest, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 	}
 
 	setup_summary_of_new_node(sbi, blk_addr, src_addr, nid,
@@ -711,7 +711,7 @@ void *alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid, struct inode *inode,
 			return ERR_PTR(-ENOSPC);
 		addr = alloc_free_node_block(sbi, false);
 		if (sum_type == SUM_TYPE_CP)
-			memset_nt(ADDR(sbi, addr), 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+			memset(ADDR(sbi, addr), 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		return ADDR(sbi, addr);
 	}
 
@@ -1083,7 +1083,7 @@ static block_t __flush_nat_entries(struct hmfs_sb_info *sbi,
 		if (cur_nat_node) {
 			hmfs_memcpy(cur_stored_node, old_nat_node, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		} else {
-			memset_nt(cur_stored_node, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+			memset(cur_stored_node, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 		}
 
 		summary = get_summary_by_addr(sbi, cur_stored_addr);
@@ -1410,7 +1410,7 @@ struct hmfs_nat_node *flush_nat_entries(struct hmfs_sb_info *sbi,
 			if (old_entry_block) {
 				memcpy(new_entry_block, old_entry_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			} else {
-				memset_nt(new_entry_block, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
+				memset(new_entry_block, 0, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			}
 			lock_write_nat(nm_i);
 		}

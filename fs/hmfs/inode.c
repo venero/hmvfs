@@ -53,7 +53,7 @@ int hmfs_convert_inline_inode(struct inode *inode)
 	hmfs_bug_on(sbi, old_inode_block == new_inode_block);
 
 	/* Reinitialize i_addrs */
-	memset_nt(new_inode_block->i_addr, 0, sizeof(__le64) * 
+	memset(new_inode_block->i_addr, 0, sizeof(__le64) * 
 			NORMAL_ADDRS_PER_INODE + sizeof(__le32) * 5);
 	data_block = alloc_new_data_block(sbi, inode, 0);
 	hmfs_memcpy(data_block, old_inode_block->inline_content, 

@@ -858,7 +858,7 @@ static int truncate_blocks(struct inode *inode, block_t from)
 							inode, SUM_TYPE_INODE, false);
 		if (IS_ERR(inode_block))
 			return PTR_ERR(inode_block);
-		memset_nt((__u8 *)inode_block->inline_content, 0,
+		memset((__u8 *)inode_block->inline_content, 0,
 				HMFS_INLINE_SIZE - from);
 		return 0;
 	}

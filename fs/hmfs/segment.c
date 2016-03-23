@@ -189,7 +189,7 @@ retry:
 	*newseg = segno;
 	/* TODO: Need not to clear SSA */
 	ssa = get_summary_block(sbi, segno);
-	memset_nt(ssa, 0, SM_I(sbi)->page_4k_per_seg * sizeof(struct hmfs_summary));
+	memset(ssa, 0, SM_I(sbi)->page_4k_per_seg * sizeof(struct hmfs_summary));
 unlock:
 	unlock_write_segmap(free_i);
 	return ret;
@@ -328,7 +328,7 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
 			break;
 	}
 	sit_i->dirty_sentries = 0;
-	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
+	memset(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
 }
 
 
@@ -429,7 +429,7 @@ retry:
 	/* Finally, set valid bit in SSA */
 	mark_block_valid(sbi, new_nat_root, ADDR(sbi, new_cp_addr));
 	sit_i->dirty_sentries = 0;
-	memset_nt(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
+	memset(sit_i->dirty_sentries_bitmap, 0, sit_i->bitmap_size);
 }
 
 static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
@@ -471,7 +471,7 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i->dirty_sentries_bitmap)
 		return -ENOMEM;
 
-	memset_nt(sit_i->dirty_sentries_bitmap, 0, bitmap_size);
+	memset(sit_i->dirty_sentries_bitmap, 0, bitmap_size);
 
 	sit_i->dirty_sentries = 0;
 
@@ -501,7 +501,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 			free_i->free_segments++;
 		}
 		ssa = get_summary_block(sbi, segno);
-		memset_nt(ssa, 0, summary_block_size);
+		memset(ssa, 0, summary_block_size);
 		segno++;
 	}
 	unlock_write_segmap(free_i);
