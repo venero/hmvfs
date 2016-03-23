@@ -40,7 +40,7 @@ enum FS_STATE {
 #define HMFS_MIN_PAGE_SIZE			4096
 #define HMFS_MIN_PAGE_SIZE_BITS		12
 #define HMFS_MIN_PAGE_MASK			(~(HMFS_MIN_PAGE_SIZE - 1))
-#define HMFS_MAX_PAGE_SIZE_BITS		30		/* 1G block */
+#define HMFS_MAX_PAGE_SIZE_BITS		27		/* 1G block */
 #define HMFS_MAX_PAGE_SIZE			(1 << HMFS_MAX_PAGE_SIZE_BITS)
 #define HMFS_PAGE_SIZE_BITS_INC		3
 #define HMFS_MIN_SEGMENT_SIZE_BITS	21
@@ -48,7 +48,7 @@ enum FS_STATE {
 									/ HMFS_PAGE_SIZE_BITS_INC + 2)
 
 static const unsigned int HMFS_BLOCK_SIZE_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
-	12, 12, 15,	18, 21, 24, 27, 30,
+	12, 12, 15,	18, 21, 24, 27,
 };
 
 #define HMFS_BLOCK_SIZE_BITS(i) (i == 0 ? 12 : (9 + 3 * i))
@@ -61,7 +61,6 @@ static const unsigned long HMFS_BLOCK_SIZE[HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << HMFS_BLOCK_SIZE_BITS(4),
 	1 << HMFS_BLOCK_SIZE_BITS(5),
 	1 << HMFS_BLOCK_SIZE_BITS(6),
-	1 << HMFS_BLOCK_SIZE_BITS(7),
 };
 
 const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
@@ -72,7 +71,6 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << 9,
 	1 << 12,
 	1 << 15,
-	1 << 18,
 };
 
 #define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_MIN_PAGE_SIZE
@@ -145,7 +143,7 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 #define NORMAL_ADDRS_PER_INODE	461		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
-#define NUM_NAT_JOURNALS_IN_CP	(3884 / sizeof(struct hmfs_nat_journal))
+#define NUM_NAT_JOURNALS_IN_CP	(3892 / sizeof(struct hmfs_nat_journal))
 #endif
 #define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) +\
 		5 * sizeof(__le32) + 35)
@@ -357,7 +355,7 @@ struct hmfs_checkpoint {
 	__u8 nr_segs;
 	__le16 nr_logs;
 
-	/* 160 bytes */
+	/* 152 bytes */
 
 	/*
 	 * HMFS_GC_DATA: it represents (segno + 1) of current segment,
