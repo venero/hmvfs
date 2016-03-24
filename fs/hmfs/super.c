@@ -590,8 +590,6 @@ int __hmfs_write_inode(struct inode *inode, bool force)
 	mutex_unlock_op(sbi, ilock);
 
 	hmfs_bug_on(sbi, err && err != -ENOSPC);
-//	if (err)
-//		hmfs_dbg("%d\n", err);
 	return err;
 }
 
@@ -719,7 +717,7 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bsize = HMFS_MIN_PAGE_SIZE;
 	buf->f_blocks = cm_i->user_block_count;
 	buf->f_bfree = (free_i->free_segments - nr_segment_reserve) 
-			<< SM_I(sbi)->page_4k_per_seg;
+			<< SM_I(sbi)->page_4k_per_seg_bits;
 	buf->f_bavail = cm_i->user_block_count - cm_i->valid_block_count;
 	buf->f_files = cm_i->valid_inode_count;
 	buf->f_ffree = cm_i->user_block_count - cm_i->valid_block_count;
