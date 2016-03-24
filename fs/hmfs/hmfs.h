@@ -253,6 +253,7 @@ struct hmfs_inode_info {
 	struct list_head list;
 	struct rw_semaphore i_lock;			/* Lock for inode read-write */
 	void *read_addr;					/* Start address of read-only file */
+	struct hmfs_inode *i_node_block;
 };
 
 struct hmfs_stat_info {

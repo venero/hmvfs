@@ -555,6 +555,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->flags = 0;
 	fi->i_advise = 0;
 	fi->read_addr = NULL;
+	fi->i_node_block = NULL;
 	init_rwsem(&fi->i_lock);
 	set_inode_flag(fi, FI_NEW_INODE);
 	INIT_LIST_HEAD(&fi->list);

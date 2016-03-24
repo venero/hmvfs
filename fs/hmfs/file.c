@@ -208,6 +208,48 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 	end_index = (isize - 1) >> block_size_bits;
 
+	if (end_index < NORMAL_ADDRS_PER_INODE) {
+		unsigned long nr, left;
+		void *data_block;
+		struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+
+		inode_block = HMFS_I(inode)->i_node_block;
+		
+		if (!inode_block) {
+			inode_block = get_node(sbi, inode->i_ino);
+			HMFS_I(inode)->i_node_block = inode_block;
+		}
+		
+		do {
+			nr = block_size;
+			if (index >= end_index) {
+				if (index > end_index)
+					goto out;
+				nr = ((isize - 1) & block_ofs_mask) + 1;
+				if (nr <= offset)
+					goto out;
+			}
+			nr = nr - offset;
+			if (nr > len - copied)
+				nr = len - copied;
+			
+			data_block = ADDR(sbi, le64_to_cpu(inode_block->i_addr[index]));
+			
+			left = __copy_to_user(buf + copied, data_block + offset, nr);
+
+			if (left) {
+				error = -EFAULT;
+				goto out;
+			}
+			copied += (nr - left);
+			offset += (nr - left);
+			index += offset >> block_size_bits;
+			offset &= block_ofs_mask;
+		} while (copied < len);
+		goto out;
+	}
+
+	hmfs_dbg("Not direct\n");
 	/*
 	 * nr : read length for this loop
 	 * offset : start inner-blk offset this loop
