@@ -71,7 +71,6 @@ static int stat_show(struct seq_file *s, void *v)
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct hmfs_sm_info *sm_i = SM_I(sbi);
 	unsigned long max_file_size = hmfs_max_file_size();
-	struct curseg_info * curseg_i = CURSEG_I(sbi);
 	int i;
 
 	seq_printf(s, "=============General Infomation=============\n");
@@ -80,17 +79,17 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "virtual address:%p\n", sbi->virt_addr);
 	seq_printf(s, "initial size:%llu\n", sbi->initsize);
 	seq_printf(s, "segment size:%lu %luM\n", sm_i->segment_size, sm_i->segment_size >> 20);
-	seq_printf(s, "page count:%lu\n", cm_i->user_block_count);
-	seq_printf(s, "segment count:%lu\n", sbi->segment_count);
-	seq_printf(s, "main segment count:%lu\n", sbi->segment_count_main);
-	seq_printf(s, "valid_block_count:%lu %dM\n", cm_i->valid_block_count,
+	seq_printf(s, "page count:%llu\n", cm_i->user_block_count);
+	seq_printf(s, "segment count:%llu\n", sbi->segment_count);
+	seq_printf(s, "main segment count:%llu\n", sbi->segment_count_main);
+	seq_printf(s, "valid_block_count:%llu %dM\n", cm_i->valid_block_count,
 			pc_to_mega(cm_i->valid_block_count));
-	seq_printf(s, "free_block_count:%lu %dM\n", free_i->free_segments << sm_i->page_4k_per_seg_bits,
+	seq_printf(s, "free_block_count:%llu %dM\n", free_i->free_segments << sm_i->page_4k_per_seg_bits,
 			pc_to_mega(free_i->free_segments << sm_i->page_4k_per_seg_bits));
-	seq_printf(s, "alloc_block_count:%lu %dM\n", cm_i->alloc_block_count,
+	seq_printf(s, "alloc_block_count:%llu %dM\n", cm_i->alloc_block_count,
 			pc_to_mega(cm_i->alloc_block_count));
-	seq_printf(s, "valid_node_count:%lu\n", cm_i->valid_node_count);
-	seq_printf(s, "valid_inode_count:%lu\n", cm_i->valid_inode_count);
+	seq_printf(s, "valid_node_count:%llu\n", cm_i->valid_node_count);
+	seq_printf(s, "valid_inode_count:%llu\n", cm_i->valid_inode_count);
 	seq_printf(s, "SSA start address:%lu\n", DISTANCE(sbi->virt_addr, sbi->ssa_entries));
 	seq_printf(s, "SIT start address:%lu\n", DISTANCE(sbi->virt_addr, sbi->sit_entries));
 	seq_printf(s, "GC Logs Segment Number:%lu\n", GET_SEGNO(sbi, L_ADDR(sbi, sbi->gc_logs)));
@@ -99,13 +98,13 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "main area range:%llu - %llu\n", sbi->main_addr_start, sbi->main_addr_end);
 	seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size >> 10, 
 			max_file_size >> 20, max_file_size >>30);
-	seq_printf(s, "limit invalid blocks:%lu\n", sm_i->limit_invalid_blocks);
-	seq_printf(s, "limit free blocks:%lu\n", sm_i->limit_free_blocks);
-	seq_printf(s, "limit severe free blocks:%lu\n", sm_i->severe_free_blocks);
-	seq_printf(s, "overprovision blocks:%lu\n", sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
+	seq_printf(s, "limit invalid blocks:%llu\n", sm_i->limit_invalid_blocks);
+	seq_printf(s, "limit free blocks:%llu\n", sm_i->limit_free_blocks);
+	seq_printf(s, "limit severe free blocks:%llu\n", sm_i->severe_free_blocks);
+	seq_printf(s, "overprovision blocks:%llu\n", sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		seq_printf(s, "current segment[%d %u]\n", atomic_read(&curseg_i[i].segno),
-				curseg_i[i].next_blkoff);
+		seq_printf(s, "current segment[%d %u]\n", atomic_read(&ALLOCATOR(sbi, i)->segno),
+				ALLOCATOR(sbi, i)->next_blkoff);
 	}
 
 	if (si->flush_nat_time)

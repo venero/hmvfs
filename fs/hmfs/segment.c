@@ -134,11 +134,11 @@ void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
 	__mark_sit_entry_dirty(sit_i, segno);
 }
 
-static void reset_curseg(struct curseg_info *seg_i)
+static void reset_curseg(struct allocator *allocator)
 {
-	atomic_set(&seg_i->segno, seg_i->next_segno);
-	seg_i->next_blkoff = 0;
-	seg_i->next_segno = NULL_SEGNO;
+	atomic_set(&allocator->segno, allocator->next_segno);
+	allocator->next_blkoff = 0;
+	allocator->next_segno = NULL_SEGNO;
 }
 
 //TODO:check blkoff
@@ -151,10 +151,10 @@ inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno,
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
-				struct curseg_info *seg_i)
+				struct allocator *allocator)
 {
-	return __cal_page_addr(sbi, atomic_read(&seg_i->segno),
-				seg_i->next_blkoff);
+	return __cal_page_addr(sbi, atomic_read(&allocator->segno),
+				allocator->next_blkoff);
 }
 
 /*
@@ -196,15 +196,15 @@ unlock:
 }
 
 static int move_to_new_segment(struct hmfs_sb_info *sbi,
-				struct curseg_info *seg_i)
+				struct allocator *allocator)
 {
-	seg_t segno = atomic_read(&seg_i->segno);
+	seg_t segno = atomic_read(&allocator->segno);
 	int ret = get_new_segment(sbi, &segno);
 
 	if (ret)
 		return ret;
-	seg_i->next_segno = segno;
-	reset_curseg(seg_i);
+	allocator->next_segno = segno;
+	reset_curseg(allocator);
 	return 0;
 }
 
@@ -213,41 +213,41 @@ static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type,
 {
 	block_t page_addr = 0;
 	struct sit_info *sit_i = SIT_I(sbi);
-	struct curseg_info *seg_i = &(CURSEG_I(sbi)[seg_type]);
+	struct allocator *allocator = ALLOCATOR(sbi, seg_type);
 	int ret;
 
-	lock_curseg(seg_i);
+	lock_allocator(allocator);
 	
-	if (seg_i->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
-		ret = move_to_new_segment(sbi, seg_i);
+	if (allocator->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
+		ret = move_to_new_segment(sbi, allocator);
 		if (ret) {
-			unlock_curseg(seg_i);
+			unlock_allocator(allocator);
 			return NULL_ADDR;
 		}
 	}
 
-	page_addr = cal_page_addr(sbi, seg_i);
+	page_addr = cal_page_addr(sbi, allocator);
 
 	if (sit_lock)
 		lock_sentry(sit_i);
-	update_sit_entry(sbi, atomic_read(&seg_i->segno), HMFS_BLOCK_SIZE_4K[seg_type]);
+	update_sit_entry(sbi, atomic_read(&allocator->segno), HMFS_BLOCK_SIZE_4K[seg_type]);
 	
 	if (sit_lock)
 		unlock_sentry(sit_i);
 
-	seg_i->next_blkoff += HMFS_BLOCK_SIZE_4K[seg_type];
+	allocator->next_blkoff += HMFS_BLOCK_SIZE_4K[seg_type];
 
-	unlock_curseg(seg_i);
+	unlock_allocator(allocator);
 
 	return page_addr;
 }
 
-block_t alloc_free_data_block(struct hmfs_sb_info * sbi, char seg_type)
+inline block_t alloc_free_data_block(struct hmfs_sb_info * sbi, char seg_type)
 {
 	return get_free_block(sbi, seg_type, true);
 }
 
-block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
+inline block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
 {
 	return get_free_block(sbi, SEG_NODE_INDEX, sit_lock);
 }
@@ -544,28 +544,56 @@ free_i:
 	return -ENOMEM;
 }
 
-static int build_curseg(struct hmfs_sb_info *sbi)
+static int build_allocators(struct hmfs_sb_info *sbi)
 {
-	struct curseg_info *array;
+	struct allocator *array;
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
+	int pages_per_buffer;
 	int i;
+	long buffer_size;
 
-	array = kzalloc(sizeof(struct curseg_info) * sbi->nr_page_types,
+	array = kzalloc(sizeof(struct allocator) * sbi->nr_page_types,
 					GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
-	SM_I(sbi)->curseg_array = array;
+	SM_I(sbi)->allocators = array;
 	
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		mutex_init(&array[i].curseg_mutex);
+		mutex_init(&array[i].alloc_lock);
 		array[i].next_blkoff = le32_to_cpu(hmfs_cp->cur_blkoff[i]);
 		atomic_set(&array[i].segno, le32_to_cpu(hmfs_cp->cur_segno[i]));
 		array[i].next_segno = NULL_SEGNO;
+
+		/* Initialize truncated blocks structure */
+		atomic_set(&array[i].write, 0);
+		atomic_set(&array[i].read, 0);
+		pages_per_buffer = SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[i];
+
+		buffer_size = pages_per_buffer * sizeof(block_t);
+		if (buffer_size > MAX_BUFFER_PAGES << PAGE_SHIFT) {
+			buffer_size = MAX_BUFFER_PAGES << PAGE_SHIFT;
+		} else if (buffer_size < MIN_BUFFER_PAGES << PAGE_SHIFT) {
+			buffer_size = MIN_BUFFER_PAGES << PAGE_SHIFT;
+		}
+
+		array[i].buffer = kzalloc(buffer_size, GFP_KERNEL);
+		if (!array[i].buffer) {
+			goto free_allocator;
+		}
+		pages_per_buffer = buffer_size / sizeof(block_t);
+		array[i].buffer_index_mask = pages_per_buffer - 1;
 	}
 
 	return 0;
+free_allocator:
+	while (--i >= 0) {
+		kfree(array[i].buffer);
+		array[i].buffer = NULL;
+	}
+	kfree(array);
+	return -ENOMEM;
 }
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
@@ -588,8 +616,8 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	unsigned int start;
-	struct curseg_info *curseg_t = NULL;
 	struct seg_entry *sentry = NULL;
+	seg_t segno;
 	int i;
 
 	for (start = 0; start < TOTAL_SEGS(sbi); start++) {
@@ -603,10 +631,10 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 	}
 
 	/* set use the current segments */
-	curseg_t = CURSEG_I(sbi);
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		if (atomic_read(&curseg_t[i].segno) != NULL_SEGNO)
-			__set_test_and_inuse(sbi, atomic_read(&curseg_t[i].segno));
+		segno = atomic_read(&ALLOCATOR(sbi, i)->segno);
+		if (segno != NULL_SEGNO)
+			__set_test_and_inuse(sbi, segno);
 	}
 }
 
@@ -614,7 +642,6 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	struct curseg_info *curseg_t = CURSEG_I(sbi);
 	seg_t segno, total_segs = TOTAL_SEGS(sbi), offset = 0;
 	unsigned short valid_blocks;
 	int i;
@@ -633,8 +660,9 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 
 	/* Clear the current segments */
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		if (atomic_read(&curseg_t[i].segno) != NULL_SEGNO)
-			clear_bit(atomic_read(&curseg_t[i].segno), dirty_i->dirty_segmap);
+		segno = atomic_read(&ALLOCATOR(sbi, i)->segno);
+		if (segno != NULL_SEGNO)
+			clear_bit(segno, dirty_i->dirty_segmap);
 	}
 }
 
@@ -696,7 +724,7 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	err = build_free_segmap(sbi);
 	if (err)
 		return err;
-	err = build_curseg(sbi);
+	err = build_allocators(sbi);
 	if (err)
 		return err;
 
@@ -725,13 +753,18 @@ static void destroy_dirty_segmap(struct hmfs_sb_info *sbi)
 	kfree(dirty_i);
 }
 
-static void destroy_curseg(struct hmfs_sb_info *sbi)
+static void destroy_allocators(struct hmfs_sb_info *sbi)
 {
-	struct curseg_info *array = SM_I(sbi)->curseg_array;
+	struct allocator *array = SM_I(sbi)->allocators;
+	int i;
 
 	if (!array)
 		return;
-	SM_I(sbi)->curseg_array = NULL;
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		kfree(array[i].buffer);
+		array[i].buffer = NULL;
+	}
+	SM_I(sbi)->allocators = NULL;
 	kfree(array);
 }
 
@@ -766,7 +799,7 @@ void destroy_segment_manager(struct hmfs_sb_info *sbi)
 	struct hmfs_sm_info *sm_info = SM_I(sbi);
 	
 	destroy_dirty_segmap(sbi);
-	destroy_curseg(sbi);
+	destroy_allocators(sbi);
 	destroy_free_segmap(sbi);
 	destroy_sit_info(sbi);
 	sbi->sm_info = NULL;

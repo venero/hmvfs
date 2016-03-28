@@ -102,8 +102,9 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	seg_t segno;
 	int nsearched = 0;
 	int total_segs = TOTAL_SEGS(sbi);
-	struct curseg_info *seg_i0 = &(CURSEG_I(sbi)[0]);
-	struct curseg_info *seg_i1 = &(CURSEG_I(sbi)[1]);
+	//TODO: check all seg type
+	struct allocator *seg_i0 = ALLOCATOR(sbi, 0);
+	struct allocator *seg_i1 = ALLOCATOR(sbi, 1);
 
 	p.gc_mode = gc_type == BG_GC ? GC_CB : GC_GREEDY;
 	p.offset = sbi->last_victim[p.gc_mode];
@@ -660,10 +661,15 @@ out:
 	return ret;
 }
 
+static int bc_thread_func(void *data)
+{
+	return 0;
+}
+
 static int gc_thread_func(void *data)
 {
 	struct hmfs_sb_info *sbi = data;
-	wait_queue_head_t *wq = &(sbi->gc_thread->gc_wait_queue_head);
+	wait_queue_head_t *wq = &(sbi->gc_thread->wait_queue_head);
 	long wait_ms = 0;
 	printk(KERN_INFO "start gc thread\n");
 	wait_ms = sbi->gc_thread_min_sleep_time;
@@ -692,8 +698,8 @@ static int gc_thread_func(void *data)
 			wait_ms = increase_sleep_time(sbi, wait_ms);
 
 		if (hmfs_gc(sbi, BG_GC)) {
-//			if (wait_ms == sbi->gc_thread_max_sleep_time)
-//				wait_ms = GC_THREAD_NOGC_SLEEP_TIME;
+			if (wait_ms == sbi->gc_thread_max_sleep_time)
+				wait_ms = GC_THREAD_NOGC_SLEEP_TIME;
 		}
 	} while (!kthread_should_stop());
 	return 0;
@@ -701,7 +707,7 @@ static int gc_thread_func(void *data)
 
 int start_gc_thread(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_gc_kthread *gc_thread = NULL;
+	struct hmfs_kthread *gc_thread = NULL, *bc_thread = NULL;
 	int err = 0;
 	unsigned long start_addr, end_addr;
 
@@ -710,32 +716,51 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 	sbi->last_victim[GC_CB] = 0;
 	sbi->last_victim[GC_GREEDY] = 0;
 
-	gc_thread = kmalloc(sizeof(struct hmfs_gc_kthread), GFP_KERNEL);
+	/* Initialize GC kthread */
+	gc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
 	if (!gc_thread) {
-		err = -ENOMEM;
-		goto out;
+		return -ENOMEM;
 	}
 
+	init_waitqueue_head(&(gc_thread->wait_queue_head));
+	gc_thread->hmfs_task = kthread_run(gc_thread_func, sbi, "hmfs_gc-%lu:->%lu",
+									start_addr, end_addr);
 	sbi->gc_thread = gc_thread;
-	init_waitqueue_head(&(sbi->gc_thread->gc_wait_queue_head));
-	sbi->gc_thread->hmfs_gc_task = kthread_run(gc_thread_func, sbi,
-										"hmfs_gc-%lu:->%lu",
-										start_addr, end_addr);
-	if (IS_ERR(gc_thread->hmfs_gc_task)) {
-		err = PTR_ERR(gc_thread->hmfs_gc_task);
-		kfree(gc_thread);
-		sbi->gc_thread = NULL;
+	if (IS_ERR(gc_thread->hmfs_task)) {
+		err = PTR_ERR(gc_thread->hmfs_task);
+		goto free_gc;
 	}
-out:
+
+	/* Initialize Blocks Collection kthread */
+	bc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
+	if (!bc_thread) {
+		err= -ENOMEM;
+		goto free_gc;
+	}
+	init_waitqueue_head(&bc_thread->wait_queue_head);
+	bc_thread->hmfs_task = kthread_run(bc_thread_func, sbi, "hmfs_bc-:%lu:->%lu",
+									start_addr, end_addr);
+	if (IS_ERR(bc_thread->hmfs_task)) {
+		err = PTR_ERR(bc_thread->hmfs_task);
+		goto free_bc;
+	}
+	sbi->bc_thread = bc_thread;
+
+	return 0;
+
+free_bc:
+	kfree(bc_thread);
+free_gc:
+	kfree(gc_thread);
 	return err;
 }
 
 void stop_gc_thread(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_gc_kthread *gc_thread = sbi->gc_thread;
+	struct hmfs_kthread *gc_thread = sbi->gc_thread;
 	if (!gc_thread)
 		return;
-	kthread_stop(gc_thread->hmfs_gc_task);
+	kthread_stop(gc_thread->hmfs_task);
 	kfree(gc_thread);
 	sbi->gc_thread = NULL;
 }

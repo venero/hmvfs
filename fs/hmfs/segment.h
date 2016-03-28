@@ -22,6 +22,9 @@
 
 #define LOGS_ENTRY_PER_SEG(sbi)	(SM_I(sbi)->segment_size / sizeof(struct hmfs_sit_log_entry))
 
+#define MAX_BUFFER_PAGES		4	/* Maximum pages for saving truncated block address in buffer */
+#define MIN_BUFFER_PAGES		1	/* Minimum pages ... */
+
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
 	unsigned long mtime;	/* modification time of the segment */
@@ -56,19 +59,29 @@ struct free_segmap_info {
 	unsigned long *prefree_segmap;
 };
 
-/* for active log information */
-struct curseg_info {
-	struct mutex curseg_mutex;	/* lock for consistency */
-	atomic_t segno;				/* current segment number */
-	unsigned int next_blkoff;	/* next block offset to write */
-	seg_t next_segno;			/* preallocated segment */
+struct truncate_block {
+	uint64_t addr;
+	struct truncate_block *next;
+}; 
+
+/* For block allocation */
+struct allocator {
+	struct mutex alloc_lock;
+	atomic_t segno;
+	uint32_t next_blkoff;
+	seg_t next_segno;
+	
+	block_t *buffer;
+	atomic_t write;		/* write index of buffer ring */
+	atomic_t read;		/* read index of buffer ring */
+	uint32_t buffer_index_mask;
 };
 
 struct hmfs_sm_info {
 	struct sit_info *sit_info;				/* whole segment information */
 	struct free_segmap_info *free_info;		/* free segment information */
 	struct dirty_seglist_info *dirty_info;	/* dirty segment information */
-	struct curseg_info *curseg_array;		/* active segment information */
+	struct allocator *allocators;		/* active block allocation information */
 
 	pgc_t reserved_segments;			/* # of reserved segments */
 	pgc_t ovp_segments;				/* # of overprovision segments */
@@ -113,14 +126,14 @@ static inline void unlock_sentry(struct sit_info *sit_i)
 	mutex_unlock(&sit_i->sentry_lock);
 }
 
-static inline void lock_curseg(struct curseg_info *seg_i)
+static inline void lock_allocator(struct allocator *allocator)
 {
-	mutex_lock(&seg_i->curseg_mutex);
+	mutex_lock(&allocator->alloc_lock);
 }
 
-static inline void unlock_curseg(struct curseg_info *seg_i)
+static inline void unlock_allocator(struct allocator *allocator)
 {
-	mutex_unlock(&seg_i->curseg_mutex);
+	mutex_unlock(&allocator->alloc_lock);
 }
 
 static inline struct hmfs_sm_info *SM_I(struct hmfs_sb_info *sbi)
@@ -151,9 +164,9 @@ static inline struct hmfs_sit_entry *get_sit_entry(struct hmfs_sb_info *sbi,
 	return &sbi->sit_entries[segno];
 }
 
-static inline struct curseg_info *CURSEG_I(struct hmfs_sb_info *sbi)
+static inline struct allocator *ALLOCATOR(struct hmfs_sb_info *sbi, int i)
 {
-	return SM_I(sbi)->curseg_array;
+	return SM_I(sbi)->allocators + i;
 }
 
 static inline struct free_segmap_info *FREE_I(struct hmfs_sb_info *sbi)

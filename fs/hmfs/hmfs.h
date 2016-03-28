@@ -46,10 +46,10 @@
 
 #define STAT_GC_RANGE		50
 
-typedef unsigned int nid_t;
-typedef unsigned int ver_t;		/* version type */
-typedef unsigned long seg_t;		/* segment number type */
-typedef unsigned long pgc_t;	/* page count type */
+typedef uint32_t nid_t;
+typedef uint32_t ver_t;		/* version type */
+typedef uint32_t seg_t;		/* segment number type */
+typedef uint64_t pgc_t;	/* page count type */
 
 
 
@@ -223,7 +223,8 @@ struct hmfs_sb_info {
 	struct mutex mmap_block_lock;
 
 	/* GC */
-	struct hmfs_gc_kthread *gc_thread;			/* GC thread */
+	struct hmfs_kthread *gc_thread;			/* GC thread */
+	struct hmfs_kthread *bc_thread;			/* Blocks Collect thread */
 	unsigned int last_victim[2];				/* victims of last gc process */
 	__le32 *gc_logs;							/* gc logs area */
 	int nr_gc_segs;								/* # of segments that have been collect */
@@ -862,8 +863,8 @@ struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
 				seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 				block_t blk_addr);
-block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
-block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
+inline block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
+inline block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, int blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);

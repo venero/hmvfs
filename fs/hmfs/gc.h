@@ -17,9 +17,9 @@
  */
 #define NR_GC_MIN_BLOCK				100
 
-struct hmfs_gc_kthread {
-	struct task_struct *hmfs_gc_task;
-	wait_queue_head_t gc_wait_queue_head;
+struct hmfs_kthread {
+	struct task_struct *hmfs_task;
+	wait_queue_head_t wait_queue_head;
 };
 
 struct gc_move_arg {
