@@ -21,7 +21,7 @@ static unsigned long dir_blocks(struct inode *inode)
 {
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 	return ((unsigned long long)(i_size_read(inode) + HMFS_BLOCK_SIZE[seg_type] - 1)) 
-					>> HMFS_BLOCK_SIZE_BITS[seg_type];
+					>> HMFS_BLOCK_SIZE_BITS(seg_type);
 }
 
 /* calculate how many buckets in a level. */
@@ -515,7 +515,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name,
 	struct hmfs_inode *inode_block;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	const unsigned char seg_type = HMFS_I(dir)->i_blk_type;
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 
 	dentry_hash = hmfs_dentry_hash(name);
 
@@ -693,7 +693,7 @@ void hmfs_delete_entry(struct hmfs_dir_entry *dentry,
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK) {
 		const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-		const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+		const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 		/* Inline directory should never reach here */
 		hmfs_bug_on(sbi, is_inline_inode(dir));
 

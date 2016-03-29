@@ -217,14 +217,15 @@ struct hmfs_sb_info {
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];		/* FS lock */
 	unsigned char next_lock_num;				/* hint for get FS lock */
 	struct mutex gc_mutex;						/* GC lock */
+	struct mutex bc_mutex;						/* BC lock */
 
 	/* mmap */
 	struct list_head mmap_block_list;
 	struct mutex mmap_block_lock;
 
 	/* GC */
-	struct hmfs_kthread *gc_thread;			/* GC thread */
-	struct hmfs_kthread *bc_thread;			/* Blocks Collect thread */
+	struct hmfs_kthread *gc_thread;				/* GC thread */
+	struct hmfs_kthread *bc_thread;				/* Blocks Collect thread */
 	unsigned int last_victim[2];				/* victims of last gc process */
 	__le32 *gc_logs;							/* gc logs area */
 	int nr_gc_segs;								/* # of segments that have been collect */
@@ -234,7 +235,7 @@ struct hmfs_sb_info {
 	struct page *map_zero_page;					/* Empty page for hole in file */
 	u64 map_zero_page_number; 					/* pfn of above empty page */
 
-	int recovery_doing;								/* recovery is doing or not */
+	int recovery_doing;							/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
 	spinlock_t dirty_inodes_lock;
 };
@@ -865,7 +866,7 @@ struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
 				block_t blk_addr);
 inline block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
 inline block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
-block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, int blkoff);
+block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t blkoff);
 void get_current_segment_state(struct hmfs_sb_info *sbi, seg_t *segno,
 				int *segoff, int seg_type);
 void update_sit_entry(struct hmfs_sb_info *sbi, seg_t, int);
@@ -874,6 +875,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi);
 int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg);
 bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr);
 int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, unsigned long);
+void reset_new_segmap(struct hmfs_sb_info *sbi);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);

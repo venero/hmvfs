@@ -32,6 +32,41 @@ unsigned long total_valid_blocks(struct hmfs_sb_info *sbi)
 	return sum;
 }
 
+void reset_new_segmap(struct hmfs_sb_info *sbi)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct seg_entry *se;
+	seg_t segno = 0;
+	int i;
+	uint32_t block_throw = 0;
+
+	while (1) {
+		segno = find_next_bit(sit_i->new_segmap, TOTAL_SEGS(sbi), segno);
+
+		if (segno >= TOTAL_SEGS(sbi))
+			break;
+		
+		se = get_seg_entry(sbi, segno);
+		if (se->invalid_bitmap) {
+			kfree(se->invalid_bitmap);
+			se->invalid_bitmap = NULL;
+		}
+		segno++;
+	}
+	memset(sit_i->new_segmap, 0, sit_i->bitmap_size);
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		struct allocator *allocator = ALLOCATOR(sbi, i);
+		uint32_t read = atomic_read(&allocator->read);
+		uint32_t write = atomic_read(&allocator->write);
+
+		block_throw += (write - read) << (HMFS_BLOCK_SIZE_BITS(i) - 
+				HMFS_BLOCK_SIZE_BITS(SEG_NODE_INDEX));
+		hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
+		atomic_set(&allocator->read, write);
+	}
+	CM_I(sbi)->alloc_block_count += block_throw;
+}
+
 unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct hmfs_summary *sum;
@@ -75,6 +110,7 @@ int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr,
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_summary *summary;
+	struct seg_entry *se;
 	seg_t segno;
 
 	if (!is_new_block(sbi, addr))
@@ -86,6 +122,13 @@ int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr,
 	lock_sentry(sit_i);
 	update_sit_entry(sbi, segno, -vblocks);
 	unlock_sentry(sit_i);
+
+	se = get_seg_entry(sbi, segno);
+	if (se->invalid_bitmap) {
+		uint16_t ofs = GET_SEG_OFS(sbi, addr) >> (HMFS_BLOCK_SIZE_BITS(se->type) -
+				HMFS_BLOCK_SIZE_BITS(SEG_DATA_INDEX));
+		set_bit(ofs, se->invalid_bitmap);
+	}
 
 	test_and_set_bit(segno, DIRTY_I(sbi)->dirty_segmap);
 	return vblocks;
@@ -111,8 +154,7 @@ static void init_min_max_mtime(struct hmfs_sb_info *sbi)
 	unlock_sentry(sit_i);
 }
 
-void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
-				int del)
+void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno, int del)
 {
 	struct seg_entry *se;
 	struct sit_info *sit_i = SIT_I(sbi);
@@ -121,13 +163,13 @@ void update_sit_entry(struct hmfs_sb_info *sbi, seg_t segno,
 	se = get_seg_entry(sbi, segno);
 	new_vblocks = se->valid_blocks + del;
 
-	hmfs_dbg_on(new_vblocks < 0 || new_vblocks > SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[0],
+	hmfs_dbg_on(new_vblocks < 0 || new_vblocks > SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS(0),
 			"Invalid value of valid_blocks: %ld free:%d prefree:%d dirty:%d\n",
 			new_vblocks, test_bit(segno, FREE_I(sbi)->free_segmap),
 			test_bit(segno, FREE_I(sbi)->prefree_segmap), 
 			test_bit(segno, DIRTY_I(sbi)->dirty_segmap));
 	hmfs_bug_on(sbi, new_vblocks < 0 || new_vblocks > 
-			SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[0]);
+			SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS(0));
 
 	se->valid_blocks = new_vblocks;
 	se->mtime = get_mtime(sbi);
@@ -142,12 +184,10 @@ static void reset_curseg(struct allocator *allocator)
 }
 
 //TODO:check blkoff
-inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno,
-				int blkoff)
+inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t blkoff)
 {
-	return (segno << SM_I(sbi)->segment_size_bits) +
-					(blkoff << HMFS_MIN_PAGE_SIZE_BITS)
-					+ sbi->main_addr_start;
+	return (segno << SM_I(sbi)->segment_size_bits) + (blkoff << HMFS_MIN_PAGE_SIZE_BITS)
+				+ sbi->main_addr_start;
 }
 
 static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
@@ -186,6 +226,7 @@ retry:
 
 	hmfs_bug_on(sbi, test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
+	
 	*newseg = segno;
 	/* TODO: Need not to clear SSA */
 	ssa = get_summary_block(sbi, segno);
@@ -200,30 +241,69 @@ static int move_to_new_segment(struct hmfs_sb_info *sbi,
 {
 	seg_t segno = atomic_read(&allocator->segno);
 	int ret = get_new_segment(sbi, &segno);
-
+	uint8_t seg_type = allocator - SM_I(sbi)->allocators;
+	uint16_t bitmap_size;
+	
 	if (ret)
 		return ret;
+	get_seg_entry(sbi, segno)->type = seg_type;
+	bitmap_size = allocator->nr_pages >> BITS_PER_BYTE;
+	if (bitmap_size == 0)
+		bitmap_size = 1;
+	get_seg_entry(sbi, segno)->invalid_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
+	
+	/* Set new segment bit */
+	/* We use the new_segmap to collect segments newly created in current version.
+	 * And then we could collect the truncated blocks under the help of new_segmap.
+	 * And we don't want the blocks in older version. Therefore, we would not set bits
+	 * of `current segments` in startup, which contained older blocks of previous
+	 * version.
+	 */
+	set_bit(segno, SIT_I(sbi)->new_segmap);
+
+
 	allocator->next_segno = segno;
 	reset_curseg(allocator);
 	return 0;
 }
 
-static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, 
-				bool sit_lock)
+static block_t get_free_block(struct hmfs_sb_info *sbi, int seg_type, bool sit_lock)
 {
 	block_t page_addr = 0;
-	struct sit_info *sit_i = SIT_I(sbi);
+	struct sit_info *sit_i;
 	struct allocator *allocator = ALLOCATOR(sbi, seg_type);
 	int ret;
+
+alloc_buf:
+	if (allocator->mode & ALLOC_BUF) {
+		uint32_t write = atomic_read(&allocator->write);
+		uint32_t read = __atomic_add_unless(&allocator->read, 1, write);
+
+		if (read == write) {
+			goto alloc_log;
+		}
+		
+		return allocator->buffer[read & allocator->buffer_index_mask];
+	}
+
+alloc_log:
+	sit_i = SIT_I(sbi);
 
 	lock_allocator(allocator);
 	
 	if (allocator->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
+		if (allocator->mode & ALLOC_LOG) {
+			allocator->mode = ALLOC_BUF;
+			unlock_allocator(allocator);
+			goto alloc_buf;
+		}
+
 		ret = move_to_new_segment(sbi, allocator);
 		if (ret) {
 			unlock_allocator(allocator);
 			return NULL_ADDR;
 		}
+		allocator->mode = ALLOC_LOG;
 	}
 
 	page_addr = cal_page_addr(sbi, allocator);
@@ -452,7 +532,8 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
 	struct sit_info *sit_i;
-	unsigned long long bitmap_size;
+	uint64_t bitmap_size;
+	int i;
 
 	/* allocate memory for SIT information */
 	sit_i = kzalloc(sizeof(struct sit_info), GFP_KERNEL);
@@ -463,22 +544,45 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 
 	sit_i->sentries = vzalloc(TOTAL_SEGS(sbi) * sizeof(struct seg_entry));
 	if (!sit_i->sentries)
-		return -ENOMEM;
+		goto free_sit;
 
 	bitmap_size = hmfs_bitmap_size(TOTAL_SEGS(sbi));
 	sit_i->bitmap_size = bitmap_size;
 	sit_i->dirty_sentries_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 	if (!sit_i->dirty_sentries_bitmap)
-		return -ENOMEM;
+		goto free_sentry;
+
+	sit_i->new_segmap = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!sit_i->new_segmap)
+		goto free_entry_bitmap;
+
+	sit_i->bc_threshold = kzalloc(sizeof(uint16_t) * sbi->nr_page_types, GFP_KERNEL);
+	if (!sit_i->bc_threshold)
+		goto free_new_segmap;
+
+	for (i = 0; i < sbi->nr_page_types; i++) {
+		sit_i->bc_threshold[i] = SM_I(sbi)->page_4k_per_seg * (100 - LIMIT_BC) / 100;
+	}
 
 	memset(sit_i->dirty_sentries_bitmap, 0, bitmap_size);
+	memset(sit_i->new_segmap, 0, bitmap_size);
 
 	sit_i->dirty_sentries = 0;
 
 	sit_i->elapsed_time = le32_to_cpu(hmfs_cp->elapsed_time);
 	sit_i->mounted_time = CURRENT_TIME_SEC.tv_sec;
 	mutex_init(&sit_i->sentry_lock);
+
 	return 0;
+free_new_segmap:
+	kfree(sit_i->new_segmap);
+free_entry_bitmap:
+	kfree(sit_i->dirty_sentries_bitmap);
+free_sentry:
+	vfree(sit_i->sentries);
+free_sit:
+	kfree(sit_i);
+	return -ENOMEM;
 }
 
 void free_prefree_segments(struct hmfs_sb_info *sbi)
@@ -567,9 +671,11 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 		array[i].next_segno = NULL_SEGNO;
 
 		/* Initialize truncated blocks structure */
+		array[i].mode = ALLOC_LOG;
+		array[i].nr_pages = SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS(i);
 		atomic_set(&array[i].write, 0);
 		atomic_set(&array[i].read, 0);
-		pages_per_buffer = SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS[i];
+		pages_per_buffer = SM_I(sbi)->segment_size >> HMFS_BLOCK_SIZE_BITS(i);
 
 		buffer_size = pages_per_buffer * sizeof(block_t);
 		if (buffer_size > MAX_BUFFER_PAGES << PAGE_SHIFT) {
@@ -787,6 +893,8 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i)
 		return;
 
+	kfree(sit_i->bc_threshold);
+	kfree(sit_i->new_segmap);
 	vfree(sit_i->sentries);
 	kfree(sit_i->dirty_sentries_bitmap);
 

@@ -47,10 +47,6 @@ enum FS_STATE {
 #define HMFS_MAX_CUR_SEG_COUNT		((HMFS_MAX_PAGE_SIZE_BITS - HMFS_MIN_PAGE_SIZE_BITS) \
 									/ HMFS_PAGE_SIZE_BITS_INC + 2)
 
-static const unsigned int HMFS_BLOCK_SIZE_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
-	12, 12, 15,	18, 21, 24, 27,
-};
-
 #define HMFS_BLOCK_SIZE_BITS(i) (i == 0 ? 12 : (9 + 3 * i))
 
 static const unsigned long HMFS_BLOCK_SIZE[HMFS_MAX_CUR_SEG_COUNT] = {

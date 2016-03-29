@@ -141,8 +141,8 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 		/* Stop if we find a segment whose cost is small enough */
 		if (get_seg_entry(sbi, segno)->valid_blocks < NR_GC_MIN_BLOCK) {
 			p.min_segno = segno;
-			hmfs_dbg("Get victim:%lu vblocks:%d gc_type:%s\n", (unsigned long)segno, get_seg_entry(sbi, segno)->valid_blocks,
-					gc_type == BG_GC ? "BG" : "FG");
+			hmfs_dbg("Get victim:%lu vblocks:%d gc_type:%s\n", (unsigned long)segno, 
+					get_seg_entry(sbi, segno)->valid_blocks, gc_type == BG_GC ? "BG" : "FG");
 			break;
 		}
 
@@ -663,6 +663,82 @@ out:
 
 static int bc_thread_func(void *data)
 {
+	struct hmfs_sb_info *sbi = data;
+	wait_queue_head_t *wq = &(sbi->bc_thread->wait_queue_head);
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct seg_entry *seg_entry;
+	seg_t segno = 0;
+	int total_segs = TOTAL_SEGS(sbi);
+	uint16_t vb;
+	int8_t type;
+	bool retry = false;
+	uint64_t nr_bc;
+
+	do {
+		wait_event_interruptible_timeout(*wq, kthread_should_stop(),
+				msecs_to_jiffies(BC_THREAD_SLEEP_TIME));
+
+		if (kthread_should_stop())	
+			break;
+
+		if (!mutex_trylock(&sbi->bc_mutex))
+			continue;
+
+		retry = false;
+		nr_bc = 0;
+		while (1) {
+			segno = find_next_bit(sit_i->new_segmap, total_segs, segno);
+
+			if (segno >= total_segs) {
+				if (!retry) {
+					retry = true;
+					segno = 0;
+					continue;
+				}
+				break;
+			}
+
+			seg_entry = get_seg_entry(sbi, segno);
+			
+			if (!seg_entry->invalid_bitmap)
+				goto next_seg;
+
+			vb = get_valid_blocks(sbi, segno);
+			type = seg_entry->type;
+			if (vb < SM_I(sbi)->page_4k_per_seg && vb > sit_i->bc_threshold[type]) {	
+				struct allocator *allocator = ALLOCATOR(sbi, type);
+				uint16_t read, write, block_index = 0;
+
+				read = atomic_read(&allocator->read);
+				write = atomic_read(&allocator->write);
+
+				/* Buffer is full */
+				if (write - read == allocator->buffer_index_mask)
+					goto next_seg;
+
+				hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
+				
+				for (; write - read < allocator->buffer_index_mask; write++, block_index++) {
+					block_index = find_next_bit(seg_entry->invalid_bitmap, 
+									allocator->nr_pages, block_index);
+					allocator->buffer[write & allocator->buffer_index_mask] = 
+							__cal_page_addr(sbi, segno, block_index);
+					clear_bit(block_index, seg_entry->invalid_bitmap);
+					nr_bc += HMFS_BLOCK_SIZE_4K[type];
+				}
+				atomic_set(&allocator->write, write);
+			}
+
+next_seg:
+			segno++;
+		}
+
+		spin_lock(&CM_I(sbi)->cm_lock);
+		CM_I(sbi)->alloc_block_count -= nr_bc;
+		spin_unlock(&CM_I(sbi)->cm_lock);
+	} while (!kthread_should_stop());
+
+
 	return 0;
 }
 
@@ -671,7 +747,7 @@ static int gc_thread_func(void *data)
 	struct hmfs_sb_info *sbi = data;
 	wait_queue_head_t *wq = &(sbi->gc_thread->wait_queue_head);
 	long wait_ms = 0;
-	printk(KERN_INFO "start gc thread\n");
+
 	wait_ms = sbi->gc_thread_min_sleep_time;
 
 	do {

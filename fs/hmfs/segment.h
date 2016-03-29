@@ -25,16 +25,20 @@
 #define MAX_BUFFER_PAGES		4	/* Maximum pages for saving truncated block address in buffer */
 #define MIN_BUFFER_PAGES		1	/* Minimum pages ... */
 
+#define LIMIT_BC				5	/* percentage of blocks collection */
+
 struct seg_entry {
 	unsigned short valid_blocks;	/* # of valid blocks */
 	unsigned long mtime;	/* modification time of the segment */
 	unsigned char type;		/* Type of segments */
+	unsigned long *invalid_bitmap;		/* Bitmap of invalid blocks */
 };
 
 struct sit_info {
-	unsigned long long bitmap_size;
+	uint64_t bitmap_size;
 
 	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
+	unsigned long *new_segmap;				/* bitmap of segments in current version */
 	unsigned int dirty_sentries;			/* # of dirty sentries */
 	struct mutex sentry_lock;				/* to protect SIT cache */
 	struct seg_entry *sentries;				/* SIT segment-level cache */
@@ -44,6 +48,9 @@ struct sit_info {
 	unsigned long long mounted_time;	/* Timestamp for FS mounted */
 	unsigned long long min_mtime;		/* Minimum mtime in SIT */
 	unsigned long long max_mtime;		/* Maximum mtime in SIT */
+
+	/* For Blocks Collection */
+	uint16_t *bc_threshold;
 };
 
 /* Dirty segment is the segment which has both valid blocks and invalid blocks */
@@ -64,12 +71,19 @@ struct truncate_block {
 	struct truncate_block *next;
 }; 
 
+enum {
+	ALLOC_LOG = 0x01,	/* Allocate blocks in log */
+	ALLOC_BUF = 0x10,	/* Allocate blocks in ring buffer */
+};
+
 /* For block allocation */
 struct allocator {
 	struct mutex alloc_lock;
 	atomic_t segno;
 	uint32_t next_blkoff;
 	seg_t next_segno;
+	volatile char mode;
+	uint16_t nr_pages;	/* Constants: page number per segments */
 	
 	block_t *buffer;
 	atomic_t write;		/* write index of buffer ring */
@@ -146,14 +160,12 @@ static inline struct sit_info *SIT_I(struct hmfs_sb_info *sbi)
 	return (SM_I(sbi)->sit_info);
 }
 
-static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi,
-					      seg_t segno)
+static inline struct seg_entry *get_seg_entry(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	return &(SIT_I(sbi)->sentries[segno]);
 }
 
-static inline unsigned int get_valid_blocks(struct hmfs_sb_info *sbi,
-					    seg_t segno)
+static inline unsigned int get_valid_blocks(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	return get_seg_entry(sbi, segno)->valid_blocks;
 }
@@ -286,6 +298,7 @@ static inline void seg_info_from_raw_sit(struct seg_entry *se,
 	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
 	se->mtime = le32_to_cpu(raw_entry->mtime);
 	se->type = raw_entry->type;
+	se->invalid_bitmap = NULL;
 }
 
 //TODO:use memcpy?

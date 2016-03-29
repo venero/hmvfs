@@ -9,6 +9,8 @@
 #define GC_THREAD_MAX_SLEEP_TIME	60000
 #define GC_THREAD_NOGC_SLEEP_TIME	300000	/* 5 min */
 
+#define BC_THREAD_SLEEP_TIME		10000	/* 10 seconds */
+
 #define MAX_SEG_SEARCH				16
 
 /* 

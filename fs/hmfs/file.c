@@ -26,6 +26,7 @@
 #include "hmfs.h"
 #include "segment.h"
 #include "util.h"
+#include "gc.h"
 
 #ifdef CONFIG_HMFS_FAST_READ
 static struct kmem_cache *ro_file_address_cachep;
@@ -110,7 +111,7 @@ static unsigned int hmfs_file_seek_hole_data(struct inode *inode,
 				unsigned int end_blk, unsigned int start_pos, char type)
 {
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-	int i = start_pos >> HMFS_BLOCK_SIZE_BITS[seg_type], j = 0;
+	int i = start_pos >> HMFS_BLOCK_SIZE_BITS(seg_type), j = 0;
 	struct dnode_of_data dn;
 	struct direct_node *direct_node = NULL;
 	struct hmfs_inode *inode_block = NULL;
@@ -177,7 +178,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	struct hmfs_inode *inode_block;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	const unsigned long long block_ofs_mask = block_size - 1;
 
 	pos = *ppos;
@@ -568,7 +569,7 @@ loff_t hmfs_file_llseek(struct file *file, loff_t offset, int whence)
 	unsigned pg_index, end_blk;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 
 	mutex_lock(&inode->i_mutex);
 
@@ -634,7 +635,7 @@ static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	struct hmfs_inode *inode_block;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	const unsigned long long block_ofs_mask = block_size - 1;
 
 	if (is_inline_inode(inode)) {
@@ -844,7 +845,7 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 static void truncate_partial_data_page(struct inode *inode, block_t from)
 {
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 	unsigned offset = from & (block_size - 1);
 
@@ -863,7 +864,7 @@ static int __truncate_blocks(struct inode *inode, block_t from)
 	block_t free_from;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
-	free_from = (from + HMFS_BLOCK_SIZE[seg_type] - 1) >> HMFS_BLOCK_SIZE_BITS[seg_type];
+	free_from = (from + HMFS_BLOCK_SIZE[seg_type] - 1) >> HMFS_BLOCK_SIZE_BITS(seg_type);
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
@@ -919,6 +920,7 @@ void hmfs_truncate(struct inode *inode)
 		mark_inode_dirty(inode);
 	}
 
+	wake_up_process(HMFS_I_SB(inode)->bc_thread->hmfs_task);
 }
 
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)
@@ -956,7 +958,7 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len, int mode)
 	loff_t blk_start, blk_end;
 	int ret = 0;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-	unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 
 	pg_start = ((unsigned long long) offset) >> block_size_bits;
@@ -1013,7 +1015,7 @@ static int expand_inode_data(struct inode *inode, loff_t offset, loff_t len,
 	struct dnode_of_data dn;
 	int ret;
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 
 	ret = inode_newsize_ok(inode, (len + offset));

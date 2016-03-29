@@ -68,6 +68,7 @@ static inline void *hmfs_ioremap(struct super_block *sb, phys_addr_t phys_addr,
 				ssize_t size)
 {
 	void __iomem *retval = NULL;
+	//TODO: try to use ioremap_nocache
 	retval = ioremap_cache(phys_addr, size);
 	return (void __force *)retval;
 }
@@ -733,13 +734,14 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	
 	if (sync) {
 		lock_gc(sbi);
+		mutex_lock(&sbi->bc_mutex);
 		hmfs_dbg("write checkpoint\n");
 		ret = write_checkpoint(sbi, true);
+		mutex_unlock(&sbi->bc_mutex);
 		unlock_gc(sbi);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
 			lock_gc(sbi);
-		hmfs_dbg("before gc\n");
 			ret = hmfs_gc(sbi, FG_GC);
 		}
 	}
@@ -868,6 +870,7 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
 		mutex_init(&sbi->fs_lock[i]);
 	mutex_init(&sbi->gc_mutex);
+	mutex_init(&sbi->bc_mutex);
 	sbi->next_lock_num = 0;
 
 	sbi->s_dirty = 0;

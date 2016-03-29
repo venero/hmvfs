@@ -780,6 +780,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	move_to_next_cp(sbi, cur_cp);
 
 	free_prefree_segments(sbi);
+	/* Reset new_segmap */
+	reset_new_segmap(sbi);
 	reinit_gc_logs(sbi);
 	return 0;
 }
