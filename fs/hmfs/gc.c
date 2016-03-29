@@ -736,6 +736,8 @@ next_seg:
 		spin_lock(&CM_I(sbi)->cm_lock);
 		CM_I(sbi)->alloc_block_count -= nr_bc;
 		spin_unlock(&CM_I(sbi)->cm_lock);
+
+		mutex_unlock(&sbi->bc_mutex);
 	} while (!kthread_should_stop());
 
 
