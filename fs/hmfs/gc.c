@@ -684,6 +684,8 @@ static int bc_thread_func(void *data)
 		if (!mutex_trylock(&sbi->bc_mutex))
 			continue;
 
+		hmfs_dbg("Start BC:%llu\n", CM_I(sbi)->alloc_block_count);
+
 		retry = false;
 		nr_bc = 0;
 		while (1) {
@@ -703,6 +705,7 @@ static int bc_thread_func(void *data)
 			if (!seg_entry->invalid_bitmap)
 				goto next_seg;
 
+			hmfs_dbg("Select %d\n", segno);
 			vb = get_valid_blocks(sbi, segno);
 			type = seg_entry->type;
 			if (vb < SM_I(sbi)->page_4k_per_seg && vb > sit_i->bc_threshold[type]) {	
@@ -716,11 +719,14 @@ static int bc_thread_func(void *data)
 				if (write - read == allocator->buffer_index_mask)
 					goto next_seg;
 
+				hmfs_dbg("Collect %d\n", segno);
 				hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
 				
 				for (; write - read < allocator->buffer_index_mask; write++, block_index++) {
 					block_index = find_next_bit(seg_entry->invalid_bitmap, 
 									allocator->nr_pages, block_index);
+					if (block_index >= allocator->nr_pages)
+						break;
 					allocator->buffer[write & allocator->buffer_index_mask] = 
 							__cal_page_addr(sbi, segno, block_index);
 					clear_bit(block_index, seg_entry->invalid_bitmap);
@@ -738,6 +744,8 @@ next_seg:
 		spin_unlock(&CM_I(sbi)->cm_lock);
 
 		mutex_unlock(&sbi->bc_mutex);
+
+		hmfs_dbg("Stop BC:%llu\n", CM_I(sbi)->alloc_block_count);
 	} while (!kthread_should_stop());
 
 
@@ -795,7 +803,7 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 	sbi->last_victim[GC_GREEDY] = 0;
 
 	/* Initialize GC kthread */
-	gc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
+/*	gc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
 	if (!gc_thread) {
 		return -ENOMEM;
 	}
@@ -808,7 +816,7 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 		err = PTR_ERR(gc_thread->hmfs_task);
 		goto free_gc;
 	}
-
+*/
 	/* Initialize Blocks Collection kthread */
 	bc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
 	if (!bc_thread) {

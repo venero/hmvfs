@@ -247,7 +247,7 @@ static int move_to_new_segment(struct hmfs_sb_info *sbi,
 	if (ret)
 		return ret;
 	get_seg_entry(sbi, segno)->type = seg_type;
-	bitmap_size = allocator->nr_pages >> BITS_PER_BYTE;
+	bitmap_size = hmfs_bitmap_size(allocator->nr_pages);
 	if (bitmap_size == 0)
 		bitmap_size = 1;
 	get_seg_entry(sbi, segno)->invalid_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
