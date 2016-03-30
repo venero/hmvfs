@@ -656,6 +656,8 @@ static void hmfs_evict_inode(struct inode *inode)
 	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
 	ret = get_node_info(sbi, inode->i_ino, &ni);
 	truncate_node(&dn);
+
+	start_bc(sbi);
 	
 	sb_end_intwrite(inode->i_sb);
 out:

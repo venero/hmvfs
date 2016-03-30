@@ -1,6 +1,7 @@
 #include <linux/fs.h>
 #include <linux/kthread.h>
 #include <linux/freezer.h>
+#include <linux/delay.h>
 
 #include "hmfs.h"
 #include "hmfs_fs.h"
@@ -661,10 +662,14 @@ out:
 	return ret;
 }
 
+inline void start_bc(struct hmfs_sb_info *sbi) {
+	smp_wmb();
+	wake_up_process(sbi->bc_thread->hmfs_task);
+}
+
 static int bc_thread_func(void *data)
 {
 	struct hmfs_sb_info *sbi = data;
-	wait_queue_head_t *wq = &(sbi->bc_thread->wait_queue_head);
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct seg_entry *seg_entry;
 	seg_t segno = 0;
@@ -675,8 +680,12 @@ static int bc_thread_func(void *data)
 	uint64_t nr_bc;
 
 	do {
-		wait_event_interruptible_timeout(*wq, kthread_should_stop(),
-				msecs_to_jiffies(BC_THREAD_SLEEP_TIME));
+		if (try_to_freeze())
+			continue;
+
+		set_current_state(TASK_INTERRUPTIBLE);
+//		if (!signal_pending(current))
+			schedule_timeout_interruptible(msecs_to_jiffies(BC_THREAD_SLEEP_TIME));
 
 		if (kthread_should_stop())	
 			break;
@@ -712,6 +721,8 @@ static int bc_thread_func(void *data)
 				struct allocator *allocator = ALLOCATOR(sbi, type);
 				uint16_t read, write, block_index = 0;
 
+				if (atomic_read(&allocator->segno) == segno)
+					goto next_seg;
 				read = atomic_read(&allocator->read);
 				write = atomic_read(&allocator->write);
 
@@ -802,6 +813,7 @@ int start_gc_thread(struct hmfs_sb_info *sbi)
 	sbi->last_victim[GC_CB] = 0;
 	sbi->last_victim[GC_GREEDY] = 0;
 
+	sbi->gc_thread = NULL;
 	/* Initialize GC kthread */
 /*	gc_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
 	if (!gc_thread) {
@@ -843,12 +855,17 @@ free_gc:
 
 void stop_gc_thread(struct hmfs_sb_info *sbi)
 {
-	struct hmfs_kthread *gc_thread = sbi->gc_thread;
-	if (!gc_thread)
-		return;
-	kthread_stop(gc_thread->hmfs_task);
-	kfree(gc_thread);
-	sbi->gc_thread = NULL;
+	if (sbi->gc_thread) {
+		kthread_stop(sbi->gc_thread->hmfs_task);
+		kfree(sbi->gc_thread);
+		sbi->gc_thread = NULL;
+	}
+
+	if (sbi->bc_thread) {
+		kthread_stop(sbi->bc_thread->hmfs_task);
+		kfree(sbi->bc_thread);
+		sbi->bc_thread = NULL;
+	}
 }
 
 int init_gc_logs(struct hmfs_sb_info *sbi)

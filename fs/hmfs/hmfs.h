@@ -199,13 +199,13 @@ struct hmfs_sb_info {
 	int s_dirty;								/* FS is dirty or not */
 	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
-	void *waste_space;			/* Waste space due to segment alignment */
+	void *waste_space;					/* Waste space due to segment alignment */
 	block_t main_addr_start;			/* Start address of main area */
 	block_t main_addr_end;
-	unsigned char nat_height;							/* Height of nat tree in cp */
+	unsigned char nat_height;			/* Height of nat tree in cp */
 	unsigned long max_page_size;		/* Maximum page size */
 	unsigned char max_page_size_bits;
-	unsigned char nr_page_types;	/* # of types of blocks */
+	unsigned char nr_page_types;		/* # of types of blocks */
 
 	/* Management Structure */
 	struct hmfs_cm_info *cm_info;				/* checkpoint manager */
@@ -934,6 +934,7 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
 				umode_t mode);
 
 /* gc.c */
+inline void start_bc(struct hmfs_sb_info *);
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);

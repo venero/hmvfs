@@ -920,7 +920,7 @@ void hmfs_truncate(struct inode *inode)
 		mark_inode_dirty(inode);
 	}
 
-	wake_up_process(HMFS_I_SB(inode)->bc_thread->hmfs_task);
+	start_bc(HMFS_I_SB(inode));
 }
 
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end)
