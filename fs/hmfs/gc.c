@@ -285,11 +285,13 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 		hmfs_bug_on(sbi, 1);
 
 	if (none_valid) {
+		void *ssa = get_summary_block(sbi, segno);
 		lock_write_segmap(free_i);
 		if (test_and_clear_bit(segno, free_i->free_segmap)) {
 			free_i->free_segments++;
 		}
 		unlock_write_segmap(free_i);
+		memset(ssa, 0, SM_I(sbi)->summary_block_size);
 	} else {
 		/* set prefree bit */
 		if (test_and_set_bit(segno, free_i->prefree_segmap))
@@ -673,6 +675,8 @@ static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 	uint16_t vb;
 	int8_t type;
 	bool retry = false;
+	struct allocator *allocator;
+	uint16_t read, write, block_index = 0;
 
 	hmfs_dbg("Start BC:%llu\n", CM_I(sbi)->alloc_block_count);
 
@@ -693,37 +697,55 @@ static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 		if (!seg_entry->invalid_bitmap)
 			goto next_seg;
 
-		hmfs_dbg("Select %d\n", segno);
 		vb = get_valid_blocks(sbi, segno);
 		type = seg_entry->type;
-		if (vb < SM_I(sbi)->page_4k_per_seg && vb > sit_i->bc_threshold[type]) {	
-			struct allocator *allocator = ALLOCATOR(sbi, type);
-			uint16_t read, write, block_index = 0;
+		allocator = ALLOCATOR(sbi, type);
 
-			if (atomic_read(&allocator->segno) == segno)
+		/* Collect the whole segments directly */
+		if (!vb) {
+			block_index = find_next_zero_bit(seg_entry->invalid_bitmap, 
+								allocator->nr_pages, 0);
+			if (block_index >= allocator->nr_pages) {
+				struct free_segmap_info *free_i = FREE_I(sbi);
+				void *ssa = get_summary_block(sbi, segno);
+
+				if (!test_and_clear_bit(segno, DIRTY_I(sbi)->dirty_segmap))
+					hmfs_bug_on(sbi, 1);
+				lock_write_segmap(free_i);
+				if (test_and_clear_bit(segno, free_i->free_segmap))
+					free_i->free_segments++;
+				unlock_write_segmap(free_i);
+				nr_bc += SM_I(sbi)->page_4k_per_seg;
+				memset(ssa, 0, SM_I(sbi)->summary_block_size);
 				goto next_seg;
-			read = atomic_read(&allocator->read);
-			write = atomic_read(&allocator->write);
-
-			/* Buffer is full */
-			if (write - read == allocator->buffer_index_mask)
-				goto next_seg;
-
-			hmfs_dbg("Collect %d\n", segno);
-			hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
-			
-			for (; write - read < allocator->buffer_index_mask; write++, block_index++) {
-				block_index = find_next_bit(seg_entry->invalid_bitmap, 
-								allocator->nr_pages, block_index);
-				if (block_index >= allocator->nr_pages)
-					break;
-				allocator->buffer[write & allocator->buffer_index_mask] = 
-						__cal_page_addr(sbi, segno, block_index);
-				clear_bit(block_index, seg_entry->invalid_bitmap);
-				nr_bc += HMFS_BLOCK_SIZE_4K[type];
 			}
-			atomic_set(&allocator->write, write);
 		}
+
+		block_index = 0;
+
+		if (atomic_read(&allocator->segno) == segno)
+			goto next_seg;
+		read = atomic_read(&allocator->read);
+		write = atomic_read(&allocator->write);
+
+		/* Buffer is full */
+		if (write - read == allocator->buffer_index_mask)
+			goto next_seg;
+
+		hmfs_dbg("Collect %d\n", segno);
+		hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
+			
+		for (; write - read < allocator->buffer_index_mask; write++, block_index++) {
+			block_index = find_next_bit(seg_entry->invalid_bitmap, 
+							allocator->nr_pages, block_index);
+			if (block_index >= allocator->nr_pages)
+				break;
+			allocator->buffer[write & allocator->buffer_index_mask] = 
+					__cal_page_addr(sbi, segno, block_index);
+			clear_bit(block_index, seg_entry->invalid_bitmap);
+			nr_bc += HMFS_BLOCK_SIZE_4K[type];
+		}
+		atomic_set(&allocator->write, write);
 
 next_seg:
 		segno++;

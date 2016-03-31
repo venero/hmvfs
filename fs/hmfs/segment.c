@@ -230,7 +230,7 @@ retry:
 	*newseg = segno;
 	/* TODO: Need not to clear SSA */
 	ssa = get_summary_block(sbi, segno);
-	memset(ssa, 0, SM_I(sbi)->page_4k_per_seg * sizeof(struct hmfs_summary));
+	memset(ssa, 0, SM_I(sbi)->summary_block_size);
 unlock:
 	unlock_write_segmap(free_i);
 	return ret;
@@ -533,7 +533,6 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *hmfs_cp = cm_i->last_cp_i->cp;
 	struct sit_info *sit_i;
 	uint64_t bitmap_size;
-	int i;
 
 	/* allocate memory for SIT information */
 	sit_i = kzalloc(sizeof(struct sit_info), GFP_KERNEL);
@@ -556,14 +555,6 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i->new_segmap)
 		goto free_entry_bitmap;
 
-	sit_i->bc_threshold = kzalloc(sizeof(uint16_t) * sbi->nr_page_types, GFP_KERNEL);
-	if (!sit_i->bc_threshold)
-		goto free_new_segmap;
-
-	for (i = 0; i < sbi->nr_page_types; i++) {
-		sit_i->bc_threshold[i] = SM_I(sbi)->page_4k_per_seg * (100 - LIMIT_BC) / 100;
-	}
-
 	memset(sit_i->dirty_sentries_bitmap, 0, bitmap_size);
 	memset(sit_i->new_segmap, 0, bitmap_size);
 
@@ -574,8 +565,6 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	mutex_init(&sit_i->sentry_lock);
 
 	return 0;
-free_new_segmap:
-	kfree(sit_i->new_segmap);
 free_entry_bitmap:
 	kfree(sit_i->dirty_sentries_bitmap);
 free_sentry:
@@ -590,11 +579,9 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	int total_segs = TOTAL_SEGS(sbi);
 	unsigned long *bitmap = free_i->prefree_segmap;
-	unsigned long summary_block_size;
 	seg_t segno = 0;
 	void *ssa;
 
-	summary_block_size = SM_I(sbi)->page_4k_per_seg * sizeof(struct hmfs_summary);
 	lock_write_segmap(free_i);
 	while (1) {
 		segno =find_next_bit(bitmap, total_segs, segno);
@@ -605,7 +592,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 			free_i->free_segments++;
 		}
 		ssa = get_summary_block(sbi, segno);
-		memset(ssa, 0, summary_block_size);
+		memset(ssa, 0, SM_I(sbi)->summary_block_size);
 		segno++;
 	}
 	unlock_write_segmap(free_i);
@@ -823,6 +810,7 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 			* LIMIT_FREE_BLOCKS / 100;
 	sm_info->severe_free_blocks = main_segments * sm_info->page_4k_per_seg
 			* SEVERE_FREE_BLOCKS / 100;
+	sm_info->summary_block_size = sm_info->page_4k_per_seg * sizeof(struct hmfs_summary);
 
 	err = build_sit_info(sbi);
 	if (err)
@@ -893,7 +881,6 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i)
 		return;
 
-	kfree(sit_i->bc_threshold);
 	kfree(sit_i->new_segmap);
 	vfree(sit_i->sentries);
 	kfree(sit_i->dirty_sentries_bitmap);

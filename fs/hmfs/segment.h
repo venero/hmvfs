@@ -25,8 +25,6 @@
 #define MAX_BUFFER_PAGES		4	/* Maximum pages for saving truncated block address in buffer */
 #define MIN_BUFFER_PAGES		1	/* Minimum pages ... */
 
-#define LIMIT_BC				5	/* percentage of blocks collection */
-
 struct seg_entry {
 	unsigned long mtime;			/* modification time of the segment */
 	unsigned long *invalid_bitmap;	/* Bitmap of invalid blocks */
@@ -49,8 +47,6 @@ struct sit_info {
 	unsigned long long min_mtime;		/* Minimum mtime in SIT */
 	unsigned long long max_mtime;		/* Maximum mtime in SIT */
 
-	/* For Blocks Collection */
-	uint16_t *bc_threshold;
 };
 
 /* Dirty segment is the segment which has both valid blocks and invalid blocks */
@@ -102,6 +98,7 @@ struct hmfs_sm_info {
 	pgc_t limit_invalid_blocks;		/* # of limit invalid blocks */
 	pgc_t limit_free_blocks;		/* # of limit free blocks */
 	pgc_t severe_free_blocks;		/* # of free blocks in emergency case */
+	uint32_t summary_block_size;
 	unsigned long page_4k_per_seg;
 	unsigned int page_4k_per_seg_bits;
 	unsigned long segment_size;
