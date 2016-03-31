@@ -103,9 +103,6 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 	seg_t segno;
 	int nsearched = 0;
 	int total_segs = TOTAL_SEGS(sbi);
-	//TODO: check all seg type
-	struct allocator *seg_i0 = ALLOCATOR(sbi, 0);
-	struct allocator *seg_i1 = ALLOCATOR(sbi, 1);
 
 	p.gc_mode = gc_type == BG_GC ? GC_CB : GC_GREEDY;
 	p.offset = sbi->last_victim[p.gc_mode];
@@ -126,10 +123,8 @@ static int get_victim(struct hmfs_sb_info *sbi, seg_t *result, int gc_type)
 			p.offset = segno + 1;
 		}
 
-		if (segno == atomic_read(&seg_i0->segno) || 
-					segno == atomic_read(&seg_i1->segno)) {
+		if (test_bit(segno, SIT_I(sbi)->new_segmap))
 			continue;
-		}
 
 		/*
 		 * It's not allowed to move node segment where last checkpoint
