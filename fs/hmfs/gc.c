@@ -717,6 +717,7 @@ static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 				unlock_write_segmap(free_i);
 				nr_bc += SM_I(sbi)->page_4k_per_seg;
 				memset(ssa, 0, SM_I(sbi)->summary_block_size);
+				clear_bit(segno, sit_i->new_segmap);
 				goto next_seg;
 			}
 		}
