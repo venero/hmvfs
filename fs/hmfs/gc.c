@@ -703,7 +703,7 @@ static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 		type = seg_entry->type;
 		if (vb < SM_I(sbi)->page_4k_per_seg && vb > sit_i->bc_threshold[type]) {	
 			struct allocator *allocator = ALLOCATOR(sbi, type);
-			uint16_t read, write, block_index = 0, nr_collect_blocks = 0;
+			uint16_t read, write, block_index = 0;
 
 			if (atomic_read(&allocator->segno) == segno)
 				goto next_seg;
@@ -725,10 +725,8 @@ static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 				allocator->buffer[write & allocator->buffer_index_mask] = 
 						__cal_page_addr(sbi, segno, block_index);
 				clear_bit(block_index, seg_entry->invalid_bitmap);
-				nr_collect_blocks++;
+				nr_bc += HMFS_BLOCK_SIZE_4K[type];
 			}
-			nr_bc += nr_collect_blocks * HMFS_BLOCK_SIZE_4K[type];
-			atomic_add(nr_collect_blocks, &seg_entry->nr_collect_blocks);
 			atomic_set(&allocator->write, write);
 		}
 

@@ -278,16 +278,12 @@ alloc_buf:
 	if (allocator->mode & ALLOC_BUF) {
 		uint32_t write = atomic_read(&allocator->write);
 		uint32_t read = __atomic_add_unless(&allocator->read, 1, write);
-		seg_t segno;
 
 		if (read == write) {
 			goto alloc_log;
 		}
 		
-		page_addr = allocator->buffer[read & allocator->buffer_index_mask];
-		segno = GET_SEGNO(sbi, page_addr);
-		atomic_dec(&get_seg_entry(sbi, segno)->nr_collect_blocks);
-		return page_addr;
+		return allocator->buffer[read & allocator->buffer_index_mask];
 	}
 
 alloc_log:
