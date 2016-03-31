@@ -217,7 +217,6 @@ struct hmfs_sb_info {
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];		/* FS lock */
 	unsigned char next_lock_num;				/* hint for get FS lock */
 	struct mutex gc_mutex;						/* GC lock */
-	struct mutex bc_mutex;						/* BC lock */
 
 	/* mmap */
 	struct list_head mmap_block_list;
@@ -225,7 +224,6 @@ struct hmfs_sb_info {
 
 	/* GC */
 	struct hmfs_kthread *gc_thread;				/* GC thread */
-	struct hmfs_kthread *bc_thread;				/* Blocks Collect thread */
 	unsigned int last_victim[2];				/* victims of last gc process */
 	__le32 *gc_logs;							/* gc logs area */
 	int nr_gc_segs;								/* # of segments that have been collect */

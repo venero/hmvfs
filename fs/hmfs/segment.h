@@ -28,10 +28,11 @@
 #define LIMIT_BC				5	/* percentage of blocks collection */
 
 struct seg_entry {
-	unsigned short valid_blocks;	/* # of valid blocks */
-	unsigned long mtime;	/* modification time of the segment */
-	unsigned char type;		/* Type of segments */
-	unsigned long *invalid_bitmap;		/* Bitmap of invalid blocks */
+	unsigned long mtime;			/* modification time of the segment */
+	unsigned long *invalid_bitmap;	/* Bitmap of invalid blocks */
+	atomic_t nr_collect_blocks;		/* # of blocks in allocator's buffer */
+	uint16_t valid_blocks;			/* # of valid blocks */
+	unsigned char type;				/* Type of segments */
 };
 
 struct sit_info {
@@ -299,6 +300,7 @@ static inline void seg_info_from_raw_sit(struct seg_entry *se,
 	se->mtime = le32_to_cpu(raw_entry->mtime);
 	se->type = raw_entry->type;
 	se->invalid_bitmap = NULL;
+	atomic_set(&se->nr_collect_blocks, 0);
 }
 
 //TODO:use memcpy?

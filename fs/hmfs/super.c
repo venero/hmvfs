@@ -736,10 +736,8 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	
 	if (sync) {
 		lock_gc(sbi);
-		mutex_lock(&sbi->bc_mutex);
 		hmfs_dbg("write checkpoint\n");
 		ret = write_checkpoint(sbi, true);
-		mutex_unlock(&sbi->bc_mutex);
 		unlock_gc(sbi);
 	} else {
 		if (has_not_enough_free_segs(sbi)) {
@@ -872,7 +870,6 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	for (i = 0; i < NR_GLOBAL_LOCKS; ++i)
 		mutex_init(&sbi->fs_lock[i]);
 	mutex_init(&sbi->gc_mutex);
-	mutex_init(&sbi->bc_mutex);
 	sbi->next_lock_num = 0;
 
 	sbi->s_dirty = 0;
