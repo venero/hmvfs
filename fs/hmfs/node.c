@@ -253,6 +253,8 @@ void truncate_node(struct dnode_of_data *dn)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct node_info ni;
+	struct allocator *allocator;
+	int ret;	
 
 	get_node_info(sbi, dn->nid, &ni);
 	if (dn->inode->i_blocks == 0) {
@@ -273,7 +275,11 @@ void truncate_node(struct dnode_of_data *dn)
 		mark_inode_dirty(dn->inode);
 	}
 
-	invalidate_delete_block(sbi, ni.blk_addr, 1);
+	ret = invalidate_delete_block(sbi, ni.blk_addr, 1);
+	if (ret) {
+		allocator = ALLOCATOR(sbi, SEG_NODE_INDEX);	
+		allocator->nr_cur_invalid += ret >> HMFS_BLOCK_SIZE_4K_BITS[SEG_NODE_INDEX];
+	}
 
 invalidate:
 	dn->node_block = NULL;

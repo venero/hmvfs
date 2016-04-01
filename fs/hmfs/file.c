@@ -808,6 +808,9 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	}
 
 	if (nr_free) {
+		struct allocator *allocator = ALLOCATOR(sbi, seg_type);
+
+		allocator->nr_cur_invalid += nr_free >> HMFS_BLOCK_SIZE_4K_BITS[seg_type];
 		dec_valid_block_count(sbi, dn->inode, nr_free);
 		mark_inode_dirty(dn->inode);
 	}
@@ -837,6 +840,14 @@ void truncate_data_blocks(struct dnode_of_data *dn)
 	}
 
 	if (nr_free) {
+		/* It's better to update allocator->nr_cur_invalid outside 
+		 * the function invalidate_delete_block, because updating
+		 * member nr_cur_invalid is not atomic. We could reduce the probability
+		 * of hazard by reducing writing to it.
+		 */
+		struct allocator *allocator = ALLOCATOR(sbi, seg_type);
+
+		allocator->nr_cur_invalid += nr_free >> HMFS_BLOCK_SIZE_4K_BITS[seg_type];
 		dec_valid_block_count(sbi, dn->inode, nr_free);
 		mark_inode_dirty(dn->inode);
 	}

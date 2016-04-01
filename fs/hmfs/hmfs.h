@@ -852,16 +852,12 @@ void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid,
 /* segment.c*/
 unsigned long total_valid_blocks(struct hmfs_sb_info *);
 unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *, seg_t);
-void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
-				void *new_nat_root);
-void recovery_sit_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp);
+void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr, void *new_nat_root);
+void recovery_sit_entries(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp);
 int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
-struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi,
-				seg_t segno);
-struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi,
-				block_t blk_addr);
+struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi, seg_t segno);
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_t blk_addr);
 inline block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
 inline block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t blkoff);
@@ -898,25 +894,21 @@ int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
 int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
 		    	int *size, int mode);
-void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, 
-				int block);
+void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, int block);
 void *alloc_new_data_partial_block(struct inode *inode, int block, int start,
 				int size, bool fill_zero);
 int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode);
 
 /* dir.c */
 int __hmfs_add_link(struct inode *, const struct qstr *, struct inode *);
-struct hmfs_dir_entry *hmfs_find_entry(struct inode *, struct qstr *, int *,
-				int *);
+struct hmfs_dir_entry *hmfs_find_entry(struct inode *, struct qstr *, int *, int *);
 struct hmfs_dir_entry *hmfs_parent_dir(struct inode *);
-void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry,
-				struct inode *);
+void hmfs_set_link(struct inode *inode, struct hmfs_dir_entry *entry, struct inode *);
 void hmfs_delete_entry(struct hmfs_dir_entry *, struct hmfs_dentry_block *,
 				struct inode *, struct inode *, int bidx);
 int hmfs_make_empty(struct inode *, struct inode *);
 bool hmfs_empty_dir(struct inode *);
-struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,
-				int old_bidx);
+struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir, int old_bidx);
 
 /* symlink.c */
 int hmfs_symlink(struct inode *inode, struct dentry *, const char *symname);
@@ -925,14 +917,13 @@ int hmfs_symlink(struct inode *inode, struct dentry *, const char *symname);
 hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
 
 /* namei.c */
-int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
-				struct kstat *stat);
+int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat);
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
-struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry,
-				umode_t mode);
+struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry, umode_t mode);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);
+void hmfs_collect_blocks(struct hmfs_sb_info *sbi);
 int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type);
 int start_gc_thread(struct hmfs_sb_info *sbi);
 void stop_gc_thread(struct hmfs_sb_info *sbi);

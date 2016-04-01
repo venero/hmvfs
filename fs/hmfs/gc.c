@@ -665,7 +665,7 @@ inline void start_bc(struct hmfs_sb_info *sbi) {
 }
 
 /* Collect truncated blocks in current version */
-static void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
+void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct seg_entry *seg_entry;

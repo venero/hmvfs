@@ -78,8 +78,11 @@ struct allocator {
 	atomic_t segno;
 	uint32_t next_blkoff;
 	seg_t next_segno;
+	uint32_t nr_cur_invalid;	/* # of invalid blocks in new version */
 	volatile char mode;
 	uint16_t nr_pages;	/* Constants: page number per segments */
+	uint16_t bg_bc_limit;	/* # of buffer entries to start bg BC */
+	uint16_t bc_threshold;	/* minimum # of nr_cur_invalid to start BC */
 	
 	block_t *buffer;
 	atomic_t write;		/* write index of buffer ring */

@@ -103,13 +103,16 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "limit severe free blocks:%llu\n", sm_i->severe_free_blocks);
 	seq_printf(s, "overprovision blocks:%llu\n", sm_i->ovp_segments << sm_i->page_4k_per_seg_bits);
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		seq_printf(s, "current segment[%d %u]\n", atomic_read(&ALLOCATOR(sbi, i)->segno),
-				ALLOCATOR(sbi, i)->next_blkoff);
+		struct allocator *allocator = ALLOCATOR(sbi, i);
+		seq_printf(s, "current segment[%d %u] invalid(%u) nr_pages(%u) buffer_limit(%u)"
+				" bc_threshold(%d) write-read(%d)\n", atomic_read(&allocator->segno),
+				allocator->next_blkoff, allocator->nr_cur_invalid, allocator->nr_pages, 
+				allocator->bg_bc_limit, allocator->bc_threshold, atomic_read(&allocator->write) -
+				atomic_read(&allocator->read));
 	}
 
 	if (si->flush_nat_time)
-		seq_printf(s, "flush_nat_per_block:%lu\n", 
-				si->flush_nat_sum / si->flush_nat_time);
+		seq_printf(s, "flush_nat_per_block:%lu\n", si->flush_nat_sum / si->flush_nat_time);
 	for (i = 0; i < 10; i++) {
 		seq_printf(s, "nr_flush_nat_per_block[%d-%d):%d\n", i * 50,
 				i * 50 + 50, si->nr_flush_nat_per_block[i]);

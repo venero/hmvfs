@@ -69,6 +69,16 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << 15,
 };
 
+const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
+	1,
+	1,
+	3,
+	6,
+	9,
+	12,
+	15,
+};
+
 #define HMFS_MAX_SYMLINK_NAME_LEN	HMFS_MIN_PAGE_SIZE
 
 /* Write orphan inodes in two block */

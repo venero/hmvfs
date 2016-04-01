@@ -72,6 +72,7 @@ void reset_new_segmap(struct hmfs_sb_info *sbi)
 		if (allocator->next_blkoff != SM_I(sbi)->page_4k_per_seg) {
 			set_bit(atomic_read(&allocator->segno), sit_i->new_segmap);
 		}
+		allocator->nr_cur_invalid = 0;
 	}
 	CM_I(sbi)->alloc_block_count += block_throw;
 }
@@ -199,11 +200,9 @@ inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t b
 				+ sbi->main_addr_start;
 }
 
-static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,
-				struct allocator *allocator)
+static inline unsigned long cal_page_addr(struct hmfs_sb_info *sbi,	struct allocator *allocator)
 {
-	return __cal_page_addr(sbi, atomic_read(&allocator->segno),
-				allocator->next_blkoff);
+	return __cal_page_addr(sbi, atomic_read(&allocator->segno),	allocator->next_blkoff);
 }
 
 /*
@@ -221,8 +220,7 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
 
 	lock_write_segmap(free_i);
 retry:
-	segno = find_next_zero_bit(free_i->free_segmap,
-				   TOTAL_SEGS(sbi), *newseg);
+	segno = find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
 	if(segno >= TOTAL_SEGS(sbi)) {
 		*newseg = 0;
 		if(!retry) {
@@ -245,8 +243,7 @@ unlock:
 	return ret;
 }
 
-static int move_to_new_segment(struct hmfs_sb_info *sbi,
-				struct allocator *allocator)
+static int move_to_new_segment(struct hmfs_sb_info *sbi, struct allocator *allocator)
 {
 	seg_t segno = atomic_read(&allocator->segno);
 	int ret = get_new_segment(sbi, &segno);
@@ -284,7 +281,18 @@ alloc_buf:
 		uint32_t write = atomic_read(&allocator->write);
 		uint32_t read = __atomic_add_unless(&allocator->read, 1, write);
 
-		if (read == write) {
+		if (write - read < allocator->bg_bc_limit) {
+			start_bc(sbi);	
+		} else if (read == write) {
+			if (has_not_enough_free_segs(sbi)) {
+				if (allocator->nr_cur_invalid > allocator->bc_threshold) {
+					if (trylock_gc(sbi)) {
+						hmfs_collect_blocks(sbi);
+						unlock_gc(sbi);
+						goto alloc_buf;
+					}
+				}
+			}
 			goto alloc_log;
 		}
 		
@@ -327,18 +335,17 @@ alloc_log:
 	return page_addr;
 }
 
-inline block_t alloc_free_data_block(struct hmfs_sb_info * sbi, char seg_type)
+inline block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type)
 {
 	return get_free_block(sbi, seg_type, true);
 }
 
-inline block_t alloc_free_node_block(struct hmfs_sb_info * sbi, bool sit_lock)
+inline block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock)
 {
-	return get_free_block(sbi, SEG_NODE_INDEX, sit_lock);
+	return get_free_block(sbi, SEG_NODE_INDEX, true);
 }
 
-void recovery_sit_entries(struct hmfs_sb_info *sbi,
-				struct hmfs_checkpoint *hmfs_cp)
+void recovery_sit_entries(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *hmfs_cp)
 {
 	int nr_logs, i, nr_segs, num = 0;
 	struct hmfs_sit_log_entry *sit_log;
@@ -661,6 +668,7 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 		array[i].next_blkoff = le32_to_cpu(hmfs_cp->cur_blkoff[i]);
 		atomic_set(&array[i].segno, le32_to_cpu(hmfs_cp->cur_segno[i]));
 		array[i].next_segno = NULL_SEGNO;
+		array[i].nr_cur_invalid = 0;
 
 		/* Initialize truncated blocks structure */
 		array[i].mode = ALLOC_LOG;
@@ -682,6 +690,9 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 		}
 		pages_per_buffer = buffer_size / sizeof(block_t);
 		array[i].buffer_index_mask = pages_per_buffer - 1;
+
+		array[i].bg_bc_limit = pages_per_buffer >> 1;
+		array[i].bc_threshold = SM_I(sbi)->page_4k_per_seg >> 2;
 	}
 
 	return 0;
