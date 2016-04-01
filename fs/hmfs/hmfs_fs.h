@@ -70,8 +70,8 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 };
 
 const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
-	1,
-	1,
+	0,
+	0,
 	3,
 	6,
 	9,

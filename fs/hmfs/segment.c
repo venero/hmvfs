@@ -65,8 +65,7 @@ void reset_new_segmap(struct hmfs_sb_info *sbi)
 		uint32_t read = atomic_read(&allocator->read);
 		uint32_t write = atomic_read(&allocator->write);
 
-		block_throw += (write - read) << (HMFS_BLOCK_SIZE_BITS(i) - 
-				HMFS_BLOCK_SIZE_BITS(SEG_NODE_INDEX));
+		block_throw += (write - read) << HMFS_BLOCK_SIZE_4K_BITS[i];
 		hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
 		atomic_set(&allocator->read, write);
 		if (allocator->next_blkoff != SM_I(sbi)->page_4k_per_seg) {
@@ -135,8 +134,7 @@ int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr,
 
 	se = get_seg_entry(sbi, segno);
 	if (se->invalid_bitmap) {
-		uint16_t ofs = GET_SEG_OFS(sbi, addr) >> (HMFS_BLOCK_SIZE_BITS(se->type) -
-				HMFS_BLOCK_SIZE_BITS(SEG_DATA_INDEX));
+		uint16_t ofs = GET_SEG_OFS(sbi, addr) >> HMFS_BLOCK_SIZE_4K_BITS[SEG_DATA_INDEX];
 		set_bit(ofs, se->invalid_bitmap);
 	}
 
