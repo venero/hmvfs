@@ -47,9 +47,15 @@ void reset_new_segmap(struct hmfs_sb_info *sbi)
 			break;
 		
 		se = get_seg_entry(sbi, segno);
-		if (se->invalid_bitmap) {
-			kfree(se->invalid_bitmap);
-			se->invalid_bitmap = NULL;
+		if (likely(se->invalid_bitmap)) {
+			struct allocator *allocator = ALLOCATOR(sbi, se->type);
+			if (atomic_read(&allocator->segno) != segno || 
+					allocator->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
+				kfree(se->invalid_bitmap);
+				se->invalid_bitmap = NULL;
+			} else {
+				memset(se->invalid_bitmap, 0, hmfs_bitmap_size(allocator->nr_pages));
+			}
 		}
 		segno++;
 	}
@@ -63,6 +69,9 @@ void reset_new_segmap(struct hmfs_sb_info *sbi)
 				HMFS_BLOCK_SIZE_BITS(SEG_NODE_INDEX));
 		hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
 		atomic_set(&allocator->read, write);
+		if (allocator->next_blkoff != SM_I(sbi)->page_4k_per_seg) {
+			set_bit(atomic_read(&allocator->segno), sit_i->new_segmap);
+		}
 	}
 	CM_I(sbi)->alloc_block_count += block_throw;
 }
@@ -248,16 +257,12 @@ static int move_to_new_segment(struct hmfs_sb_info *sbi,
 		return ret;
 	get_seg_entry(sbi, segno)->type = seg_type;
 	bitmap_size = hmfs_bitmap_size(allocator->nr_pages);
-	if (bitmap_size == 0)
-		bitmap_size = 1;
 	get_seg_entry(sbi, segno)->invalid_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 	
 	/* Set new segment bit */
 	/* We use the new_segmap to collect segments newly created in current version.
 	 * And then we could collect the truncated blocks under the help of new_segmap.
-	 * And we don't want the blocks in older version. Therefore, we would not set bits
-	 * of `current segments` in startup, which contained older blocks of previous
-	 * version.
+	 * And we don't want the blocks in older version. 
 	 */
 	set_bit(segno, SIT_I(sbi)->new_segmap);
 
@@ -725,9 +730,20 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 
 	/* set use the current segments */
 	for (i = 0; i < sbi->nr_page_types; i++) {
-		segno = atomic_read(&ALLOCATOR(sbi, i)->segno);
-		if (segno != NULL_SEGNO)
+		struct allocator *allocator = ALLOCATOR(sbi, i);
+		segno = atomic_read(&allocator->segno);
+		if (segno != NULL_SEGNO) {
 			__set_test_and_inuse(sbi, segno);
+			/* Set bit of head segments is OK. Even if it contains blocks of
+			 * older version, those blocks would not be mark as invalid and BC
+			 * would not collect them in buffer of allocator
+			 */
+			set_bit(segno, SIT_I(sbi)->new_segmap);
+			if (allocator->next_blkoff != SM_I(sbi)->page_4k_per_seg) {
+				get_seg_entry(sbi, segno)->invalid_bitmap = kzalloc(
+						hmfs_bitmap_size(allocator->nr_pages), GFP_KERNEL);
+			}
+		}
 	}
 }
 
@@ -877,10 +893,17 @@ static void destroy_free_segmap(struct hmfs_sb_info *sbi)
 static void destroy_sit_info(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
+	int i;
 
 	if (!sit_i)
 		return;
 
+	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
+		if (get_seg_entry(sbi, i)->invalid_bitmap) {
+			hmfs_bug_on(sbi, !test_bit(i, sit_i->new_segmap));
+			kfree(get_seg_entry(sbi, i)->invalid_bitmap);
+		}
+	}
 	kfree(sit_i->new_segmap);
 	vfree(sit_i->sentries);
 	kfree(sit_i->dirty_sentries_bitmap);
