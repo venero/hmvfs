@@ -42,6 +42,7 @@ struct sit_info {
 	struct seg_entry *sentries;				/* SIT segment-level cache */
 
 	/* for cost-benefit valuing */
+	//TODO: Remove xxx_time
 	unsigned long long elapsed_time;	/* The elapsed time from FS format */
 	unsigned long long mounted_time;	/* Timestamp for FS mounted */
 	unsigned long long min_mtime;		/* Minimum mtime in SIT */

@@ -17,6 +17,9 @@
  */
 #define NR_GC_MIN_BLOCK				100
 
+#define ABS(x, y)		(x > y ? x - y : y - x)
+#define DEFAULT_GC_TOKEN		8
+
 struct hmfs_kthread {
 	struct task_struct *hmfs_task;
 	wait_queue_head_t wait_queue_head;
@@ -29,15 +32,16 @@ struct gc_move_arg {
 	int nrchange;
 	block_t src_addr, dest_addr, parent_addr;
 	char *dest, *src;
-	struct hmfs_summary *dest_sum, *parent_sum;
+	struct hmfs_summary *dest_sum, *parent_sum, *src_sum;
 	struct checkpoint_info *cp_i;
 };
 
-struct victim_sel_policy {
-	int gc_mode;
+struct victim_info {
+	seg_t min_segno;
+	seg_t buddy_segno;
 	unsigned int offset;
 	unsigned int min_cost;
-	unsigned int min_segno;
+	int gc_mode;
 };
 
 /**
@@ -49,12 +53,11 @@ enum {
 };
 
 enum {
-	GC_GREEDY = 0, GC_CB
+	GC_GREEDY = 0, GC_OLD, GC_COMPACT,
 };
 
-void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi,
-				seg_t mv_segno, unsigned mv_offset, struct hmfs_summary *sum,
-				int type);
+void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi, seg_t mv_segno,
+				unsigned mv_offset, seg_t d_segno, unsigned d_off, int type);
 
 #ifdef CONFIG_HMFS_DEBUG_GC
 #define INC_GC_TRY(si)					(si)->nr_gc_try++
@@ -70,14 +73,16 @@ void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi,
 #define COUNT_GC_BLOCKS(si, ivblocks)
 #endif
 
-static inline bool need_deep_scan(struct hmfs_sb_info *sbi)
+static inline bool need_deep_scan(struct hmfs_sb_info *sbi, uint8_t gc_mode)
 {
-	return free_user_blocks(sbi) < SM_I(sbi)->severe_free_blocks;
+	return free_user_blocks(sbi) < SM_I(sbi)->severe_free_blocks && gc_mode != GC_OLD;
 }
 
-static inline bool need_more_scan(struct hmfs_sb_info *sbi, seg_t segno,
-				seg_t start_segno)
+static inline bool need_more_scan(struct hmfs_sb_info *sbi, seg_t segno, 
+				seg_t start_segno, uint8_t gc_mode)
 {
+	if (gc_mode != GC_OLD || !has_not_enough_free_segs(sbi))
+		return false;
 	if (segno >= start_segno)
 		return segno - start_segno < sbi->nr_max_fg_segs;
 	return segno + TOTAL_SEGS(sbi) - start_segno< sbi->nr_max_fg_segs; 
@@ -103,6 +108,15 @@ static inline long decrease_sleep_time(struct hmfs_sb_info *sbi, long wait)
 	if (wait <= sbi->gc_thread_min_sleep_time)
 		wait = sbi->gc_thread_min_sleep_time;
 	return wait;
+}
+
+static inline ver_t find_first_valid_version(struct hmfs_summary *sum, uint8_t seg_type)
+{
+	do {
+		if (get_summary_valid_bit(sum))
+			return get_summary_start_version(sum);
+	} while(sum += HMFS_BLOCK_SIZE_4K[seg_type]);
+	return HMFS_DEF_CP_VER;
 }
 
 #endif

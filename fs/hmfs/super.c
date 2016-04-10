@@ -860,6 +860,8 @@ static int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 			HMFS_PAGE_SIZE_BITS_INC + 2;
 	sbi->page_count_main =  sbi->segment_count_main << (calculate_segment_size_bits(
 			sbi->max_page_size_bits) - HMFS_MIN_PAGE_SIZE_BITS);
+	sbi->gc_type_info = 0;
+	sbi->gc_old_token = DEFAULT_GC_TOKEN;
 
 	sbi->main_addr_start = le64_to_cpu(super->main_blkaddr);
 	end_addr = sbi->main_addr_start + (sbi->segment_count_main << 

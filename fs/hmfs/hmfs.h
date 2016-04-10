@@ -224,7 +224,9 @@ struct hmfs_sb_info {
 
 	/* GC */
 	struct hmfs_kthread *gc_thread;				/* GC thread */
-	unsigned int last_victim[2];				/* victims of last gc process */
+	uint8_t gc_type_info;						/* Recent 8 types of GC */
+	uint8_t gc_old_token;						/* Token for collecting old segments */
+	unsigned int last_victim[3];				/* victims of last gc process */
 	__le32 *gc_logs;							/* gc logs area */
 	int nr_gc_segs;								/* # of segments that have been collect */
 	int nr_max_fg_segs;							/* # of segments scan in FG_GC mode most */
