@@ -787,7 +787,6 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 static int build_dirty_segmap(struct hmfs_sb_info *sbi)
 {
 	struct dirty_seglist_info *dirty_i;
-	unsigned int bitmap_size;
 
 	dirty_i = kzalloc(sizeof(struct dirty_seglist_info), GFP_KERNEL);
 	if (!dirty_i)
@@ -795,9 +794,7 @@ static int build_dirty_segmap(struct hmfs_sb_info *sbi)
 
 	SM_I(sbi)->dirty_info = dirty_i;
 
-	bitmap_size = (BITS_TO_LONGS(TOTAL_SEGS(sbi)) * sizeof(unsigned long));
-
-	dirty_i->dirty_segmap = kzalloc(bitmap_size, GFP_KERNEL);
+	dirty_i->dirty_segmap = kzalloc(hmfs_bitmap_size(TOTAL_SEGS(sbi)), GFP_KERNEL);
 
 	if (!dirty_i->dirty_segmap)
 		return -ENOMEM;

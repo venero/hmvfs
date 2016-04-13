@@ -254,7 +254,11 @@ struct hmfs_inode_info {
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
 	struct rw_semaphore i_lock;			/* Lock for inode read-write */
-	void *read_addr;					/* Start address of read-only file */
+	void *rw_addr;					/* Start address of fast read/write */
+	unsigned char *block_bitmap;
+	uint64_t nr_map_page;
+	uint32_t bitmap_size;
+	atomic_t nr_open;
 	struct hmfs_inode *i_node_block;
 };
 
@@ -295,18 +299,6 @@ struct dnode_of_data {
 	nid_t nid;						/* node id of the direct node block */
 	unsigned int ofs_in_node;		/* data offset in the node page */
 	int level;						/* depth of data block */
-};
-
-/* 
- * This structure is used to describe start address
- * of an read-only file that has been remap into VMALLOC
- * area. Because we save the struct pointer in struct file,
- * we need some magic number to verify the identity of this struct
- */
-struct ro_file_address {
-	unsigned long magic;
-	unsigned int count;
-	void *start_addr;
 };
 
 extern const struct file_operations hmfs_file_operations;
@@ -787,15 +779,9 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+int get_file_page_struct(struct inode *inode, struct page **pages, int count);
 int create_mmap_struct_cache(void);
 void destroy_mmap_struct_cache(void);
-#ifdef CONFIG_HMFS_FAST_READ
-int init_ro_file_address_cache(void);
-void destroy_ro_file_address_cache(void);
-#else
-#define init_ro_file_address_cache()	(0)
-#define destroy_ro_file_address_cache()
-#endif
 
 /* debug.c */
 #ifdef CONFIG_HMFS_DEBUG
@@ -922,6 +908,10 @@ hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat);
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry, umode_t mode);
+
+/* vmap.c */
+int vmap_file_range(struct inode *);
+int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);

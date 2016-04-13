@@ -10,12 +10,6 @@ config HMFS_DEBUG
 	help
 	  /sys/kernel/debug/hmfs/status includes:
 
-config HMFS_FAST_READ
-	bool "HMFS Fast-Read of read-only file"
-	depends on HMFS_FS
-	help
-	  If unsure, say N.
-
 config HMFS_XATTR
 	bool "HMFS extended attributes"
 	default y

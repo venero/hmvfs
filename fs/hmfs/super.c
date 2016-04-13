@@ -555,8 +555,11 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_flags = 0;
 	fi->flags = 0;
 	fi->i_advise = 0;
-	fi->read_addr = NULL;
+	fi->rw_addr = NULL;
 	fi->i_node_block = NULL;
+	fi->block_bitmap = NULL;
+	fi->nr_map_page = 0;
+	atomic_set(&fi->nr_open, 0);
 	init_rwsem(&fi->i_lock);
 	set_inode_flag(fi, FI_NEW_INODE);
 	INIT_LIST_HEAD(&fi->list);
@@ -1032,9 +1035,6 @@ int init_hmfs(void)
 	err = create_checkpoint_caches();
 	if (err)
 		goto fail_cp;
-	err = init_ro_file_address_cache();
-	if (err)
-		goto fail_ro_file;
 	err = create_mmap_struct_cache();
 	if (err)
 		goto fail_mmap;
@@ -1046,8 +1046,6 @@ int init_hmfs(void)
 fail_reg:
 	destroy_mmap_struct_cache();
 fail_mmap:
-	destroy_ro_file_address_cache();
-fail_ro_file:
 	destroy_checkpoint_caches();
 fail_cp:
 	destroy_node_manager_caches();
@@ -1055,7 +1053,6 @@ fail_node:
 	destroy_inodecache();
 fail:
 	return err;
-
 }
 
 void exit_hmfs(void)
@@ -1064,7 +1061,6 @@ void exit_hmfs(void)
 	destroy_inodecache();
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
-	destroy_ro_file_address_cache();
 	hmfs_destroy_root_stat();
 	unregister_filesystem(&hmfs_fs_type);
 }

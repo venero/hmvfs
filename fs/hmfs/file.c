@@ -28,10 +28,6 @@
 #include "util.h"
 #include "gc.h"
 
-#ifdef CONFIG_HMFS_FAST_READ
-static struct kmem_cache *ro_file_address_cachep;
-#endif
-
 static struct kmem_cache *mmap_block_slab;
 
 static unsigned int start_block(unsigned int i, int level)
@@ -312,43 +308,19 @@ out:
 	return (copied ? copied : error);
 }
 
-#ifdef CONFIG_HMFS_FAST_READ
-static inline bool is_fast_read_file(struct ro_file_address *addr_struct)
+int get_file_page_struct(struct inode *inode, struct page **pages, int count)
 {
-	return addr_struct && (addr_struct->magic == HMFS_SUPER_MAGIC);
-}
-
-static struct ro_file_address *new_ro_file_address(void *addr, unsigned int count)
-{
-	struct ro_file_address *addr_struct;
-
-	addr_struct = kmem_cache_alloc(ro_file_address_cachep, GFP_KERNEL);
-
-	if (addr_struct) {
-		addr_struct->magic = HMFS_SUPER_MAGIC;
-		addr_struct->start_addr = addr;
-		addr_struct->count = count;
-	}
-	return addr_struct;
-}
-
-static void free_ro_file_address(struct file *filp)
-{
-	kmem_cache_free(ro_file_address_cachep, filp->private_data);
-	filp->private_data = NULL;
-}
-
-static int remap_file_range(struct inode *inode, struct page **pages, int count)
-{
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
 	void **blocks_buf;
 	int buf_size = 0;
 	/* index of buffer */
 	int b_index = 0;
 	/* index of file data */
 	int f_index = 0;
-	int err;
 	u64 pfn;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	int err = 0;
+	int i;
 
 	blocks_buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!blocks_buf)
@@ -358,23 +330,27 @@ static int remap_file_range(struct inode *inode, struct page **pages, int count)
 		if (b_index >= buf_size) {
 			buf_size = 0;
 			b_index = 0;
-			err = get_data_blocks(inode, f_index, count, blocks_buf, &buf_size,
-						RA_DB_END);		
+			err = get_data_blocks(inode, f_index, count, blocks_buf, &buf_size, RA_DB_END);
 			if (!buf_size)
 				goto out;
 		}
-		if (blocks_buf[b_index])
+		i = 0;
+		if (blocks_buf[b_index]) {
 			pfn = pfn_from_vaddr(sbi, blocks_buf[b_index]);
-		else
-			pfn = sbi->map_zero_page_number;
+			while (i++ < HMFS_BLOCK_SIZE_4K[blk_type]) {
+				pages[f_index++] = pfn_to_page(pfn++);	
+			}
+		} else {
+			while (i++ < HMFS_BLOCK_SIZE_4K[blk_type])
+				pages[f_index++] = sbi->map_zero_page;
+		}
 
-		pages[f_index] = pfn_to_page(pfn);
-		f_index++;
 		b_index++;
 	} while(f_index < count);
 
-	err = 0;
 out:
+	while (f_index < count)
+		pages[f_index++] = sbi->map_zero_page;
 	kfree(blocks_buf);
 	return err;
 }
@@ -386,41 +362,28 @@ out:
 int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
-	unsigned long size;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	void *map_addr;
-	struct page **pages;
-	int count;
 
 	ret = generic_file_open(inode, filp);
-	if (ret || (filp->f_flags & O_ACCMODE) != O_RDONLY ||
-				is_inline_inode(inode))
+	if (ret || is_inline_inode(inode))
 		return ret;;
 
-	if (filp->private_data)
+	if (atomic_add_return(1, &fi->nr_open) != 1) {
 		return 0;
+	}
+	inode_write_lock(inode);
 
-	/* Do not map an empty file */
-	size = i_size_read(inode);
-	if (!size || fi->read_addr)
-		return 0;
-
-	count = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	pages = kzalloc(count * sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
-		return 0;
-
-	ret = remap_file_range(inode, pages, count);
-
-	if (ret) {
-		goto free_pages;
+	/* Data have been mapped into kernel space */
+	if (fi->rw_addr) {
+		hmfs_bug_on(HMFS_I_SB(inode), !fi->block_bitmap);
+		goto out;
 	}
 
-	map_addr = vm_map_ram(pages, count, 0, PAGE_KERNEL);
-	if (map_addr)
-		filp->private_data = new_ro_file_address(map_addr, count);
-free_pages:
-	kfree(pages);
+	hmfs_bug_on(HMFS_I_SB(inode), fi->block_bitmap);
+	
+	vmap_file_range(inode);
+out:
+	inode_write_unlock(inode);
 	return 0;
 }
 
@@ -428,23 +391,24 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	struct ro_file_address *addr_struct = NULL;
 
-	addr_struct = filp->private_data;
-	if (is_fast_read_file(addr_struct)) {
-		hmfs_bug_on(HMFS_I_SB(inode), (filp->f_flags & O_ACCMODE)
-				!= O_RDONLY);
+	/* FIXME: Is the value of i_count correct */
+	if (!atomic_sub_return(1, &fi->nr_open)) {
+		//TODO: Use lazy free
+		unsigned char *bitmap = fi->block_bitmap;
+		void *rw_addr = fi->rw_addr;
+		uint64_t nr_map_page = fi->nr_map_page;
 
-		vm_unmap_ram(addr_struct->start_addr, addr_struct->count);
-		/* 
-		 * Use the vm area unlocked, assuming the caller unsures there isn't
-		 * another iounmap for the same address in parallel. Reuse of the virtual
-		 * address is prevented by leaving it in the global lists 
-		 * until we're done with it.
-		 */
-		free_ro_file_address(filp);
+		inode_write_lock(inode);
+		fi->rw_addr = NULL;
+		fi->block_bitmap = NULL;
+		fi->nr_map_page = 0;
+		inode_write_unlock(inode);
+		
+		kfree(bitmap);
+		vm_unmap_ram(rw_addr, nr_map_page);
 	}
-	
+
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
@@ -456,10 +420,10 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
-	loff_t isize = i_size_read(filp->f_inode);
+	struct inode *inode = filp->f_inode;
+	loff_t isize = i_size_read(inode);
 	size_t copied = len;
 	unsigned long left;
-	struct ro_file_address *addr_struct = filp->private_data;
 	int err = 0;
 
 	if (*ppos + len > isize)
@@ -468,9 +432,9 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 	if (!copied)
 		return 0;
 
-	inode_read_unlock(filp->f_inode);
-	left = __copy_to_user(buf, addr_struct->start_addr, copied);
-	inode_read_lock(filp->f_inode);
+	inode_read_unlock(inode);
+	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr, copied);
+	inode_read_lock(inode);
 
 	if (left == copied)
 		err = -EFAULT;
@@ -488,67 +452,140 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
-	if (likely(!is_fast_read_file((struct ro_file_address *)
-						filp->private_data)))
-		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
-	else
+	if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode))
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
+	else
+		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 
 out:
 	inode_read_unlock(filp->f_inode);
 	return ret;
 }
 
-int init_ro_file_address_cache(void)
+static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf,
+				size_t count, loff_t *ppos)
 {
-	ro_file_address_cachep = hmfs_kmem_cache_create("hmfs_ro_address_cache",
-									sizeof(struct ro_file_address), NULL);
-	if (!ro_file_address_cachep)
-		return -ENOMEM;
-	return 0;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	loff_t pos = *ppos;
+	long status = 0;
+	size_t bytes;
+	ssize_t written = 0;
+	struct hmfs_inode *inode_block;
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	const unsigned long long block_ofs_mask = block_size - 1;
+
+	if (is_inline_inode(inode)) {
+		if (pos + count > HMFS_INLINE_SIZE) {
+			status = hmfs_convert_inline_inode(inode);
+			if (status) {
+				goto out;
+			}
+			goto normal_write;
+		}
+		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
+							SUM_TYPE_INODE, false);
+		if (IS_ERR(inode_block)) {
+			status = PTR_ERR(inode_block);
+			goto out;
+		}
+		written = count - __copy_from_user_nocache((__u8 *)inode_block->inline_content 
+								+ pos, buf, count);
+		if (unlikely(written != count)) {
+			status = -EFAULT;
+			written = 0;
+		} else {
+			pos += count;
+		}
+		goto out;
+	}
+
+normal_write:
+	do {
+		unsigned long index;
+		unsigned long offset;
+		size_t copied;
+		void *xip_mem;
+
+		offset = pos & block_ofs_mask;
+		index = pos >> block_size_bits;
+		bytes = block_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		xip_mem = alloc_new_data_block(sbi, inode, index);
+		if (unlikely(IS_ERR(xip_mem))) {
+			status = -ENOSPC;
+			break;
+		}
+
+		/* To avoid deadlock between fi->i_lock and mm->mmap_sem in mmap */
+		inode_write_unlock(inode);
+		copied = bytes - __copy_from_user_nocache(xip_mem + offset,	buf, bytes);
+		inode_write_lock(inode);
+
+		if (likely(copied > 0)) {
+			status = copied;
+
+			if (status >= 0) {
+				written += status;
+				count -= status;
+				pos += status;
+				buf += status;
+			}
+		}
+		if (unlikely(copied != bytes))
+			if (status >= 0)
+				status = -EFAULT;
+		if (status < 0)
+			break;
+	} while (count);
+out:
+	*ppos = pos;
+
+	if (pos > inode->i_size) {
+		mark_size_dirty(inode, pos);
+	}
+	return written ? written : status;
 }
 
-void destroy_ro_file_address_cache(void)
-{
-	kmem_cache_destroy(ro_file_address_cachep);
-}
-
-#else
-
-static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
+static ssize_t hmfs_file_fast_write(struct inode *inode, const char __user *buf,
 				size_t len, loff_t *ppos)
 {
-	int ret = 0;
-
-	mutex_lock(&filp->f_inode->i_mutex);
-	if (!i_size_read(filp->f_inode))
-		goto out;
-
-	ret = __hmfs_xip_file_read(filp, buf, len, ppos);
-
-out:
-	mutex_unlock(&filp->f_inode->i_mutex);
-	return ret;
-}
-
-int hmfs_file_open(struct inode *inode, struct file *filp)
-{
-	return generic_file_open(inode, filp);
-}
-
-static int hmfs_release_file(struct inode *inode, struct file *filp)
-{
-	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	uint8_t seg_type = fi->i_blk_type;
+	uint64_t start = *ppos >> HMFS_BLOCK_SIZE_BITS(seg_type);
+	uint64_t end = (*ppos + len + HMFS_BLOCK_SIZE[seg_type] - 1) >> HMFS_BLOCK_SIZE_BITS(seg_type);
+	size_t copied;
 
-	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
-		ret = sync_hmfs_inode(inode, false);
-	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
-		ret = sync_hmfs_inode_size(inode, false);
+retry:
+	if (end >= (fi->nr_map_page >> (HMFS_BLOCK_SIZE_BITS(seg_type) - PAGE_SHIFT))) {
+		if (!vmap_file_range(inode))
+			goto retry;
+		else
+			return __hmfs_xip_file_write(inode, buf, len, ppos);
+	}
 
-	return ret;
+	start &= ~7;
+	while (start <= end) {
+		if (fi->block_bitmap[start >> 3] != 0xff) {
+			int ret = remap_data_blocks_for_write(inode, (unsigned long) fi->rw_addr, start, end);
+			if (ret == -ENOMEM)
+				return __hmfs_xip_file_write(inode, buf, len, ppos);
+			else if (ret)
+				return ret;
+		}
+		start += 8;
+	}
+	
+	copied = len - __copy_from_user_nocache(fi->rw_addr + *ppos, buf, len);
+	*ppos += copied;
+
+	if (*ppos > inode->i_size)
+		mark_size_dirty(inode, *ppos);
+	return copied ? copied : -EFAULT;
 }
-#endif
 
 /**
  * hmfs_file_llseek - llseek implementation for in-memory files
@@ -624,97 +661,8 @@ out:
 	return ret;
 }
 
-static ssize_t __hmfs_xip_file_write(struct file *filp, const char __user *buf,
-				size_t count, loff_t pos, loff_t *ppos)
-{
-	struct inode *inode = filp->f_inode;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	long status = 0;
-	size_t bytes;
-	ssize_t written = 0;
-	struct hmfs_inode *inode_block;
-	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
-	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
-	const unsigned long long block_ofs_mask = block_size - 1;
-
-	if (is_inline_inode(inode)) {
-		if (pos + count > HMFS_INLINE_SIZE) {
-			status = hmfs_convert_inline_inode(inode);
-			if (status) {
-				goto out;
-			}
-			goto normal_write;
-		}
-		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
-							SUM_TYPE_INODE, false);
-		if (IS_ERR(inode_block)) {
-			status = PTR_ERR(inode_block);
-			goto out;
-		}
-		written = count - __copy_from_user_nocache((__u8 *)inode_block->inline_content 
-								+ pos, buf, count);
-		if (unlikely(written != count)) {
-			status = -EFAULT;
-			written = 0;
-		} else {
-			pos += count;
-		}
-		goto out;
-	}
-
-normal_write:
-	do {
-		unsigned long index;
-		unsigned long offset;
-		size_t copied;
-		void *xip_mem;
-
-		offset = pos & block_ofs_mask;
-		index = pos >> block_size_bits;
-		bytes = block_size - offset;
-		if (bytes > count)
-			bytes = count;
-
-		xip_mem = alloc_new_data_block(sbi, inode, index);
-		if (unlikely(IS_ERR(xip_mem))) {
-			status = -ENOSPC;
-			break;
-		}
-
-		/* To avoid deadlock between fi->i_lock and mm->mmap_sem in mmap */
-		inode_write_unlock(inode);
-		copied = bytes - __copy_from_user_nocache(xip_mem + offset, 
-								buf, bytes);
-		inode_write_lock(inode);
-
-		if (likely(copied > 0)) {
-			status = copied;
-
-			if (status >= 0) {
-				written += status;
-				count -= status;
-				pos += status;
-				buf += status;
-			}
-		}
-		if (unlikely(copied != bytes))
-			if (status >= 0)
-				status = -EFAULT;
-		if (status < 0)
-			break;
-	} while (count);
-out:
-	*ppos = pos;
-
-	if (pos > inode->i_size) {
-		mark_size_dirty(inode, pos);
-	}
-	return written ? written : status;
-}
-
-ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
-			    size_t len, loff_t * ppos)
+ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf,
+			    size_t len, loff_t *ppos)
 {
 	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = filp->f_inode;
@@ -756,7 +704,11 @@ ssize_t hmfs_xip_file_write(struct file * filp, const char __user * buf,
 	ilock = mutex_lock_op(sbi);
 	inode_write_lock(inode);
 
-	ret = __hmfs_xip_file_write(filp, buf, count, pos, ppos);
+	if (likely(HMFS_I(inode)->rw_addr) && !is_inline_inode(inode) && *ppos < inode->i_size)
+		ret = hmfs_file_fast_write(inode, buf, count, ppos);
+	else {
+		ret = __hmfs_xip_file_write(inode, buf, count, ppos);
+	}
 
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
