@@ -101,6 +101,7 @@ static int do_read_inode(struct inode *inode)
 	fi->i_advise = hi->i_advise;
 	fi->i_pino = le32_to_cpu(hi->i_pino);
 	fi->i_blk_type = hi->i_blk_type;
+	fi->i_height = hi->i_height;
 	return 0;
 }
 
@@ -179,6 +180,7 @@ int sync_hmfs_inode(struct inode *inode, bool force)
 	hi->i_pino = cpu_to_le32(inode_i->i_pino);
 	hi->i_advise = inode_i->i_advise;
 	hi->i_blk_type = inode_i->i_blk_type;
+	hi->i_height = inode_i->i_height;
 
 	return 0;
 }

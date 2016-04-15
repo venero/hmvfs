@@ -559,6 +559,7 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->i_node_block = NULL;
 	fi->block_bitmap = NULL;
 	fi->nr_map_page = 0;
+	fi->i_height = 0;
 	atomic_set(&fi->nr_open, 0);
 	init_rwsem(&fi->i_lock);
 	set_inode_flag(fi, FI_NEW_INODE);
@@ -626,11 +627,8 @@ static void hmfs_dirty_inode(struct inode *inode, int flags)
 static void hmfs_evict_inode(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct dnode_of_data dn;
 	struct hmfs_node *hi;
-	struct node_info ni;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	int ret;
 
 	if (inode->i_ino < HMFS_ROOT_INO)
 		goto out;
@@ -656,9 +654,7 @@ static void hmfs_evict_inode(struct inode *inode)
 	spin_unlock(&sbi->dirty_inodes_lock);
 	INIT_LIST_HEAD(&fi->list);
 
-	set_new_dnode(&dn, inode, &hi->i, NULL, inode->i_ino);
-	ret = get_node_info(sbi, inode->i_ino, &ni);
-	truncate_node(&dn);
+	truncate_node(inode, inode->i_ino);
 
 	start_bc(sbi);
 	

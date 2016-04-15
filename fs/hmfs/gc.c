@@ -469,7 +469,7 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 	
 	for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
 		orphan_addr = le64_to_cpu(this_cp->orphan_addrs[i]);
-		if (orphan_addr == NULL_ADDR)
+		if (orphan_addr == 0)
 			break;
 		orphan = ADDR(sbi, orphan_addr);
 		hmfs_memcpy_atomic(orphan, &args.dest_addr, 8);

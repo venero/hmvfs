@@ -46,6 +46,7 @@ enum FS_STATE {
 #define HMFS_MIN_SEGMENT_SIZE_BITS	21
 #define HMFS_MAX_CUR_SEG_COUNT		((HMFS_MAX_PAGE_SIZE_BITS - HMFS_MIN_PAGE_SIZE_BITS) \
 									/ HMFS_PAGE_SIZE_BITS_INC + 2)
+#define HEIGHT_TO_SHIFT(h)			(ADDRS_PER_BLOCK_BITS + (h - 2) * NIDS_PER_BLOCK_BITS)
 
 #define HMFS_BLOCK_SIZE_BITS(i) (i == 0 ? 12 : (9 + 3 * i))
 
@@ -140,19 +141,14 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define HMFS_JOURNALING_THRESHOLD	4
 
 /* number of all sit logs in checkpoint */
-#ifdef CONFIG_HMFS_SMALL_FS
-#define NORMAL_ADDRS_PER_INODE	2		/* # of address stored in inode */
-#define ADDRS_PER_BLOCK		2			/* # of address stored in direct node  */
-#define NIDS_PER_BLOCK		2			/* # of nid stored in indirect node */
-#define NUM_NAT_JOURNALS_IN_CP		8
-#else
-#define NORMAL_ADDRS_PER_INODE	461		/* # of address stored in inode */
-#define ADDRS_PER_BLOCK		512			/* # of address stored in direct node  */
-#define NIDS_PER_BLOCK		1024		/* # of nid stored in indirect node */
+#define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
+#define ADDRS_PER_BLOCK			512			/* # of address stored in direct node  */
+#define ADDRS_PER_BLOCK_BITS	9			/* # of address stored in direct node  */
+#define NIDS_PER_BLOCK			1024		/* # of nid stored in indirect node */
+#define NIDS_PER_BLOCK_BITS		10		/* # of nid stored in indirect node */
 #define NUM_NAT_JOURNALS_IN_CP	(3892 / sizeof(struct hmfs_nat_journal))
-#endif
-#define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) +\
-		5 * sizeof(__le32) + 35)
+
+#define HMFS_INLINE_SIZE	(NORMAL_ADDRS_PER_INODE * sizeof(__le64) + sizeof(__le32) + 6)
 
 /* the number of dentry in a block */
 /* [4096 - 214 * (11 + 8)] / 8 > 214 */
@@ -238,15 +234,15 @@ struct hmfs_inode {
 	__u8 i_inline;		/* file inline flags */
 	__u8 i_dir_level;	/* dentry_level for large dir */
 	__u8 i_blk_type;	/* data block type */
+	__u8 i_height;		/* height of tree with i_nid */
 	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
 
 	union {
 		struct {
-			__u8 i_pad[35];
+			__u8 i_pad[2];
+			__le32 i_nid;
+			__u8 i_padd[4];
 			__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
-
-			/* direct(2), indirect(2), double_indirect(1) node id */
-			__le32 i_nid[5];
 		} __attribute__ ((packed));
 		/* Should modify HMFS_INLINE_SIZE once change size of i_pad */
 		__u8 inline_content[HMFS_INLINE_SIZE];
@@ -403,7 +399,9 @@ const static int xblock_tags[] = {
 #define HMFS_NAT_NODE(ptr)		((struct hmfs_nat_node *)(ptr))
 #define HMFS_NAT_BLOCK(ptr)		((struct hmfs_nat_block *)(ptr))
 #define HMFS_INODE(ptr)			((struct hmfs_inode *)(ptr))
+#define HMFS_NODE(ptr)			((struct hmfs_node *)(ptr))
 #define DIRECT_NODE(ptr)		((struct direct_node *)(ptr))
+#define INDIRECT_NODE(ptr)		((struct indirect_node *)(ptr))
 #define HMFS_CHECKPOINT(ptr)	((struct hmfs_checkpoint *)(ptr))
 #define HMFS_SUMMARY(ptr)		((struct hmfs_summary *)(ptr))
 #define HMFS_SUPER_BLOCK(ptr)	((struct hmfs_super_block *)(ptr))
