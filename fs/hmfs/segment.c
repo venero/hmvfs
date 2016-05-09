@@ -114,8 +114,7 @@ static void __mark_sit_entry_dirty(struct sit_info *sit_i, seg_t segno)
 }
 
 /* Return amount of blocks which has been invalidated */
-int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, 
-				unsigned long vblocks)
+int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, uint32_t vblocks)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct hmfs_summary *summary;
@@ -218,7 +217,7 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg)
 
 	lock_write_segmap(free_i);
 retry:
-	segno = find_next_zero_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
+	segno = find_next_bit(free_i->free_segmap, TOTAL_SEGS(sbi), *newseg);
 	if(segno >= TOTAL_SEGS(sbi)) {
 		*newseg = 0;
 		if(!retry) {
@@ -229,7 +228,7 @@ retry:
 		goto unlock;
 	}
 
-	hmfs_bug_on(sbi, test_bit(segno, free_i->free_segmap));
+	hmfs_bug_on(sbi, !test_bit(segno, free_i->free_segmap));
 	__set_inuse(sbi, segno);
 	
 	*newseg = segno;
@@ -407,7 +406,7 @@ void flush_sit_entries_rmcp(struct hmfs_sb_info *sbi)
 			}
 			if (!seg_entry->valid_blocks) {
 				lock_write_segmap(free_i);
-				clear_bit(offset, free_i->free_segmap);
+				set_bit(offset, free_i->free_segmap);
 				free_i->free_segmap++;
 				unlock_write_segmap(free_i);
 			}
@@ -460,8 +459,7 @@ void flush_sit_entries(struct hmfs_sb_info *sbi, block_t new_cp_addr,
 	sit_segno = le32_to_cpu(hmfs_cp->cur_segno[SEG_NODE_INDEX]);
 	do {
 retry:
-		sit_segno = find_next_zero_bit(free_i->free_segmap, total_segs,
-							sit_segno);
+		sit_segno = find_next_bit(free_i->free_segmap, total_segs, sit_segno);
 		if (sit_segno >= total_segs) {
 			sit_segno = 0;
 			goto retry;
@@ -528,7 +526,7 @@ static inline void __set_test_and_inuse(struct hmfs_sb_info *sbi,
 	struct free_segmap_info *free_i = FREE_I(sbi);
 
 	lock_write_segmap(free_i);
-	if (!test_and_set_bit(segno, free_i->free_segmap)) {
+	if (test_and_clear_bit(segno, free_i->free_segmap)) {
 		free_i->free_segments--;
 	}
 	unlock_write_segmap(free_i);
@@ -598,7 +596,7 @@ void free_prefree_segments(struct hmfs_sb_info *sbi)
 		if (segno >= total_segs)
 			break;
 		clear_bit(segno, bitmap);
-		if (test_and_clear_bit(segno, free_i->free_segmap)) {
+		if (!test_and_set_bit(segno, free_i->free_segmap)) {
 			free_i->free_segments++;
 		}
 		ssa = get_summary_block(sbi, segno);
@@ -731,7 +729,7 @@ static void init_free_segmap(struct hmfs_sb_info *sbi)
 		sentry = get_seg_entry(sbi, start);
 		if (!sentry->valid_blocks) {
 			lock_write_segmap(free_i);
-			clear_bit(start, free_i->free_segmap);
+			set_bit(start, free_i->free_segmap);
 			free_i->free_segments++;
 			unlock_write_segmap(free_i);
 		}
@@ -935,7 +933,130 @@ struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi, seg_t segno)
 	return sbi->ssa_entries + (segno << SM_I(sbi)->page_4k_per_seg_bits);
 }
 
-struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_t blk_addr)
+struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_phy_t blk_addr)
 {
-	return sbi->ssa_entries + ((blk_addr - sbi->main_addr_start) >> HMFS_MIN_PAGE_SIZE_BITS);
+	uint64_t compx = le64_to_cpu(blk_addr.addr);
+	struct hmfs_dev_info *dev_i = DEV_INFO(sbi, (compx >> 58) & 63);
+	uint64_t ofs = (compx & ((1 << 58) - 1)) - dev_i->main_ofs;
+
+	return sbi->ssa_entries + (ofs >> HMFS_MIN_PAGE_SIZE_BITS);
+}
+
+static void move_bitmap(void *dest, void *src, uint64_t dest_sz, uint64_t src_sz, uint64_t cut_sz)
+{
+	int i = 0;
+	uint64_t gap_sz = dest_sz - src_sz;
+
+	while (1) {
+		i = find_next_bit(src, cut_sz, i);
+		if (i >= cut_sz)
+			break;
+		__set_bit(i, dest);
+		i++;
+	}
+
+	if (cut_sz >= src_sz)
+		return;
+	
+	i = cut_sz;
+	while (1) {
+		i = find_next_bit(src, src_sz, i);
+		if (i >= src_sz)
+			break;
+		__set_bit(i + gap_sz, dest);
+		i++;
+	}
+}
+
+/* Change segments manager */
+int extend_segment_manager(struct hmfs_sb_info *sbi, int dev_index)
+{
+	struct hmfs_dev_info *dev_0 = DEV_INFO(sbi, 0);
+	struct hmfs_super_block *super = dev_0->virt_addr;
+	struct sit_info *sit_i = SIT_I(sbi);
+	uint32_t segment_sz = SM_I(sbi)->segment_size;
+	const uint64_t total_segs_old = TOTAL_SEGS(sbi);
+	uint64_t end_ofs = dev_i->initsize & ~(segment_sz - 1);
+	uint64_t nr_segs_new = (end_ofs - dev_i->main_ofs) >> segment_sz;
+	const uint64_t total_segs_new = nr_old_segs + nr_segs_new;
+	uint64_t nr_segs_prev = 0;
+	const uint32_t se_sz = sizeof(struct seg_entry);
+	unsigned long *ptr_se, *ptr_dirty_map, *ptr_new_map, *ptr_free_map,
+				  *ptr_prefree_map, *ptr_dse;
+	uint64_t bitmap_size = hmfs_bitmap_size(total_segs_new);
+	int i = -1;
+
+	while (++i < dev_index) {
+		nr_segs_prev += le64_to_cpu(super->devices[i].nr_main_segments) 
+	}
+
+	/* build sit entries */
+	ptr_se = vzalloc(total_segs_new * se_sz);
+	if (!ptr_se)
+		goto out;
+
+	ptr_dse = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!ptr_dse)
+		goto free_se;
+	
+	ptr_new_map = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!ptr_new_map)
+		goto free_dse;
+
+	ptr_free_map = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!ptr_free_map)
+		goto free_new_map;
+
+	ptr_dirty_map = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!ptr_dirty_map)
+		goto free_free_map;
+
+	ptr_prefree_map = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!ptr_prefree_map)
+		goto free_dirty_map;
+
+	memcpy(ptr_se, sit_i->sentries, se_sz * nr_segs_prev);
+	if (nr_segs_prev < total_segs_old) {
+		ptr_se += se_sz * (nr_segs_prev + nr_segs_new);
+		memcpy(ptr_se, sit_i->sentries + se_sz * nr_segs_prev,	
+				se_sz * (total_segs_old - nr_segs_prev));
+	}
+
+	move_bitmap(ptr_dse, sit_i->dirty_sentries_bitmap, total_segs_new, 
+			total_segs_old, nr_segs_prev);
+	move_bitmap(ptr_new_map, sit_i->new_segmap, total_segs_new, 
+			total_segs_old, nr_segs_prev);
+	move_bitmap(ptr_free_map, FREE_I(sbi)->free_segmap, total_segs_new, 
+			total_segs_old, nr_segs_prev);
+	move_bitmap(ptr_dirty_map, FREE_I(sbi)->prefree_segmap, total_segs_new, 
+			total_segs_old, nr_segs_prev);
+	move_bitmap(ptr_prefree_map, DIRTY_I(sbi)->dirty_segmap, total_segs_new, 
+			total_segs_old, nr_segs_prev);
+	vfree(sit_i->sentries);
+	kfree(sit_i->dirty_sentries_bitmap);
+	kfree(sit_i->new_segmap);
+	kfree(FREE_I(sbi)->free_segmap);
+	kfree(FREE_I(sbi)->prefree_segmap);
+	kfree(DIRTY_I(sbi)->dirty_segmap);
+	sit_i->sentries = ptr_se;
+	sit_i->dirty_sentries_bitmap = ptr_dse;
+	sit_i->new_segmap = ptr_new_map;
+	FREE_I(sbi)->free_segmap = ptr_free_map;
+	FREE_I(sbi)->prefree_segmap = ptr_dirty_map;
+	DIRTY_I(sbi)->dirty_segmap = ptr_prefree_map;
+
+	TOTAL_SEGS(sbi) = total_segs_new;
+
+free_dirty_map:
+	kfree(ptr_dirty_map);
+free_free_map:
+	kfree(ptr_free_map);
+free_new_map:
+	kfree(ptr_new_map);
+free_dse:
+	kfree(ptr_dse);
+free_se:
+	vfree(ptr_se);
+out:
+	return -ENOMEM;
 }

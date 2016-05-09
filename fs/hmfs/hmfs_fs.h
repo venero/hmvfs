@@ -5,7 +5,18 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 
-typedef unsigned long long block_t;	 
+typedef struct {
+	uint64_t addr;
+} block_t;
+
+typedef struct {
+	__le64 addr;
+} block_phy_t;
+
+typedef struct {
+	uint32_t segno;
+} segno_t;
+
 typedef __le32 hmfs_hash_t;
 
 /* file types used in inode_info->flags */
@@ -182,22 +193,30 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define SUM_TYPE_CP			(7)		/* checkpoint block */
 #define SUM_TYPE_ORPHAN		(8)		/* orphan block */
 
+#define NR_DEVICE			(64)
+
+struct device {
+	__le64 initsize;			/* total # of Bytes */
+	__le64 nr_segments;			/* total # of segments */
+	__le64 nr_main_segments;	/* # of segments for main area */
+	__le64 sit_offset;			/* start block address of SIT area */
+	__le64 ssa_offset;			/* start block address of SSA */
+	__le64 main_offset;			/* start block address of main area */
+	__le64 nr_user_blocks;		/* # of user blocks */
+	phys_addr_t phys_addr;
+} __attribute__ ((packed));
 
 /* For superblock */
 struct hmfs_super_block {
-	__le64 init_size;	/* total # of Bytes */
-	__le64 segment_count;	/* total # of segments */
-	__le64 segment_count_ssa;	/* # of segments for SSA */
-	__le64 segment_count_main;	/* # of segments for main area */
-	__le64 user_block_count;	/* # of user blocks */
-	__le64 cp_page_addr;	/* start block address of checkpoint */
-	__le64 sit_blkaddr;	/* start block address of SIT area */
-	__le64 ssa_blkaddr;	/* start block address of SSA */
-	__le64 main_blkaddr;	/* start block address of main area */
+	block_phy_t cp_addr;	/* start block address of checkpoint */
 	__le32 magic;		/* Magic Number */
-	__le32 segment_count_sit;	/* # of segments for SIT */
 	__le16 major_ver;	/* Major Version */
 	__le16 minor_ver;	/* Minor Version */
+
+	struct device devices[NR_DEVICE];
+
+	//TODO: how to determine nat height
+	u8 max_page_size_bits;
 	u8 nat_height;
 
 	__le16 checksum;
@@ -219,8 +238,8 @@ struct hmfs_inode {
 	__le64 i_atime;		/* access time */
 	__le64 i_ctime;		/* change time */
 	__le64 i_mtime;		/* modification time */
-	__le64 i_xattr_addr;	/* address to save xattr */
-	__le64 i_acl_addr;	/* address to save acl */
+	block_phy_t i_xattr_addr;	/* address to save xattr */
+	block_phy_t i_acl_addr;	/* address to save acl */
 	__le32 i_uid;		/* user ID */
 	__le32 i_gid;		/* group ID */
 	__le32 i_links;		/* links count */
@@ -242,7 +261,7 @@ struct hmfs_inode {
 			__u8 i_pad[2];
 			__le32 i_nid;
 			__u8 i_padd[4];
-			__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
+			block_phy_t i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 		} __attribute__ ((packed));
 		/* Should modify HMFS_INLINE_SIZE once change size of i_pad */
 		__u8 inline_content[HMFS_INLINE_SIZE];
@@ -251,7 +270,7 @@ struct hmfs_inode {
 
 /* hmfs node */
 struct direct_node {
-	__le64 addr[ADDRS_PER_BLOCK];	/* array of data block address */
+	block_phy_t addr[ADDRS_PER_BLOCK];	/* array of data block address */
 } __attribute__ ((packed));
 
 struct indirect_node {
@@ -269,12 +288,12 @@ struct hmfs_node {
 
 /* nat node */
 struct hmfs_nat_node {
-	__le64 addr[NAT_ADDR_PER_NODE];
+	block_phy_t addr[NAT_ADDR_PER_NODE];
 } __attribute__ ((packed));
 
 struct hmfs_nat_entry {
 	__le32 ino;		/* inode number */
-	__le64 block_addr;	/* block address */
+	block_phy_t block_addr;	/* block address */
 } __attribute__ ((packed));
 
 #define NAT_ENTRY_PER_BLOCK		(HMFS_MIN_PAGE_SIZE / sizeof(struct hmfs_nat_entry))
@@ -297,7 +316,7 @@ struct hmfs_sit_entry {
 } __attribute__ ((packed));
 
 struct hmfs_sit_log_entry {
-	__le32 segno;
+	seg_t segno;
 	__le32 mtime;
 	__le16 vblocks;
 	u8 type;
@@ -333,23 +352,21 @@ struct hmfs_dentry_block {
 struct hmfs_checkpoint {
 	__le64 alloc_block_count;	/* # of alloc blocks in main area */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
-	__le64 free_segment_count;	/* # of free segments in main area */
-	__le64 prev_cp_addr;	/* previous checkpoint address */
-	__le64 next_cp_addr;	/* next checkpoint address */
-	__le64 nat_addr;	/* nat file physical address bias */
-	__le64 orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
+	block_phy_t prev_cp_addr;	/* previous checkpoint address */
+	block_phy_t next_cp_addr;	/* next checkpoint address */
+	block_phy_t nat_addr;	/* nat file physical address bias */
+	block_phy_t orphan_addrs[NUM_ORPHAN_BLOCKS];	/* Address of orphan inodes */
 	__le32 checkpoint_ver;	/* checkpoint block version number */
 	__le32 valid_inode_count;	/* Total number of valid inodes */
 	__le32 valid_node_count;	/* total number of valid nodes */
 
 	/* information of current segments */
-	__le32 cur_segno[HMFS_MAX_CUR_SEG_COUNT];
-	__le32 cur_blkoff[HMFS_MAX_CUR_SEG_COUNT];
+	block_phy_t write_heads[HMFS_MAX_CUR_SEG_COUNT];
 
 	__le32 next_scan_nid;
 	__le32 elapsed_time;
 
-	__le32 gc_logs;		/* segno of gc log area */
+	seg_t gc_logs;		/* segno of gc log area */
 	__le32 nr_gc_segs;
 
 	__u8 state;				/* fs state, use set_fs_state */
@@ -369,7 +386,7 @@ struct hmfs_checkpoint {
 	__le64 state_arg;		/* fs state arguments, for recovery */
 	__le64 state_arg_2;
 
-	__le32 sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
+	seg_t sit_logs[NUM_SIT_LOGS_SEG];	/* segment number that records sit logs */
 
 
 	/* NAT */
@@ -487,13 +504,12 @@ static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)
 	hmfs_memcpy_atomic(&hmfs_cp->state, &state, 1);
 }
 
-static inline struct hmfs_super_block *next_super_block(
-				struct hmfs_super_block *raw_super)
+static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block *raw_super)
 {
 	unsigned int size = sizeof(struct hmfs_super_block);
 
 	size = align_page_right(size);
-	raw_super = HMFS_SUPER_BLOCK(((char *)raw_super) + size);
+	raw_super = HMFS_SUPER_BLOCK(JUMP(raw_super, size));
 
 	return raw_super;
 }

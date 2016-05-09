@@ -48,7 +48,6 @@
 
 typedef uint32_t nid_t;
 typedef uint32_t ver_t;		/* version type */
-typedef uint32_t seg_t;		/* segment number type */
 typedef uint64_t pgc_t;	/* page count type */
 
 
@@ -80,6 +79,11 @@ struct hmfs_mmap_block {
 	struct mm_struct *mm;
 	struct list_head list;
 };
+
+typedef struct {
+	uint64_t val;
+	bst_node_t *left, *right;
+} bst_node_t;
 
 /* for directory operations */
 struct hmfs_dentry_ptr {
@@ -166,19 +170,24 @@ struct hmfs_cm_info {
 	unsigned nr_nat_journals;
 };
 
+struct hmfs_dev_info {
+	phys_addr_t phys_addr;	/* physical address of NVM */
+	void *virt_addr;	/* hmfs_superblock & also HMFS address */
+	uint64_t initsize;	/* size of NVM */
+	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
+	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
+	void *main_area;
+	uint64_t main_ofs;
+}
+
 struct hmfs_sb_info {
 	struct super_block *sb;	/* pointer to VFS super block */
 
-	phys_addr_t phys_addr;	/* physical address of NVM */
-	void *virt_addr;	/* hmfs_superblock & also HMFS address */
-
 	/* Mount Option */
-	unsigned long long initsize;	/* size of NVM */
 	unsigned long s_mount_opt;	
 	unsigned int mnt_cp_version;	/* version of checkpoint for RO-Mount */
 	kuid_t uid;						/* user id */
 	kgid_t gid;						/* group id */
-	char deep_fmt;				/* whether set 0 of whole area of NVM */
 	int gc_thread_min_sleep_time;
 	int gc_thread_max_sleep_time;
 	int gc_thread_time_step;
@@ -188,11 +197,6 @@ struct hmfs_sb_info {
 	pgc_t segment_count_main;		/* # of segments in main area */
 	pgc_t page_count_main;			/* # of pages in main area */
 	int s_dirty;								/* FS is dirty or not */
-	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
-	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
-	void *waste_space;					/* Waste space due to segment alignment */
-	block_t main_addr_start;			/* Start address of main area */
-	block_t main_addr_end;
 	unsigned char nat_height;			/* Height of nat tree in cp */
 	unsigned long max_page_size;		/* Maximum page size */
 	unsigned char max_page_size_bits;
@@ -203,6 +207,8 @@ struct hmfs_sb_info {
 	struct hmfs_stat_info *stat_info;			/* debug info manager */
 	struct hmfs_nm_info *nm_info;				/* node manager */
 	struct hmfs_sm_info *sm_info;				/* segment manager */
+	struct hmfs_dev_info dev_info[NR_DEVICE];
+	bst_node_t *device_root;
 
 	/* Lock */
 	struct mutex fs_lock[NR_GLOBAL_LOCKS];		/* FS lock */
@@ -302,7 +308,7 @@ extern const struct address_space_operations hmfs_aops_xip;
 
 static inline struct hmfs_super_block *HMFS_RAW_SUPER(struct hmfs_sb_info *sbi)
 {
-	return (struct hmfs_super_block *)(sbi->virt_addr);
+	return HMFS_SUPER_BLOCK(sbi->virt_addr);
 }
 
 static inline struct hmfs_inode_info *HMFS_I(struct inode *inode)
@@ -337,9 +343,28 @@ static inline struct checkpoint_info *CURCP_I(struct hmfs_sb_info *sbi)
 	return CM_I(sbi)->cur_cp_i;
 }
 
-static inline void *ADDR(struct hmfs_sb_info *sbi, unsigned long logic_addr)
+static inline void *ADDR(struct hmfs_sb_info *sbi, block_phy_t blk_addr)
 {
-	return (sbi->virt_addr + logic_addr);
+	uint64_t compx = le64_to_cpu(blk_addr.addr);
+
+	if (!compx)	
+		return NULL;
+	return JUMP(DEV_INFO(sbi, (compx >> 58) & 63)->virt_addr, compx & ((1 << 58) - 1));
+}
+
+static inline uint64_t ADDR_READ(block_phy_t addr)
+{
+	return le64_to_cpu(addr.addr);
+}
+
+static inline bool is_valid_addr(block_phy_t addr)
+{
+	uint64_t compx = le64_to_cpu(addr.addr);
+	struct hmfs_dev_info *dev_i = DEV_INFO(sbi, (compx >> 58) & 63);
+	uint64_t ofs = compx & ((1 << 58) - 1);
+
+	return ofs >= dev_i->main_ofs && ofs < dev_i->end_ofs;
+
 }
 
 static inline block_t L_ADDR(struct hmfs_sb_info *sbi, void *ptr)
@@ -355,6 +380,11 @@ static inline struct hmfs_sb_info *HMFS_I_SB(struct inode *inode)
 static inline struct hmfs_stat_info *STAT_I(struct hmfs_sb_info *sbi)
 {
 	return sbi->stat_info;
+}
+
+static inline struct hmfs_dev_info *DEV_INFO(struct hmfs_sb_info *sbi, int i)
+{
+	return sbi->dev_info + 1;
 }
 
 /* Lock operation */
@@ -835,6 +865,7 @@ int get_new_segment(struct hmfs_sb_info *sbi, seg_t *newseg);
 bool is_valid_address(struct hmfs_sb_info *sbi, block_t addr);
 int invalidate_delete_block(struct hmfs_sb_info *sbi, block_t addr, unsigned long);
 void reset_new_segmap(struct hmfs_sb_info *sbi);
+int extend_segment_manager(struct hmfs_sb_info *sbi, int dev_index);
 
 /* checkpoint.c */
 int recover_orphan_inodes(struct hmfs_sb_info *sbi);
@@ -886,6 +917,13 @@ struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry, umode_t
 /* vmap.c */
 int vmap_file_range(struct inode *);
 int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
+
+/* mkfs.c */
+int hmfs_format_device(struct super_block *sb, int dev_index, uint64_t initsize);
+
+/* bst.c */
+inline bst_node_t *construct_segno_tree(struct hmfs_sb_info *sbi);
+inline int query_device_index(struct hmfs_sb_info *sbi, uint64_t segno);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);

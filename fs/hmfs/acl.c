@@ -25,8 +25,7 @@ static inline size_t hmfs_acl_size(int count)
 	if (count <= 4) {
 		return ACL_HEADER_SIZE + count * ACL_SHORT_ENTRY_SIZE;
 	} else {
-		return ACL_HEADER_SIZE + 4 * ACL_SHORT_ENTRY_SIZE + 
-					(count - 4) * ACL_ENTRY_SIZE;
+		return ACL_HEADER_SIZE + 4 * ACL_SHORT_ENTRY_SIZE + (count - 4) * ACL_ENTRY_SIZE;
 	}
 }
 
@@ -50,17 +49,13 @@ static inline int hmfs_acl_count(size_t size)
 static void *get_acl_block(struct inode *inode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	block_t acl_addr;
 	struct hmfs_inode *inode_block;
 
 	inode_block = get_node(sbi, inode->i_ino);
 	if (IS_ERR(inode_block))
 		return NULL;
 
-	acl_addr = le64_to_cpu(inode_block->i_acl_addr);
-	if (acl_addr)
-		return ADDR(sbi, acl_addr);
-	return NULL;
+	return ADDR(sbi, inode_block->i_acl_addr);
 }
 
 static struct posix_acl *hmfs_read_acl(const char *base_addr, size_t size)
@@ -96,14 +91,12 @@ static struct posix_acl *hmfs_read_acl(const char *base_addr, size_t size)
 			break;
 
 		case ACL_USER:
-			acl->a_entries[i].e_uid = make_kuid(&init_user_ns, 
-											le32_to_cpu(acl_entry->e_id));
+			acl->a_entries[i].e_uid = make_kuid(&init_user_ns, le32_to_cpu(acl_entry->e_id));
 			acl_entry = ACL_ENTRY(JUMP(acl_entry, ACL_ENTRY_SIZE));
 			break;
 
 		case ACL_GROUP:
-			acl->a_entries[i].e_gid = make_kgid(&init_user_ns,
-											le32_to_cpu(acl_entry->e_id));
+			acl->a_entries[i].e_gid = make_kgid(&init_user_ns, le32_to_cpu(acl_entry->e_id));
 			acl_entry = ACL_ENTRY(JUMP(acl_entry, ACL_ENTRY_SIZE));
 			break;
 		default:
@@ -139,15 +132,13 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 	if (type == ACL_TYPE_ACCESS) {
 		if (acl_header->acl_access_ofs) {
 			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_access_ofs));
-			size = ofs_access < ofs_default ? ofs_default - ofs_access :
-						ofs_end - ofs_access;
+			size = ofs_access < ofs_default ? ofs_default - ofs_access : ofs_end - ofs_access;
 		} else
 			return ERR_PTR(-ENODATA);
 	} else if (type == ACL_TYPE_DEFAULT) {
 		if (acl_header->acl_default_ofs) {
 			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_default_ofs));
-			size = ofs_access < ofs_default ? ofs_end - ofs_default :
-						ofs_access - ofs_default;
+			size = ofs_access < ofs_default ? ofs_end - ofs_default : ofs_access - ofs_default;
 		} else
 			return ERR_PTR(-ENODATA);
 	} else
@@ -193,8 +184,7 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl,
 	ofs_end = le16_to_cpu(src_header->acl_end);
 	if (type == ACL_TYPE_ACCESS) {
 		if (ofs_default) {
-			cpy_size = ofs_access < ofs_default ? ofs_end - ofs_default :
-							ofs_access - ofs_default;
+			cpy_size = ofs_access < ofs_default ? ofs_end - ofs_default : ofs_access - ofs_default;
 			hmfs_memcpy(entry, JUMP(src_header, ofs_default), cpy_size);
 			acl_header->acl_default_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
 			entry = ACL_ENTRY(JUMP(entry, cpy_size));
@@ -206,8 +196,7 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl,
 
 	if (type == ACL_TYPE_DEFAULT) {
 		if (ofs_access) {
-			cpy_size = ofs_access < ofs_default ? ofs_default - ofs_access :
-							ofs_end - ofs_access;
+			cpy_size = ofs_access < ofs_default ? ofs_default - ofs_access : ofs_end - ofs_access;
 			hmfs_memcpy(entry, JUMP(src_header, ofs_access), cpy_size);
 			acl_header->acl_access_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
 			entry = ACL_ENTRY(JUMP(entry, cpy_size));
@@ -224,13 +213,11 @@ write:
 
 		switch (acl->a_entries[i].e_tag) {
 		case ACL_USER:
-			entry->e_id = cpu_to_le32(from_kuid(&init_user_ns, 
-								acl->a_entries[i].e_uid));
+			entry->e_id = cpu_to_le32(from_kuid(&init_user_ns, acl->a_entries[i].e_uid));
 			entry = ACL_ENTRY(JUMP(entry, ACL_ENTRY_SIZE));
 			break;
 		case ACL_GROUP:
-			entry->e_id = cpu_to_le32(from_kgid(&init_user_ns,
-								acl->a_entries[i].e_gid));
+			entry->e_id = cpu_to_le32(from_kgid(&init_user_ns, acl->a_entries[i].e_gid));
 			entry = ACL_ENTRY(JUMP(entry, ACL_ENTRY_SIZE));
 			break;
 		case ACL_USER_OBJ:
@@ -300,8 +287,7 @@ static struct posix_acl *hmfs_acl_clone(const struct posix_acl *acl,
 	int size;
 
 	if (acl) {
-		size = sizeof(struct posix_acl) + acl->a_count *
-					sizeof(struct posix_acl_entry);
+		size = sizeof(struct posix_acl) + acl->a_count * sizeof(struct posix_acl_entry);
 		clone = kmemdup(acl, size, flags);
 		if (clone)
 			atomic_set(&clone->a_refcount, 1);
@@ -361,8 +347,8 @@ static int hmfs_acl_create_masq(struct posix_acl *acl, umode_t *mode_p)
 	return not_equiv;
 }
 
-static int hmfs_acl_create(struct inode *dir, umode_t *mode,
-				struct posix_acl **default_acl, struct posix_acl **acl)
+static int hmfs_acl_create(struct inode *dir, umode_t *mode, struct posix_acl **default_acl,
+				struct posix_acl **acl)
 {
 	struct posix_acl *p;
 	struct posix_acl *clone;

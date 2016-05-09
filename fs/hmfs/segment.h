@@ -203,7 +203,8 @@ static inline unsigned int calculate_segment_size_bits(unsigned int max_page_siz
 				max_page_size_bits;
 }
 
-static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr) {
+static inline bool is_new_block(struct hmfs_sb_info *sbi, block_t addr)
+{
 	struct hmfs_summary *sum = get_summary_by_addr(sbi, addr);
 	ver_t version = get_summary_start_version(sum);
 	
@@ -227,7 +228,7 @@ static inline seg_t find_next_inuse(struct free_segmap_info *free_i,
 	seg_t ret;
 
 	lock_read_segmap(free_i);
-	ret = find_next_bit(free_i->free_segmap, max, segno);
+	ret = find_next_zero_bit(free_i->free_segmap, max, segno);
 	unlock_read_segmap(free_i);
 	return ret;
 }
@@ -289,12 +290,10 @@ static inline unsigned long long get_mtime(struct hmfs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 
-	return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec -
-	 sit_i->mounted_time;
+	return sit_i->elapsed_time + CURRENT_TIME_SEC.tv_sec - sit_i->mounted_time;
 }
 
-static inline void seg_info_from_raw_sit(struct seg_entry *se,
-					 struct hmfs_sit_entry *raw_entry)
+static inline void seg_info_from_raw_sit(struct seg_entry *se, struct hmfs_sit_entry *raw_entry)
 {
 	se->valid_blocks = le16_to_cpu(raw_entry->vblocks);
 	se->mtime = le32_to_cpu(raw_entry->mtime);
@@ -303,8 +302,7 @@ static inline void seg_info_from_raw_sit(struct seg_entry *se,
 }
 
 //TODO:use memcpy?
-static inline void seg_info_to_raw_sit(struct seg_entry *se,
-				       struct hmfs_sit_entry *raw_entry)
+static inline void seg_info_to_raw_sit(struct seg_entry *se, struct hmfs_sit_entry *raw_entry)
 {
 	raw_entry->vblocks = cpu_to_le16(se->valid_blocks);
 	raw_entry->mtime = cpu_to_le32(se->mtime);
@@ -314,7 +312,7 @@ static inline void seg_info_to_raw_sit(struct seg_entry *se,
 static inline void __set_inuse(struct hmfs_sb_info *sbi, seg_t segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	set_bit(segno, free_i->free_segmap);
+	clear_bit(segno, free_i->free_segmap);
 	free_i->free_segments--;
 }
 

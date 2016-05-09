@@ -275,7 +275,7 @@ static void recycle_segment(struct hmfs_sb_info *sbi, seg_t segno, bool none_val
 	if (none_valid) {
 		void *ssa = get_summary_block(sbi, segno);
 		lock_write_segmap(free_i);
-		if (test_and_clear_bit(segno, free_i->free_segmap)) {
+		if (!test_and_set_bit(segno, free_i->free_segmap)) {
 			free_i->free_segments++;
 		}
 		unlock_write_segmap(free_i);
@@ -796,7 +796,7 @@ void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 				if (!test_and_clear_bit(segno, DIRTY_I(sbi)->dirty_segmap))
 					hmfs_bug_on(sbi, 1);
 				lock_write_segmap(free_i);
-				if (test_and_clear_bit(segno, free_i->free_segmap))
+				if (!test_and_set_bit(segno, free_i->free_segmap))
 					free_i->free_segments++;
 				unlock_write_segmap(free_i);
 				nr_bc += SM_I(sbi)->page_4k_per_seg;
@@ -974,7 +974,7 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi)
 	 */
 	if (!init_gc_logs(sbi)) {
 		lock_write_segmap(free_i);
-		if (test_and_clear_bit(old_segno, free_i->free_segmap))
+		if (!test_and_set_bit(old_segno, free_i->free_segmap))
 			free_i->free_segments++;
 		unlock_write_segmap(free_i);
 	} else {
