@@ -199,7 +199,6 @@ struct hmfs_sb_info {
 	int s_dirty;								/* FS is dirty or not */
 	struct hmfs_sit_entry *sit_entries;			/* Address of sit entries */
 	struct hmfs_summary *ssa_entries;			/* Address of SSA entries */
-	void *waste_space;					/* Waste space due to segment alignment */
 	block_t main_addr_start;			/* Start address of main area */
 	block_t main_addr_end;
 	unsigned char nat_height;			/* Height of nat tree in cp */
@@ -908,6 +907,11 @@ hmfs_hash_t hmfs_dentry_hash(const struct qstr *name_info);
 int hmfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat);
 int hmfs_setattr(struct dentry *dentry, struct iattr *attr);
 struct inode *hmfs_make_dentry(struct inode *dir, struct dentry *dentry, umode_t mode);
+
+/* initfs.c */
+int hmfs_fill_super(struct super_block *sb, void *data, int slient);
+inline int hmfs_iounmap(void *virt_addr);
+inline void destroy_map_zero_page(struct hmfs_sb_info *sbi);
 
 /* vmap.c */
 int vmap_file_range(struct inode *);

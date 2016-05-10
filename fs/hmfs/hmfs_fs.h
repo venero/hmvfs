@@ -337,7 +337,6 @@ struct hmfs_dentry_block {
 struct hmfs_checkpoint {
 	__le64 alloc_block_count;	/* # of alloc blocks in main area */
 	__le64 valid_block_count;	/* # of valid blocks in main area */
-	__le64 free_segment_count;	/* # of free segments in main area */
 	__le64 prev_cp_addr;	/* previous checkpoint address */
 	__le64 next_cp_addr;	/* next checkpoint address */
 	__le64 nat_addr;	/* nat file physical address bias */

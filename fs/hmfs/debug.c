@@ -94,7 +94,6 @@ static int stat_show(struct seq_file *s, void *v)
 	seq_printf(s, "SIT start address:%lu\n", DISTANCE(sbi->virt_addr, sbi->sit_entries));
 	seq_printf(s, "GC Logs Segment Number:%lu\n", GET_SEGNO(sbi, L_ADDR(sbi, sbi->gc_logs)));
 	seq_printf(s, "Current Version:%u\n", CM_I(sbi)->new_version);
-	seq_printf(s, "Waste space address:%lu\n", DISTANCE(sbi->virt_addr, sbi->waste_space));
 	seq_printf(s, "main area range:%llu - %llu\n", sbi->main_addr_start, sbi->main_addr_end);
 	seq_printf(s, "max file size:%luk %luM %luG\n", max_file_size >> 10, 
 			max_file_size >> 20, max_file_size >>30);
@@ -393,8 +392,6 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 					le64_to_cpu(cp->alloc_block_count));
 		len += hmfs_print(si, 1, "valid_block_count: %u\n",
 					le64_to_cpu(cp->valid_block_count));
-		len += hmfs_print(si, 1, "free_segment_count: %u\n",
-					le64_to_cpu(cp->free_segment_count));
 
 		for (i = 0; i < sbi->nr_page_types; i++) {
 			len += hmfs_print(si, 1, "current segment (%d)[%lu, %lu]", i,

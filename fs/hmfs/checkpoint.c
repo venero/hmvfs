@@ -694,7 +694,6 @@ int recover_orphan_inodes(struct hmfs_sb_info *sbi)
 static int do_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
-	struct free_segmap_info *free_i = FREE_I(sbi);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_super_block *raw_super = HMFS_RAW_SUPER(sbi);
 	struct hmfs_summary *summary;
@@ -744,7 +743,6 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	set_struct(cur_cp, valid_inode_count, cm_i->valid_inode_count);
 	set_struct(cur_cp, valid_node_count, cm_i->valid_node_count);
 	set_struct(cur_cp, alloc_block_count, cm_i->alloc_block_count);
-	set_struct(cur_cp, free_segment_count, free_i->free_segments);
 	for (i = 0; i < sbi->nr_page_types; i++) {
 		set_struct(cur_cp, cur_segno[i], atomic_read(&ALLOCATOR(sbi, i)->segno));
 		set_struct(cur_cp, cur_blkoff[i], ALLOCATOR(sbi, i)->next_blkoff);

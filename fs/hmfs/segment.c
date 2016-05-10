@@ -818,8 +818,8 @@ int build_segment_manager(struct hmfs_sb_info *sbi)
 	sbi->sm_info = sm_info;
 	main_segments = le64_to_cpu(raw_super->segment_count_main);
 	user_segments = main_segments * (100 - DEF_OP_SEGMENTS) / 100;
-	sm_info->segment_size = calculate_segment_size(sbi->max_page_size);
 	sm_info->segment_size_bits = calculate_segment_size_bits(sbi->max_page_size_bits);
+	sm_info->segment_size = 1 << sm_info->segment_size_bits;
 	sm_info->segment_size_mask = ~(sm_info->segment_size - 1);
 	sm_info->page_4k_per_seg = sm_info->segment_size >> HMFS_MIN_PAGE_SIZE_BITS;
 	sm_info->page_4k_per_seg_bits = sm_info->segment_size_bits

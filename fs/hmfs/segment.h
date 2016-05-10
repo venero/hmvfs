@@ -192,11 +192,6 @@ static inline struct dirty_seglist_info *DIRTY_I(struct hmfs_sb_info *sbi)
 	return SM_I(sbi)->dirty_info;
 }
 
-static inline unsigned long calculate_segment_size(unsigned long max_page_size)
-{
-	return max_page_size;
-}
-
 static inline unsigned int calculate_segment_size_bits(unsigned int max_page_size_bits)
 {
 	return max_page_size_bits < HMFS_MIN_SEGMENT_SIZE_BITS ? HMFS_MIN_SEGMENT_SIZE_BITS :
