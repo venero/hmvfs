@@ -983,6 +983,7 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi)
 	}
 }
 
+#ifdef CONFIG_HMFS_DEBUG_GC
 int init_gc_stat(struct hmfs_sb_info *sbi) {
 	struct hmfs_stat_info *si = STAT_I(sbi);
 	int i;
@@ -1006,3 +1007,4 @@ void destroy_gc_stat(struct hmfs_sb_info *sbi) {
 	kfree(STAT_I(sbi)->nr_gc_blocks_range);
 	STAT_I(sbi)->nr_gc_blocks_range = NULL;
 }
+#endif

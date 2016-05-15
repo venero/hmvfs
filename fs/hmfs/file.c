@@ -822,8 +822,8 @@ static void truncate_partial_data_page(struct inode *inode, block_t from)
 static int __truncate_blocks(struct inode *inode, block_t from)
 {
 	struct dnode_of_data dn;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	int count, err;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	block_t free_from;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
