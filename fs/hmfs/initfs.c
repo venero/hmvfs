@@ -173,7 +173,7 @@ static void init_sb(struct hmfs_sb_info *sbi, uint64_t cp_ofs)
 {
 	struct hmfs_super_block *super = ADDR(sbi, 0);
 	uint8_t segment_sz_bits = calculate_segment_size_bits(sbi->max_page_size_bits);
-	uint32_t segment_sz = 1 << segment_sz_bits;
+	uint64_t segment_sz = 1 << segment_sz_bits;
 	pgc_t nr_user_blks, nr_main_segs;
 	block_t main_ofs = sbi->main_addr_start, end_ofs = sbi->initsize & (~(segment_sz - 1)); 
 	uint16_t sb_checksum;
@@ -184,7 +184,7 @@ static void init_sb(struct hmfs_sb_info *sbi, uint64_t cp_ofs)
 	set_struct(super, minor_ver, HMFS_MINOR_VERSION);
 	set_struct(super, nat_height, hmfs_get_nat_height(sbi->initsize));
 
-	nr_main_segs = (end_ofs - main_ofs) >> segment_sz;
+	nr_main_segs = (end_ofs - main_ofs) >> segment_sz_bits;
 	nr_user_blks = div64_u64(nr_main_segs * (100 - DEF_OP_SEGMENTS), 100) << segment_sz_bits;
 	set_struct(super, segment_count_main, nr_main_segs);
 	set_struct(super, init_size, sbi->initsize);
@@ -527,9 +527,9 @@ static struct hmfs_super_block *mount_super_block(struct hmfs_sb_info *sbi)
 		sbi->virt_addr = hmfs_ioremap(sbi->phys_addr, sbi->initsize);
 		if (!sbi->virt_addr)
 			return ERR_PTR(-EINVAL);
-	} else if (input_size)
+	} else if (input_size) {
 		hmfs_mkfs(sbi);
-	else if (sbi->mnt_cp_version) {
+	} else if (sbi->mnt_cp_version) {
 		if (!hmfs_readonly(sbi->sb))
 			return ERR_PTR(-EACCES);
 	} else
@@ -587,11 +587,11 @@ static int build_manager(struct hmfs_sb_info *sbi)
 	/* init nat */
 	retval = init_checkpoint_manager(sbi);
 	if (retval)
-		goto out;
+		goto free_cp_mgr;
 
 	retval = build_node_manager(sbi);
 	if (retval)
-		goto free_cp_mgr;
+		goto free_node_mgr;
 
 	retval = build_segment_manager(sbi);
 	if (retval)
@@ -650,10 +650,10 @@ free_root_inode:
 	sbi->sb->s_root = NULL;
 free_segment_mgr:
 	destroy_segment_manager(sbi);
+free_node_mgr:
 	destroy_node_manager(sbi);
 free_cp_mgr:
 	destroy_checkpoint_manager(sbi);
-out:
 	return retval;
 }
 

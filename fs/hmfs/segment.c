@@ -553,17 +553,17 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 
 	sit_i->sentries = vzalloc(TOTAL_SEGS(sbi) * sizeof(struct seg_entry));
 	if (!sit_i->sentries)
-		goto free_sit;
+		return -ENOMEM;
 
 	bitmap_size = hmfs_bitmap_size(TOTAL_SEGS(sbi));
 	sit_i->bitmap_size = bitmap_size;
 	sit_i->dirty_sentries_bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 	if (!sit_i->dirty_sentries_bitmap)
-		goto free_sentry;
+		return -ENOMEM;
 
 	sit_i->new_segmap = kzalloc(bitmap_size, GFP_KERNEL);
 	if (!sit_i->new_segmap)
-		goto free_entry_bitmap;
+		return -ENOMEM;
 
 	memset(sit_i->dirty_sentries_bitmap, 0, bitmap_size);
 	memset(sit_i->new_segmap, 0, bitmap_size);
@@ -575,13 +575,6 @@ static int build_sit_info(struct hmfs_sb_info *sbi)
 	mutex_init(&sit_i->sentry_lock);
 
 	return 0;
-free_entry_bitmap:
-	kfree(sit_i->dirty_sentries_bitmap);
-free_sentry:
-	vfree(sit_i->sentries);
-free_sit:
-	kfree(sit_i);
-	return -ENOMEM;
 }
 
 void free_prefree_segments(struct hmfs_sb_info *sbi)
@@ -622,12 +615,12 @@ static int build_free_segmap(struct hmfs_sb_info *sbi)
 
 	bitmap_size = hmfs_bitmap_size(TOTAL_SEGS(sbi));
 	free_i->free_segmap = kmalloc(bitmap_size, GFP_KERNEL);
-	if (!free_i->free_segmap) {
-		goto free_i;
-	}
+	if (!free_i->free_segmap)
+		return -ENOMEM;
+	
 	free_i->prefree_segmap = kmalloc(bitmap_size, GFP_KERNEL);
 	if (!free_i->prefree_segmap)
-		goto free_segmap;
+		return -ENOMEM;
 
 	/* set all segments as dirty temporarily */
 	memset(free_i->free_segmap, 0xff, bitmap_size);
@@ -637,12 +630,6 @@ static int build_free_segmap(struct hmfs_sb_info *sbi)
 	free_i->free_segments = 0;
 	rwlock_init(&free_i->segmap_lock);
 	return 0;
-
-free_segmap:
-	kfree(free_i->free_segmap);
-free_i:
-	kfree(free_i);
-	return -ENOMEM;
 }
 
 static int build_allocators(struct hmfs_sb_info *sbi)
@@ -654,8 +641,7 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 	int i;
 	long buffer_size;
 
-	array = kzalloc(sizeof(struct allocator) * sbi->nr_page_types,
-					GFP_KERNEL);
+	array = kzalloc(sizeof(struct allocator) * sbi->nr_page_types, GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
@@ -683,9 +669,9 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 		}
 
 		array[i].buffer = kzalloc(buffer_size, GFP_KERNEL);
-		if (!array[i].buffer) {
-			goto free_allocator;
-		}
+		if (!array[i].buffer)
+			return -ENOMEM;
+		
 		pages_per_buffer = buffer_size / sizeof(block_t);
 		array[i].buffer_index_mask = pages_per_buffer - 1;
 
@@ -694,13 +680,6 @@ static int build_allocators(struct hmfs_sb_info *sbi)
 	}
 
 	return 0;
-free_allocator:
-	while (--i >= 0) {
-		kfree(array[i].buffer);
-		array[i].buffer = NULL;
-	}
-	kfree(array);
-	return -ENOMEM;
 }
 
 static void build_sit_entries(struct hmfs_sb_info *sbi)
@@ -863,7 +842,8 @@ static void destroy_dirty_segmap(struct hmfs_sb_info *sbi)
 	if (!dirty_i)
 		return;
 
-	kfree(dirty_i->dirty_segmap);
+	if (dirty_i->dirty_segmap)
+		kfree(dirty_i->dirty_segmap);
 
 	SM_I(sbi)->dirty_info = NULL;
 	kfree(dirty_i);
@@ -877,6 +857,8 @@ static void destroy_allocators(struct hmfs_sb_info *sbi)
 	if (!array)
 		return;
 	for (i = 0; i < sbi->nr_page_types; i++) {
+		if (!array[i].buffer)
+			break;
 		kfree(array[i].buffer);
 		array[i].buffer = NULL;
 	}
@@ -891,8 +873,10 @@ static void destroy_free_segmap(struct hmfs_sb_info *sbi)
 	if (!free_i)
 		return;
 	SM_I(sbi)->free_info = NULL;
-	kfree(free_i->free_segmap);
-	kfree(free_i->prefree_segmap);
+	if (free_i->free_segmap)
+		kfree(free_i->free_segmap);
+	if (free_i->prefree_segmap)
+		kfree(free_i->prefree_segmap);
 	kfree(free_i);
 }
 
@@ -904,15 +888,20 @@ static void destroy_sit_info(struct hmfs_sb_info *sbi)
 	if (!sit_i)
 		return;
 
-	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
-		if (get_seg_entry(sbi, i)->invalid_bitmap) {
-			hmfs_bug_on(sbi, !test_bit(i, sit_i->new_segmap));
-			kfree(get_seg_entry(sbi, i)->invalid_bitmap);
+	if (sit_i->sentries) {
+		for (i = 0; i < TOTAL_SEGS(sbi); i++) {
+			if (get_seg_entry(sbi, i)->invalid_bitmap) {
+				hmfs_bug_on(sbi, !test_bit(i, sit_i->new_segmap));
+				kfree(get_seg_entry(sbi, i)->invalid_bitmap);
+			}
 		}
+		vfree(sit_i->sentries);
 	}
-	kfree(sit_i->new_segmap);
-	vfree(sit_i->sentries);
-	kfree(sit_i->dirty_sentries_bitmap);
+
+	if (sit_i->new_segmap)
+		kfree(sit_i->new_segmap);
+	if (sit_i->dirty_sentries_bitmap)
+		kfree(sit_i->dirty_sentries_bitmap);
 
 	SM_I(sbi)->sit_info = NULL;
 	kfree(sit_i);

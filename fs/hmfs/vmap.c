@@ -89,7 +89,7 @@ static int map_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long addr,
 	if (!pte)
 		return -ENOMEM;
 	do {
-		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, PAGE_KERNEL)));
+//		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, PAGE_KERNEL)));
 		pfn++;
 		(*i)++;
 		if (!((*i) & (HMFS_BLOCK_SIZE_4K[seg_type] - 1))) {

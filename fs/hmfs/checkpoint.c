@@ -432,8 +432,7 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 	cp_addr = le64_to_cpu(super->cp_page_addr);
 	hmfs_cp = ADDR(sbi, cp_addr);
 
-	if (sbi->mnt_cp_version && sbi->mnt_cp_version != 
-			le32_to_cpu(hmfs_cp->checkpoint_ver)) {
+	if (sbi->mnt_cp_version && sbi->mnt_cp_version != le32_to_cpu(hmfs_cp->checkpoint_ver)) {
 		hmfs_cp = get_mnt_checkpoint(sbi, hmfs_cp, sbi->mnt_cp_version);
 		if (!hmfs_cp)
 			return -EINVAL;
@@ -441,16 +440,13 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	cm_i = kzalloc(sizeof(struct hmfs_cm_info), GFP_KERNEL);
 
-	if (!cm_i) {
-		goto out_cm_i;
-	}
+	if (!cm_i) 
+		return -ENOMEM;
 
 	/* allocate and init last checkpoint_info */
-	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_ATOMIC);
-	if (!cp_i) {
-		goto out_cp_i;
-	}
-
+	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+	if (!cp_i)
+		return -ENOMEM;
 	
 	cm_i->valid_inode_count = le32_to_cpu(hmfs_cp->valid_inode_count);
 	cm_i->valid_node_count = le32_to_cpu(hmfs_cp->valid_node_count);
@@ -471,6 +467,8 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	/* Allocate and Init current checkpoint_info */
 	cp_i = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+	if (!cp_i)
+		return -ENOMEM;
 	INIT_LIST_HEAD(&cp_i->list);
 	cm_i->new_version = next_cp_ver(le32_to_cpu(hmfs_cp->checkpoint_ver));
 	cp_i->version = cm_i->new_version;
@@ -483,11 +481,6 @@ int init_checkpoint_manager(struct hmfs_sb_info *sbi)
 
 	sbi->cm_info = cm_i;
 	return 0;
-
-out_cp_i:
-	kfree(cm_i);
-out_cm_i:
-	return -ENOMEM;
 }
 
 static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)
@@ -495,22 +488,28 @@ static void destroy_checkpoint_info(struct hmfs_cm_info *cm_i)
 	struct checkpoint_info *cp_i = cm_i->last_cp_i, *entry;
 	struct list_head *head, *this, *tmp;
 
-	head = &cp_i->list;
-	list_for_each_safe(this, tmp, head) {
-		entry = list_entry(this, struct checkpoint_info, list);
-		list_del(this);
-		INIT_LIST_HEAD(&entry->list);
-		radix_tree_delete(&cm_i->cp_tree_root, entry->version);
-		kmem_cache_free(cp_info_entry_slab, entry);
+	if (cp_i) {
+		head = &cp_i->list;
+		list_for_each_safe(this, tmp, head) {
+			entry = list_entry(this, struct checkpoint_info, list);
+			list_del(this);
+			INIT_LIST_HEAD(&entry->list);
+			radix_tree_delete(&cm_i->cp_tree_root, entry->version);
+			kmem_cache_free(cp_info_entry_slab, entry);
+		}
+		kmem_cache_free(cp_info_entry_slab, cp_i);
+		radix_tree_delete(&cm_i->cp_tree_root, cp_i->version);
 	}
-	kmem_cache_free(cp_info_entry_slab, cp_i);
-	radix_tree_delete(&cm_i->cp_tree_root, cp_i->version);
-	kmem_cache_free(cp_info_entry_slab, cm_i->cur_cp_i);
+
+	if (cm_i->cur_cp_i)
+		kmem_cache_free(cp_info_entry_slab, cm_i->cur_cp_i);
 }
 
 int destroy_checkpoint_manager(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = sbi->cm_info;
+	if (!cm_i)
+		return 0;
 
 	lock_cp_tree(cm_i);
 	destroy_checkpoint_info(cm_i);

@@ -575,6 +575,7 @@ retry:
 				return __hmfs_xip_file_write(inode, buf, len, ppos);
 			else if (ret)
 				return ret;
+//			hmfs_bug_on(HMFS_I_SB(inode), fi->block_bitmap[start >> 3] != 0xff);
 		}
 		start += 8;
 	}
@@ -661,8 +662,7 @@ out:
 	return ret;
 }
 
-ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf,
-			    size_t len, loff_t *ppos)
+ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t len, loff_t *ppos)
 {
 	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = filp->f_inode;
@@ -704,7 +704,7 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf,
 	ilock = mutex_lock_op(sbi);
 	inode_write_lock(inode);
 
-	if (likely(HMFS_I(inode)->rw_addr) && !is_inline_inode(inode) && *ppos < inode->i_size)
+	if (likely(HMFS_I(inode)->rw_addr) && !is_inline_inode(inode))
 		ret = hmfs_file_fast_write(inode, buf, count, ppos);
 	else {
 		ret = __hmfs_xip_file_write(inode, buf, count, ppos);

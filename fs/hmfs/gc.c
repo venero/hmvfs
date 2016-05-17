@@ -743,9 +743,12 @@ out:
 	return ret;
 }
 
+//TODO: Setup threshold of calling bc
 inline void start_bc(struct hmfs_sb_info *sbi) {
-	smp_wmb();
-	wake_up_process(sbi->gc_thread->hmfs_task);
+	if (sbi->gc_thread) {
+		smp_wmb();
+		wake_up_process(sbi->gc_thread->hmfs_task);
+	}
 }
 
 /* Collect truncated blocks in current version */

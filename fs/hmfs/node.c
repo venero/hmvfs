@@ -167,10 +167,12 @@ void destroy_node_manager(struct hmfs_sb_info *sbi)
 	nid_t nid = HMFS_ROOT_INO;
 	int found, i;
 
+	if (!nm_i)
+		return;
+
 	lock_write_nat(nm_i);
 	while (1) {
-		found = radix_tree_gang_lookup(&nm_i->nat_root, (void **)result, nid,
-						NATVEC_SIZE);
+		found = radix_tree_gang_lookup(&nm_i->nat_root, (void **)result, nid, NATVEC_SIZE);
 		if (!found)
 			break;
 		for (i = 0; i < found; i++) {
@@ -182,10 +184,9 @@ void destroy_node_manager(struct hmfs_sb_info *sbi)
 	}
 	unlock_write_nat(nm_i);
 
-	hmfs_bug_on(sbi, !list_empty(&nm_i->nat_entries));
-	hmfs_bug_on(sbi, !list_empty(&nm_i->dirty_nat_entries));
+	if (nm_i->free_nids)
+		kfree(nm_i->free_nids);
 
-	kfree(nm_i->free_nids);
 	kfree(nm_i);
 }
 
@@ -1210,17 +1211,13 @@ int build_node_manager(struct hmfs_sb_info *sbi)
 	sbi->nm_info = info;
 
 	err = init_node_manager(sbi);
-	if (err) {
-		goto free_nm;
-	}
+	if (err) 
+		return err;
 
 	init_free_nids(sbi);
 	cache_nat_journals_entries(sbi);
 	
 	return 0;
-free_nm:
-	kfree(info);
-	return err;
 }
 
 static int __flush_nat_journals(struct hmfs_checkpoint *hmfs_cp, 
