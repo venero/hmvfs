@@ -312,7 +312,7 @@ alloc_log:
 		ret = move_to_new_segment(sbi, allocator);
 		if (ret) {
 			unlock_allocator(allocator);
-			return NULL_ADDR;
+			return 0;
 		}
 		allocator->mode = ALLOC_LOG;
 	}

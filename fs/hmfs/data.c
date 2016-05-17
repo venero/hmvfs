@@ -5,20 +5,16 @@
 /*
  * return the last block index in current node/inode
  */
-static int get_end_blk_index(int block, int level)
+static inline int64_t get_end_data_block_index(int64_t index)
 {
-	int start_blk;
-
-	if (level) {
-		start_blk = (block - NORMAL_ADDRS_PER_INODE) % ADDRS_PER_BLOCK;
-		start_blk = block - start_blk;
-		return start_blk + ADDRS_PER_BLOCK - 1;
-	}
-	return NORMAL_ADDRS_PER_INODE - 1;
+	if (index < NORMAL_ADDRS_PER_INODE)
+		return NORMAL_ADDRS_PER_INODE - 1;
+	index = index - NORMAL_ADDRS_PER_INODE;
+	index &= ~(ADDRS_PER_BLOCK - 1);
+	return NORMAL_ADDRS_PER_INODE + index + ADDRS_PER_BLOCK - 1;
 }
 
-static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
+static bool inc_valid_block_count(struct hmfs_sb_info *sbi,	struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	pgc_t alloc_block_count;
@@ -40,283 +36,217 @@ static bool inc_valid_block_count(struct hmfs_sb_info *sbi,
 	return true;
 }
 
-/*
- *	Return the direct node of specified data block(index th)
- *	@offset[i]: is a path to direct node, i.e. the address in @offset[i] slots
- *			of indirect/dindirect node is next node to find direct node
- *	@noffset[i]: is the node offset of the node in the path. For example, noffset
- *			of inode is 0, noffset of hmfs_inode->nid[0] is 1.
- *	@index: index of data block. In this function, we want to find the direct node
- *			of this data block.
- *	@mode: ALLOC_NODE and LOOKUP_NODE.
- *			-ALLOC_NODE: If node in the path is not exist, create it
- *			-LOOKUP_NODE: If not exist, stop.
- */
-int get_dnode_of_data(struct dnode_of_data *dn, int index, int mode)
+static int build_internal_node(struct inode *inode, nid_t par_nid, int16_t ofs, char sum_type)
 {
-	struct hmfs_sb_info *sbi = HMFS_I_SB(dn->inode);
-	void *blocks[4];
-	void *parent;
-	nid_t nid[4];
-	int offset[4];
-	unsigned int noffset[4];
-	int level, i;
-	int err = 0;
-	char sum_type;
+	nid_t nid;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	void *par_node, *child;
+	char par_type;
 
-	level = get_node_path(index, offset, noffset);
-
-	nid[0] = dn->inode->i_ino;
-	blocks[0] = dn->inode_block;
-	if (!blocks[0]) {
-		blocks[0] = get_node(sbi, nid[0]);
-		if (IS_ERR(blocks[0]))
-			return PTR_ERR(blocks[0]);
-		dn->inode_block = blocks[0];
+	if (!alloc_nid(sbi, &nid))
+		return -ENOSPC;
+	par_type = par_nid == inode->i_ino ? SUM_TYPE_INODE : SUM_TYPE_IDN;
+	par_node = alloc_new_node(sbi, par_nid, inode, par_type, false);
+	if (IS_ERR(par_node))
+		return PTR_ERR(par_node);
+	child = alloc_new_node(sbi, nid, inode, sum_type, false);
+	if (IS_ERR(child)) {
+		alloc_nid_failed(sbi, nid);
+		return PTR_ERR(child);
 	}
-	parent = blocks[0];
-	if (level != 0) {
-		nid[1] = get_nid(parent, offset[0], true);
-	}
-
-	for (i = 1; i <= level; ++i) {
-		if (!nid[i] && mode == ALLOC_NODE) {
-			if (!alloc_nid(sbi, &(nid[i]))) {
-				err = -ENOSPC;
-				goto out;
-			}
-			dn->nid = nid[i];
-			sum_type = i == level ? SUM_TYPE_DN : SUM_TYPE_IDN;
-			hmfs_bug_on(sbi, !IS_ERR(get_node(sbi, nid[i])));
-			blocks[i] = alloc_new_node(sbi, nid[i], dn->inode, sum_type, false);
-			if (IS_ERR(blocks[i])) {
-				err = PTR_ERR(blocks[i]);
-				goto out;
-			}
-
-			if (i == 1) {
-				blocks[0] = alloc_new_node(sbi, nid[0], dn->inode,
-									SUM_TYPE_INODE, false);
-
-				if (IS_ERR(blocks[i])) {
-					err = PTR_ERR(blocks[i]);
-					goto out;
-				}
-
-				parent = blocks[0];
-			}
-			set_nid(parent, offset[i - 1], nid[i], i == 1);
-		} else if (nid[i] && mode == LOOKUP_NODE) {
-			blocks[i] = get_node(sbi, nid[i]);
-			if (IS_ERR(blocks[i])) {
-				err = PTR_ERR(blocks[i]);
-				goto out;
-			}
-		} else if (nid[i]) {
-			blocks[i] = get_node(sbi, nid[i]);
-			if (IS_ERR(blocks[i])) {
-				err = PTR_ERR(blocks[i]);
-				goto out;
-			}
-		} else {
-			return -ENODATA;
-		}
-		if (i < level) {
-			parent = blocks[i];
-			nid[i + 1] = get_nid(parent, offset[i], false);
-		}
-	}
-
-	dn->nid = nid[level];
-	dn->ofs_in_node = offset[level];
-	dn->node_block = blocks[level];
-	dn->level = level;
+	if (par_type == SUM_TYPE_INODE)
+		HMFS_INODE(par_node)->i_nid = cpu_to_le32(nid);
+	else
+		INDIRECT_NODE(par_node)->nid[ofs] = cpu_to_le32(nid);
 	return 0;
-out:
-	return err;
 }
 
-/**
- * get data blocks address from start(block index) to end(block index)
- * @start:		start block index to read
- * @end:		end block index(not included)
- * @blocks:		pointer buffer, data blocks address
- * @mode:		read ahead mode
+/* 
+ * Return the infomation of specific data block
+ * @mode: LOOKUP and ALLOC
+ * @index: index of data block
  */
-int get_data_blocks(struct inode *inode, int start, int end, void **blocks,
-				int *size, int mode)
+int get_data_block_info(struct db_info *di, int64_t index, int mode)
 {
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct dnode_of_data dn;
-	block_t addr;
-	block_t max_blk = hmfs_max_file_size() >> HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type);
-	int i;
-	int ofs_in_node = 0;
-	int end_blk_id = -1;
-	int err = 0;
-	bool init = true;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(di->inode);
+	struct indirect_node *node;
+	struct hmfs_inode *hi;
+	int ret = 0;
+	uint8_t height = HMFS_I(di->inode)->i_height, set_height = height;
+	uint8_t i = 0;
+	nid_t nid;
 
-	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	for (i = start, *size = 0; i < end; ++i) {
-		if (i > end_blk_id) {
-			if (!init && mode == RA_DB_END) {
-				return 0;
-			}
-			err = get_dnode_of_data(&dn, i, LOOKUP_NODE);
-			if (err) {
-				if (err == -ENODATA)
-					goto fill_null;
-				return err;
-			}
-			end_blk_id = get_end_blk_index(i, dn.level);
-			ofs_in_node = dn.ofs_in_node;
-			init = false;
-		}
-		if (i > max_blk)
-			return -EINVAL;
-		if (!dn.level) {
-			hmfs_bug_on(sbi, dn.inode_block == NULL
-			       || dn.inode_block->i_addr == NULL);
-			addr = dn.inode_block->i_addr[ofs_in_node++];
-		} else {
-			hmfs_bug_on(sbi, dn.node_block == NULL
-			       || dn.node_block->addr == NULL);
-			addr = dn.node_block->addr[ofs_in_node++];
-		}
-		if (addr == NULL_ADDR) {
-fill_null:		
-			blocks[*size] = NULL;
-			err = -ENODATA;
-		} else
-			blocks[*size] = ADDR(sbi, addr);
-		*size = *size + 1;
+	if (likely(index < NORMAL_ADDRS_PER_INODE)) {
+		di->local = 1;
+		di->nid = di->inode->i_ino;
+		if (mode == ALLOC)
+			di->node_block = alloc_new_node(sbi, di->nid, di->inode, SUM_TYPE_INODE, false);
+		else
+			di->node_block = get_node(sbi, di->nid);
+		di->ofs_in_node = index;
+		if (IS_ERR(di->node_block))
+			return PTR_ERR(di->node_block);
+		return 0;
 	}
-	return err;
+	
+	index -= NORMAL_ADDRS_PER_INODE;
+	if (!set_height)
+		set_height = 1;
+	while ((1 << (ADDRS_PER_BLOCK_BITS + (set_height - 1) * NIDS_PER_BLOCK_BITS)) < index)
+		set_height++;
+
+
+	if (!height && mode == ALLOC) {
+		ret = build_internal_node(di->inode, di->inode->i_ino, 0, SUM_TYPE_DN);
+		if (ret)
+			return ret;
+		HMFS_I(di->inode)->i_height = ++height;
+	}
+
+	hi = get_node(sbi, di->inode->i_ino);
+	if (IS_ERR(hi))
+		return PTR_ERR(hi);
+
+	if (mode == ALLOC) {
+		while (height++ < set_height) {
+			struct indirect_node *in;
+			nid = hi->i_nid;
+			ret = build_internal_node(di->inode, di->inode->i_ino, 0, SUM_TYPE_IDN);
+			if (ret)
+				return ret;
+
+			in = get_node(sbi, le32_to_cpu(hi->i_nid));
+			if (IS_ERR(in))
+				return PTR_ERR(in);
+			in->nid[0] = nid;
+			HMFS_I(di->inode)->i_height = height;
+		}
+	}
+	
+
+	nid = le32_to_cpu(hi->i_nid);
+	node = get_node(sbi, nid);
+	if (IS_ERR(node))
+		return PTR_ERR(node);
+
+	while (i < height - 1) {
+		uint16_t ofs;
+		nid_t next_nid;
+
+		ofs = index >> (ADDRS_PER_BLOCK_BITS + (height - 2 - i) * NIDS_PER_BLOCK_BITS);	
+		ofs &= (NIDS_PER_BLOCK - 1);
+		next_nid = le32_to_cpu(node->nid[ofs]);
+		
+		if (!next_nid && mode == ALLOC) {
+			uint8_t sum_type = i == height - 2 ? SUM_TYPE_DN : SUM_TYPE_IDN;
+			ret = build_internal_node(di->inode, nid, ofs, sum_type);
+			if (ret)
+				return ret;
+			node = get_node(sbi, nid);
+			next_nid = le32_to_cpu(node->nid[ofs]);
+		} 
+		
+		node = get_node(sbi, next_nid);
+		if (IS_ERR(node))
+			return PTR_ERR(node);
+
+		nid = next_nid;
+		i++;
+	}
+
+	if (mode == ALLOC)
+		di->node_block = alloc_new_node(sbi, nid, di->inode, SUM_TYPE_DN, false);
+	else
+		di->node_block = HMFS_NODE(node);
+
+	if (IS_ERR(di->node_block))
+		return PTR_ERR(di->node_block);
+
+	di->local = 0;
+	di->nid = nid;
+	di->ofs_in_node = index & (ADDRS_PER_BLOCK - 1);
+	return 0;
 }
 
-static void setup_summary_of_new_data_block(struct hmfs_sb_info *sbi,
-				block_t new_addr, unsigned int ino, unsigned int ofs_in_node)
-{
-	struct hmfs_summary *dest_sum;
-	struct hmfs_cm_info *cm_i = CM_I(sbi);
-
-	dest_sum = get_summary_by_addr(sbi, new_addr);
-	make_summary_entry(dest_sum, ino, cm_i->new_version, ofs_in_node,
-			SUM_TYPE_DATA);
-}
-
-/*
- * get a writable data block of inode, if specified block exists,
- * copy its data with range [start,start+size) to newly allocated 
- * block
- */
-void *alloc_new_data_partial_block(struct inode *inode, int block, int left,
-				int right, bool fill_zero)
+void *get_data_block(struct inode *inode, int64_t index)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct dnode_of_data dn;
-	struct checkpoint_info *cp_i = CURCP_I(sbi);
-	struct hmfs_node *hn = NULL;
-	block_t new_addr, src_addr = 0;
-	char *src = NULL, *dest;
+	struct db_info di;
+	block_t addr;
 	int err;
-	struct hmfs_summary *summary = NULL;
-	char sum_type;
-	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
-	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
-
-	if (err)
+	di.inode = inode;
+	err = get_data_block_info(&di, index, LOOKUP);
+	if (err) 
 		return ERR_PTR(err);
 
-	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
-		return ERR_PTR(-EPERM);
-
-	sum_type = dn.level ? SUM_TYPE_DN : SUM_TYPE_INODE;
-	hn = alloc_new_node(sbi, dn.nid, inode, sum_type, false);
-	if (IS_ERR(hn))
-		return hn;
-
-	if (dn.level)
-		src_addr = hn->dn.addr[dn.ofs_in_node];
+	if (di.local)
+		addr = le64_to_cpu(HMFS_INODE(di.node_block)->i_addr[di.ofs_in_node]);
 	else
-		src_addr = hn->i.i_addr[dn.ofs_in_node];
+		addr = le64_to_cpu(DIRECT_NODE(di.node_block)->addr[di.ofs_in_node]);
+	return ADDR(sbi, addr);
+}
 
-	if (src_addr != NULL_ADDR) {
-		src = ADDR(sbi, src_addr);
-		summary = get_summary_by_addr(sbi, src_addr);
-		if (get_summary_start_version(summary) == cp_i->version)
-			return src;
+/* Caller should restrict value of end within size of inode */
+int get_data_blocks_ahead(struct inode *inode, int64_t start, int64_t end,
+				void **blocks)
+{
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct db_info di;
+	int64_t end_db_id = -1;
+	int err;
+	bool null = false;
+
+	di.inode = inode;
+	while (start < end) {
+		if (start > end_db_id) {
+			err = get_data_block_info(&di, start, LOOKUP);
+			if (err && err != -ENODATA) 
+				return err;
+			end_db_id = get_end_data_block_index(start);
+			null = err == -ENODATA;
+		}
+
+		if (null)
+			*blocks++ = NULL;
+		else {
+			block_t addr;
+			if (di.local)
+				addr = le64_to_cpu(HMFS_INODE(di.node_block)->i_addr[di.ofs_in_node]);
+			else
+				addr = le64_to_cpu(DIRECT_NODE(di.node_block)->addr[di.ofs_in_node]);
+			*blocks++ = ADDR(sbi, addr);
+		}
+		start++;
 	}
-
-	if (!inc_valid_block_count(sbi, get_stat_object(inode, 
-				src_addr != NULL_ADDR), HMFS_BLOCK_SIZE_4K[seg_type]))
-		return ERR_PTR(-ENOSPC);
-
-	new_addr = alloc_free_data_block(sbi, seg_type);
-
-	if (new_addr == NULL_ADDR) {
-		inc_valid_block_count(sbi, get_stat_object(inode,
-				src_addr != NULL_ADDR), -HMFS_BLOCK_SIZE_4K[seg_type]);
-		return ERR_PTR(-ENOSPC);
-	}
-	if (dn.level)
-		hn->dn.addr[dn.ofs_in_node] = new_addr;
-	else
-		hn->i.i_addr[dn.ofs_in_node] = new_addr;
-
-	dest = ADDR(sbi, new_addr);
-
-	if (src_addr != NULL_ADDR) {
-		if (left)
-			hmfs_memcpy(dest, src, left);
-		if (right < HMFS_BLOCK_SIZE[seg_type])
-			hmfs_memcpy(dest + right, src + right,
-					HMFS_BLOCK_SIZE[seg_type] - right);
-	} else if (fill_zero) {
-		left = 0;
-		right = HMFS_BLOCK_SIZE[seg_type];
-	}
-
-	if (fill_zero)
-		memset(dest + left, 0, right - left);
-
-	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
-			dn.ofs_in_node);
-	return dest;
+	return 0;
 }
 
 static void *__alloc_new_data_block(struct inode *inode, int block)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct dnode_of_data dn;
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_node *hn = NULL;
 	block_t new_addr, src_addr = 0;
 	void *src = NULL, *dest;
 	int err;
 	struct hmfs_summary *summary = NULL;
-	char sum_type;
+	struct db_info di;
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
-	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	err = get_dnode_of_data(&dn, block, ALLOC_NODE);
-
+	di.inode = inode;
+	err = get_data_block_info(&di, block, ALLOC);
 	if (err)
 		return ERR_PTR(err);
 
-	sum_type = dn.level ? SUM_TYPE_DN : SUM_TYPE_INODE;
-	hn = alloc_new_node(sbi, dn.nid, inode, sum_type, false);
-	if (IS_ERR(hn))
-		return hn;
+	hn = di.node_block;
 
-	if (dn.level)
-		src_addr = hn->dn.addr[dn.ofs_in_node];
+	if (di.local)
+		src_addr = le64_to_cpu(hn->i.i_addr[di.ofs_in_node]);
 	else
-		src_addr = hn->i.i_addr[dn.ofs_in_node];
+		src_addr = le64_to_cpu(hn->dn.addr[di.ofs_in_node]);
 
-	if (src_addr != NULL_ADDR) {
+	if (src_addr != 0) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src_addr);
 		if (get_summary_start_version(summary) == cp_i->version)
@@ -327,30 +257,30 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 		return ERR_PTR(-EPERM);
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), HMFS_BLOCK_SIZE_4K[seg_type]))
+				!= 0), HMFS_BLOCK_SIZE_4K[seg_type]))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi, seg_type);
 
-	if (new_addr == NULL_ADDR) {
+	if (new_addr == 0) {
 		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), -HMFS_BLOCK_SIZE_4K[seg_type]);
+				!= 0), -HMFS_BLOCK_SIZE_4K[seg_type]);
 		return ERR_PTR(-ENOSPC);
 	}
 
-	if (dn.level)
-		hn->dn.addr[dn.ofs_in_node] = new_addr;
+	if (di.local)
+		hn->i.i_addr[di.ofs_in_node] = cpu_to_le64(new_addr);
 	else
-		hn->i.i_addr[dn.ofs_in_node] = new_addr;
+		hn->dn.addr[di.ofs_in_node] = cpu_to_le64(new_addr);
 
 	dest = ADDR(sbi, new_addr);
 
-	if (src_addr != NULL_ADDR)
+	if (src_addr != 0)
 		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
 	else memset(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
 
-	setup_summary_of_new_data_block(sbi, new_addr, dn.nid,
-			dn.ofs_in_node);
+	summary = get_summary_by_addr(sbi, new_addr);
+	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
 	return dest;
 }
 
@@ -393,7 +323,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	tag_value = *((__le64 *)JUMP(inode_block, x_tag));
 	src_addr = le64_to_cpu(tag_value);
 	src = ADDR(sbi, src_addr);
-	if (src_addr != NULL_ADDR) {
+	if (src_addr != 0) {
 		summary = get_summary_by_addr(sbi, src_addr);
 		if (get_summary_start_version(summary) == CURCP_I(sbi)->version)
 			return src;
@@ -403,20 +333,20 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 		return ERR_PTR(-EPERM);
 
 	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr 
-				!= NULL_ADDR), 1))
+				!= 0), 1))
 		return ERR_PTR(-ENOSPC);
 
 	dst_addr = alloc_free_data_block(sbi, SEG_DATA_INDEX);
 
-	if (dst_addr == NULL_ADDR) {
+	if (dst_addr == 0) {
 		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= NULL_ADDR), -1);
+				!= 0), -1);
 		return ERR_PTR(-ENOSPC);
 	}
 
 	dst = ADDR(sbi, dst_addr);
 
-	if (need_copy && src_addr != NULL_ADDR)
+	if (need_copy && src_addr != 0)
 		hmfs_memcpy(dst, src, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
 	else
 		memset(dst, 0, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);

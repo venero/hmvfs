@@ -39,36 +39,31 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	return 0;
 }
 
-static int hmfs_readlink(struct dentry *dentry, char __user * buffer,
-				int buflen)
+static int hmfs_readlink(struct dentry *dentry, char __user * buffer, int buflen)
 {
 	struct inode *inode = dentry->d_inode;
-	void *data_blk[1];
-	int err = 0;
-	int size = 0;
+	void *data_blk;
 
 	inode_read_lock(inode);
-	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
+	data_blk = get_data_block(inode, 0);
 	inode_read_unlock(inode);
-	if (err || size != 1 || data_blk[0] == NULL)
+	if (IS_ERR(data_blk))
 		return -ENODATA;
-	return vfs_readlink(dentry, buffer, buflen, data_blk[0]);
+	return vfs_readlink(dentry, buffer, buflen, data_blk);
 
 }
 
 static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
 	struct inode *inode = dentry->d_inode;
-	void *data_blk[1];
-	int err = 0;
-	int size = 0;
+	void *data_blk;
 
 	inode_read_lock(inode);
-	err = get_data_blocks(inode, 0, 1, data_blk, &size, RA_DB_END);
+	data_blk = get_data_block(inode, 0);
 	inode_read_unlock(inode);
-	if (err || size != 1 || data_blk[0] == NULL)
+	if (IS_ERR(data_blk))
 		return ERR_PTR(-ENODATA);
-	nd_set_link(nd, data_blk[0]);
+	nd_set_link(nd, data_blk);
 	return 0;
 }
 

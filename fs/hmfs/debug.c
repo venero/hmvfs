@@ -708,7 +708,7 @@ static int traverse_nat(struct hmfs_sb_info *sbi, block_t cp_addr,
 	root = HMFS_NAT_NODE(ADDR(sbi, root_addr));
 	for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
 		block_t child_addr = le64_to_cpu(root->addr[i]);
-		if (child_addr == NULL_ADDR) {
+		if (child_addr == 0) {
 			continue;
 		}
 		hmfs_print(si, 1, ">>>>>>>>>>> %p -> %p, height is %d\n", root_addr,
