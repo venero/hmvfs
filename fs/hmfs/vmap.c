@@ -89,13 +89,15 @@ static int map_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long addr,
 	if (!pte)
 		return -ENOMEM;
 	do {
-//		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, PAGE_KERNEL)));
+		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, PAGE_KERNEL)));
 		pfn++;
 		(*i)++;
 		if (!((*i) & (HMFS_BLOCK_SIZE_4K[seg_type] - 1))) {
 			pfn = pfns[(*i) >> HMFS_BLOCK_SIZE_4K_BITS[seg_type]];
 		}
-	} while (pte++, addr += PAGE_SIZE, addr != end);
+		pte++;
+		addr += PAGE_SIZE;
+	} while (addr != end);
 	return 0;
 }
 
@@ -112,7 +114,9 @@ static int map_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long addr,
 		next = pmd_addr_end(addr, end);
 		if (map_pte_range(mm, pmd, addr, next, pfns, seg_type, i))
 			return -ENOMEM;
-	} while (pmd++, addr = next, addr != end);
+		pmd++;
+		addr = next;
+	} while (addr != end);
 	return 0;
 }
 
@@ -129,7 +133,9 @@ static int map_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long addr,
 		next = pud_addr_end(addr, end);
 		if (map_pmd_range(mm, pud, addr, next, pfns, seg_type, i))
 			return -ENOMEM;
-	} while (pud++, addr = next, addr != end);
+		pud++;
+		addr = next;
+	} while (addr != end);
 	return 0;
 }
 
@@ -161,7 +167,9 @@ int remap_data_blocks_for_write(struct inode *inode, unsigned long st_addr,
 		next = pgd_addr_end(addr, ed_addr);
 		if (map_pud_range(mm, pgd, addr, next, pfns, seg_type, &i))
 			return -ENOMEM;
-	} while (pgd++, addr = next, addr != end);
+		pgd++;
+		addr = next;
+	} while (addr != ed_addr);
 
 	//FIXME: need flush tlb?
 	//flush_tlb_kernel_range(st_addr, ed_addr);
@@ -170,7 +178,7 @@ int remap_data_blocks_for_write(struct inode *inode, unsigned long st_addr,
 
 static inline uint64_t file_block_bitmap_size(uint64_t nr_map_page)
 {
-	return	nr_map_page >> 3;
+	return	(nr_map_page + 7) >> 3;
 }
 
 int vmap_file_range(struct inode *inode)
@@ -242,4 +250,3 @@ out:
 	fi->nr_map_page = 0;
 	return 1;
 }
-

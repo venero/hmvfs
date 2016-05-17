@@ -575,14 +575,13 @@ retry:
 				return __hmfs_xip_file_write(inode, buf, len, ppos);
 			else if (ret)
 				return ret;
-//			hmfs_bug_on(HMFS_I_SB(inode), fi->block_bitmap[start >> 3] != 0xff);
 		}
 		start += 8;
 	}
-	
+
 	copied = len - __copy_from_user_nocache(fi->rw_addr + *ppos, buf, len);
 	*ppos += copied;
-
+	
 	if (*ppos > inode->i_size)
 		mark_size_dirty(inode, *ppos);
 	return copied ? copied : -EFAULT;
