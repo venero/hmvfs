@@ -198,6 +198,7 @@ int get_data_blocks_ahead(struct inode *inode, int64_t start, int64_t end,
 	bool null = false;
 
 	di.inode = inode;
+	hmfs_bug_on(sbi, start >= end);
 	while (start < end) {
 		if (start > end_db_id) {
 			err = get_data_block_info(&di, start, LOOKUP);

@@ -285,7 +285,8 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
-	uint64_t end_index = i_size_read(inode) >> HMFS_BLOCK_SIZE_BITS(blk_type);
+	uint64_t end_index = (i_size_read(inode) + HMFS_BLOCK_SIZE[blk_type] - 1) >>
+			HMFS_BLOCK_SIZE_BITS(blk_type);
 	const int max_buf_size = 32;
 	void *blocks_buf[max_buf_size];
 	int buf_size = 0;
@@ -306,6 +307,8 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count
 			}
 			if (r_ed > end_index)
 				r_ed = end_index;
+			if (r_st >= r_ed)
+				goto out;
 			buf_size = r_ed - r_st;
 			
 			err = get_data_blocks_ahead(inode, r_st, r_ed, blocks_buf);
@@ -324,12 +327,11 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count
 		}
 
 		b_index++;
-	} while(f_index < count);
+	} while (f_index < count);
 
 out:
 	while (f_index < count)
 		pages[f_index++] = sbi->map_zero_page;
-	kfree(blocks_buf);
 	return err;
 }
 
