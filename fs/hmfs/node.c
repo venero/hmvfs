@@ -1266,25 +1266,23 @@ static void __mark_block_valid(struct hmfs_sb_info *sbi,
 			if (!nat_entry_blk->entries[i].ino)
 				continue;
 			child_node_addr = le64_to_cpu(nat_entry_blk->entries[i].block_addr);
-			if (child_node_addr)
+			if (child_node_addr) {
 				mark_block_valid_type(sbi, child_node_addr);
+			}
 		}
 		return;
 	} else
 		set_summary_valid_bit(raw_summary);
 
 	//go to child
-	new_blk_order = blk_order & ((1 << ((height - 1) *
-			LOG2_NAT_ADDRS_PER_NODE)) - 1);
+	new_blk_order = blk_order & ((1 << ((height - 1) * LOG2_NAT_ADDRS_PER_NODE)) - 1);
 
 	for (i = 0; i < NAT_ADDR_PER_NODE; i++) {
 		child_node_addr = le64_to_cpu(cur_nat_node->addr[i]);
 		if(child_node_addr) {
-			_ofs = (i << ((height-1) * LOG2_NAT_ADDRS_PER_NODE)) +
-					new_blk_order;
+			_ofs = (i << ((height-1) * LOG2_NAT_ADDRS_PER_NODE)) + new_blk_order;
 			cur_child_node = ADDR(sbi, child_node_addr);
-			__mark_block_valid(sbi, cur_child_node, _ofs, version ,
-					height-1); 
+			__mark_block_valid(sbi, cur_child_node, _ofs, version, height - 1); 
 		}
 	}
 }
@@ -1321,6 +1319,5 @@ void mark_block_valid(struct hmfs_sb_info *sbi, struct hmfs_nat_node *nat_root,
 		}
 	}
 
-	__mark_block_valid(sbi, nat_root, 0, sto_version, 
-			sbi->nat_height);
+	__mark_block_valid(sbi, nat_root, 0, sto_version, sbi->nat_height);
 }

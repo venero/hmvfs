@@ -346,7 +346,8 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	ret = generic_file_open(inode, filp);
 	if (ret || is_inline_inode(inode))
-		return ret;;
+		return ret;
+	return ret;
 
 	if (atomic_add_return(1, &fi->nr_open) != 1) {
 		return 0;

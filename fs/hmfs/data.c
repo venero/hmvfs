@@ -54,6 +54,7 @@ static int build_internal_node(struct inode *inode, nid_t par_nid, int16_t ofs, 
 		alloc_nid_failed(sbi, nid);
 		return PTR_ERR(child);
 	}
+
 	if (par_type == SUM_TYPE_INODE)
 		HMFS_INODE(par_node)->i_nid = cpu_to_le32(nid);
 	else
@@ -129,6 +130,7 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 	if (IS_ERR(node))
 		return PTR_ERR(node);
 
+	height = set_height;
 	while (i < height - 1) {
 		uint16_t ofs;
 		nid_t next_nid;
@@ -333,15 +335,13 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return ERR_PTR(-EPERM);
 
-	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr 
-				!= 0), 1))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr != 0), 1))
 		return ERR_PTR(-ENOSPC);
 
 	dst_addr = alloc_free_data_block(sbi, SEG_DATA_INDEX);
 
 	if (dst_addr == 0) {
-		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= 0), -1);
+		inc_valid_block_count(sbi, get_stat_object(inode, src_addr != 0), -1);
 		return ERR_PTR(-ENOSPC);
 	}
 
