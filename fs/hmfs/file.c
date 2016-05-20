@@ -538,6 +538,7 @@ static ssize_t hmfs_file_fast_write(struct inode *inode, const char __user *buf,
 	uint64_t start = *ppos >> HMFS_BLOCK_SIZE_BITS(seg_type);
 	uint64_t end = (*ppos + len + HMFS_BLOCK_SIZE[seg_type] - 1) >> HMFS_BLOCK_SIZE_BITS(seg_type);
 	size_t copied;
+	unsigned long rw_addr;
 
 retry:
 	if (end >= (fi->nr_map_page >> (HMFS_BLOCK_SIZE_BITS(seg_type) - PAGE_SHIFT))) {
@@ -547,16 +548,29 @@ retry:
 			return __hmfs_xip_file_write(inode, buf, len, ppos);
 	}
 
+	//TODO: allocate ahead
 	start &= ~7;
-	while (start <= end) {
+	rw_addr = ((unsigned long) fi->rw_addr) + (start << PAGE_SHIFT);
+	while (start < end) {
 		if (fi->block_bitmap[start >> 3] != 0xff) {
-			int ret = remap_data_blocks_for_write(inode, (unsigned long) fi->rw_addr, start, end);
+			int i = start;
+			int ret;
+			
+			while ((fi->block_bitmap[start >> 3] >> (i - start)) & 1) i++;
+
+			ret = remap_data_blocks_for_write(inode, rw_addr, i, end);
 			if (ret == -ENOMEM)
 				return __hmfs_xip_file_write(inode, buf, len, ppos);
 			else if (ret)
 				return ret;
+			if (start + 8 <= end)
+				fi->block_bitmap[start >> 3] = 0xff;
+			else {
+				fi->block_bitmap[start >> 3] |= (1 << (end - start)) - 1;
+			}
 		}
 		start += 8;
+		rw_addr += 8 << PAGE_SHIFT;
 	}
 
 	copied = len - __copy_from_user_nocache(fi->rw_addr + *ppos, buf, len);
