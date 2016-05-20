@@ -372,6 +372,13 @@ int hmfs_print(struct hmfs_stat_info *si, int mode, const char *fmt, ...)
 	return len;
 }
 
+int __hmfs_print(struct hmfs_stat_info *si, void * source, int len)
+{
+	memcpy(si->buffer + si->buf_size, source, len);
+	si->buf_size += len;
+	return len;
+}
+
 //return how many bytes written to file buffer
 static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 				int detail)
@@ -470,8 +477,7 @@ static int print_cp_all(struct hmfs_sb_info *sbi, int detail)
      cp             -- print this usage.
      set option 'd' 0 will not give the detail info, default is 1
  */
-static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, 
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
 	const char *opt = argv[1];
 	struct hmfs_stat_info *si = STAT_I(sbi);
@@ -523,8 +529,7 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 	return len;
 }
 
-static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from,
-			   block_t idx_to)
+static int print_ssa_range(struct hmfs_sb_info *sbi, block_t idx_from, block_t idx_to)
 {
 	int len = 0, i = 0, res = -1;
 
@@ -550,8 +555,7 @@ static size_t print_ssa_per_seg(struct hmfs_sb_info *sbi, block_t segno)
       ssa <idx1> <idx2>	-- dump summary of [idx1, idx2]th block 
       ssa <segno>	-- dump summary of all blocks in [segno]th segment
  */
-static int hmfs_print_ssa(struct hmfs_sb_info *sbi, int args, 
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_ssa(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
 	struct hmfs_stat_info *si = STAT_I(sbi);
 	int len = 0, cnt = -1;
@@ -586,8 +590,7 @@ static inline int print_error_segment(struct hmfs_sb_info *sbi,
 			  "cnt in SSA: %d\n", segno, sit_blk_cnt, ssa_blk_cnt);
 }
 
-static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, 
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
 	int sit_blk_cnt, len=0;
 	int ssa_blk_cnt;
@@ -619,21 +622,26 @@ static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args,
 	return len;
 }
 
-static int hmfs_print_nat(struct hmfs_sb_info *sbi, int args,
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_nat(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
 	return 0;
 }
 
-static int hmfs_print_data(struct hmfs_sb_info *sbi, int args, 
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_data(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
-	return 0;
+	block_t addr = simple_strtoull(argv[1], NULL, 0);
+	struct hmfs_summary *summary = get_summary_by_addr(sbi, addr);
+	int len = 0;
+	struct hmfs_stat_info *si = STAT_I(sbi);
+
+	len += hmfs_print(si, 0, "Data[%u %u](%d)\n", GET_SEGNO(sbi, addr), GET_SEG_OFS(sbi, addr),
+			get_summary_type(summary));
+	len += __hmfs_print(si, ADDR(sbi, addr), HMFS_MIN_PAGE_SIZE);
+	return len;
 }
 
-static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr,
-			  block_t blk_addr, size_t h, size_t offset,
-			  block_t nid)
+static int hmfs_check_ssa(struct hmfs_sb_info *sbi, block_t cp_addr, block_t blk_addr,
+				size_t h, size_t offset, block_t nid)
 {
 	struct hmfs_checkpoint* cp;
 	struct hmfs_stat_info *si = STAT_I(sbi);
@@ -768,8 +776,7 @@ static int hmfs_consis(struct hmfs_sb_info *sbi)
 #define IS_BLANK(ch) (' ' == (ch) || '\t' == (ch) || '\n' == (ch))
 
 //return: < 0, error; else, args;
-static int hmfs_parse_cmd(const char *cmd, size_t len,
-			  char argv[][MAX_ARG_LEN + 1])
+static int hmfs_parse_cmd(const char *cmd, size_t len, char argv[][MAX_ARG_LEN + 1])
 {
 	int args;
 	size_t i, j, tokenl;
@@ -816,8 +823,7 @@ static char *judge_file_type(__le16 v) {
 	}
 }
 
-static int hmfs_print_inode(struct hmfs_sb_info *sbi, int args,
-				char argv[][MAX_ARG_LEN + 1])
+static int hmfs_print_inode(struct hmfs_sb_info *sbi, int args,	char argv[][MAX_ARG_LEN + 1])
 {
 	struct hmfs_stat_info *si= STAT_I(sbi);
 	unsigned long long ino;
@@ -882,8 +888,7 @@ out:
  * RETURN VALUE:
  * 	success with the length of written file buffer, else -EFAULT;
  */
-static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd, 
-				int len)
+static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd, int len)
 {
 
 	int args, res = 0;
