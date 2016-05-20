@@ -281,7 +281,9 @@ alloc_buf:
 
 		if (write - read < allocator->bg_bc_limit) {
 			start_bc(sbi);	
-		} else if (read == write) {
+		}
+		
+		if (read == write) {
 			if (has_not_enough_free_segs(sbi)) {
 				if (allocator->nr_cur_invalid > allocator->bc_threshold) {
 					if (trylock_gc(sbi)) {
@@ -294,6 +296,7 @@ alloc_buf:
 			goto alloc_log;
 		}
 		
+		hmfs_bug_on(sbi, read > write);
 		return allocator->buffer[read & allocator->buffer_index_mask];
 	}
 

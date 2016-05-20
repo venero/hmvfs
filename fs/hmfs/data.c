@@ -257,15 +257,15 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 	if (is_inode_flag_set(HMFS_I(inode), FI_NO_ALLOC))
 		return ERR_PTR(-EPERM);
 
-	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= 0), HMFS_BLOCK_SIZE_4K[seg_type]))
+	if (!inc_valid_block_count(sbi, get_stat_object(inode, src_addr != 0),
+			HMFS_BLOCK_SIZE_4K[seg_type]))
 		return ERR_PTR(-ENOSPC);
 
 	new_addr = alloc_free_data_block(sbi, seg_type);
 
 	if (new_addr == 0) {
-		inc_valid_block_count(sbi, get_stat_object(inode, src_addr
-				!= 0), -HMFS_BLOCK_SIZE_4K[seg_type]);
+		inc_valid_block_count(sbi, get_stat_object(inode, src_addr != 0),
+				-HMFS_BLOCK_SIZE_4K[seg_type]);
 		return ERR_PTR(-ENOSPC);
 	}
 
