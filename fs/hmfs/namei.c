@@ -275,8 +275,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int err = -ENOENT, ilock;
 	int new_ofs, new_bidx, old_bidx, old_ofs;
 
-	old_entry = hmfs_find_entry(old_dir, &old_dentry->d_name, &old_bidx,
-				    &old_ofs);
+	old_entry = hmfs_find_entry(old_dir, &old_dentry->d_name, &old_bidx, &old_ofs);
 	if (!old_entry)
 		goto out;
 
@@ -325,7 +324,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 		mark_inode_dirty(new_inode);
 	} else {
-		err = hmfs_add_link(new_dentry, old_inode);
+		err = __hmfs_add_link(new_dir, &new_dentry->d_name, old_inode);
 		if (err)
 			goto out_k;
 		if (old_dir_entry) {
@@ -347,8 +346,7 @@ static int hmfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 	old_entry = &old_dentry_blk->dentry[old_ofs];
 
-	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL,
-			old_bidx);
+	hmfs_delete_entry(old_entry, old_dentry_blk, old_dir, NULL, old_bidx);
 
 	if (old_dir_entry) {
 		if (old_dir != new_dir) {
