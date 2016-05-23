@@ -192,8 +192,7 @@ static int hmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	return 0;
 }
 
-static int hmfs_link(struct dentry *old_dentry, struct inode *dir,
-				struct dentry *dentry)
+static int hmfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);

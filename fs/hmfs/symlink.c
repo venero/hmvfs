@@ -10,15 +10,11 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(dir);
 	void *data_blk;
 	size_t symlen = strlen(symname) + 1;
-	int ilock;
 
 	if (symlen > HMFS_MAX_SYMLINK_NAME_LEN)
 		return -ENAMETOOLONG;
 
-	ilock = mutex_lock_op(sbi);
-	inode_write_lock(dir);
 	inode = hmfs_make_dentry(dir, dentry, S_IFLNK | S_IRWXUGO);
-	inode_write_unlock(dir);
 
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
@@ -30,8 +26,6 @@ int hmfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	if (IS_ERR(data_blk))
 		return PTR_ERR(data_blk);
 	hmfs_memcpy(data_blk, (void *)symname, symlen);
-
-	mutex_unlock_op(sbi, ilock);
 
 	d_instantiate(dentry, inode);
 	unlock_new_inode(inode);
