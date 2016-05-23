@@ -57,7 +57,7 @@ void truncate_file_block_bitmap(struct inode *inode, loff_t from)
 	unsigned char *bitmap = HMFS_I(inode)->block_bitmap;
 	uint64_t start;
 	
-	if (!bitmap) {
+	if (bitmap) {
 		start = (from + PAGE_SIZE - 1) >> PAGE_SHIFT;
 		if (start & 7) {
 			bitmap[start >> 3] = bitmap[start >> 3] & ((1 << start) - 1);
