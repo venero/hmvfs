@@ -665,10 +665,9 @@ static inline int hmfs_readonly(struct super_block *sb)
 	return sb->s_flags & MS_RDONLY;
 }
 
-static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src,
-				int normal_inode)
+static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src, int normal_inode)
 {
-	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *)src;
+	struct hmfs_dentry_block *t = (struct hmfs_dentry_block *) src;
 
 	d->max = normal_inode ? NR_DENTRY_IN_BLOCK : NR_DENTRY_IN_INLINE_INODE;
 	d->bitmap = t->dentry_bitmap;

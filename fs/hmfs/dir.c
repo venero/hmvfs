@@ -86,8 +86,6 @@ struct hmfs_dentry_block *get_dentry_block_for_write(struct inode *dir,	int old_
 		return DENTRY_BLOCK(inode_block->inline_content);
 	}
 
-	if (dir->i_ino==4)
-		hmfs_dbg("%d\n",old_bidx);
 	return alloc_new_data_block(sbi, dir, old_bidx);
 }
 
@@ -484,8 +482,9 @@ static void hmfs_update_dentry(nid_t ino, umode_t mode, struct hmfs_dentry_ptr *
 	memcpy(d->filename[bit_pos], name->name, name->len);
 	de->ino = cpu_to_le32(ino);
 	set_de_type(de, mode);
-	for (i = 0; i < slots; i++)
+	for (i = 0; i < slots; i++) {
 		__set_bit_le(bit_pos + i, (void *)d->bitmap);
+	}
 }
 
 /*
@@ -508,8 +507,8 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name, struct inode *in
 	int err = 0;
 	struct hmfs_inode *inode_block;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	const unsigned char seg_type = HMFS_I(dir)->i_blk_type;
-	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	const uint8_t seg_type = HMFS_I(dir)->i_blk_type;
+	const uint8_t block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 
 	dentry_hash = hmfs_dentry_hash(name);
 
@@ -522,8 +521,7 @@ int __hmfs_add_link(struct inode *dir, const struct qstr *name, struct inode *in
 
 		/* Whether inline inode could save new dentry */
 		dentry_blk = DENTRY_BLOCK(inode_block->inline_content);
-		bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
-						NR_DENTRY_IN_INLINE_INODE);
+		bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots, NR_DENTRY_IN_INLINE_INODE);
 		if (bit_pos < NR_DENTRY_IN_INLINE_INODE) {
 			inode_block = alloc_new_node(sbi, dir->i_ino, dir, SUM_TYPE_INODE, false);
 			if (IS_ERR(inode_block)) {
@@ -570,15 +568,14 @@ start:
 			mark_size_dirty(dir, end_blk << block_size_bits);
 			goto add_dentry;
 		} else {
-			dentry_blk = get_data_block(inode, block);
+			dentry_blk = get_data_block(dir, block);
 			if (IS_ERR(dentry_blk))
 				return PTR_ERR(dentry_blk);
 			err = 0;
 
 			/* There may be a hole in data blocks */
 			if (dentry_blk)
-				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots,
-								NR_DENTRY_IN_BLOCK);
+				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots, NR_DENTRY_IN_BLOCK);
 			else 
 				bit_pos = 0;
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
@@ -606,8 +603,7 @@ add_dentry:
 		}
 	}
 	make_dentry_ptr(&d, (void *)dentry_blk, !is_inline_inode(dir));
-	hmfs_update_dentry(inode->i_ino, inode->i_mode, &d, name, dentry_hash,
-			bit_pos);
+	hmfs_update_dentry(inode->i_ino, inode->i_mode, &d, name, dentry_hash, bit_pos);
 
 	if (inode) {
 		/* we don't need to mark_inode_dirty now */
