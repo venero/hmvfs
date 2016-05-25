@@ -61,7 +61,7 @@ static struct inode *hmfs_new_inode(struct inode *dir, umode_t mode)
 	i_info = HMFS_I(inode);
 	i_info->i_pino = dir->i_ino;
 	inode->i_ino = ino;
-	inode->i_mode = mode | HMFS_DEF_FILE_MODE;
+	inode->i_mode = mode;
 	inode->i_blocks = 0;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
 	i_info->i_blk_type = calculate_data_block_type(dir, inode);
