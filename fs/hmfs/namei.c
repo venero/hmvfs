@@ -384,14 +384,11 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 	if (ia_valid & ATTR_GID)
 		inode->i_gid = attr->ia_gid;
 	if (ia_valid & ATTR_ATIME)
-		inode->i_atime = timespec_trunc(attr->ia_atime,
-								inode->i_sb->s_time_gran);
+		inode->i_atime = timespec_trunc(attr->ia_atime, inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MTIME)
-		inode->i_mtime = timespec_trunc(attr->ia_mtime,
-								inode->i_sb->s_time_gran);
+		inode->i_mtime = timespec_trunc(attr->ia_mtime, inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_CTIME)
-		inode->i_ctime = timespec_trunc(attr->ia_ctime,
-								inode->i_sb->s_time_gran);
+		inode->i_ctime = timespec_trunc(attr->ia_ctime, inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
@@ -429,11 +426,14 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	if (attr->ia_valid & ATTR_MODE) {
 		acl = hmfs_get_acl(inode, ACL_TYPE_ACCESS);
 		if (!acl || IS_ERR(acl)) {
-			err = PTR_ERR(acl);
-			goto out;
+			if (PTR_ERR(acl) != -ENODATA) {
+				err = PTR_ERR(acl);
+				goto out;
+			}
+		} else {
+			err = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
+			err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		}
-		err = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
-		err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		if (err || is_inode_flag_set(fi, FI_ACL_MODE)) {
 			inode->i_mode = fi->i_acl_mode;
 			clear_inode_flag(fi, FI_ACL_MODE);

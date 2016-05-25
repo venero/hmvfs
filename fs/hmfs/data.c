@@ -314,7 +314,6 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_inode *inode_block;
-	__le64 tag_value;
 	block_t src_addr, dst_addr;
 	void *src, *dst;
 	struct hmfs_summary *summary = NULL;
@@ -323,8 +322,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	if (IS_ERR(inode_block))
 		return inode_block;
 
-	tag_value = *((__le64 *)JUMP(inode_block, x_tag));
-	src_addr = le64_to_cpu(tag_value);
+	src_addr = le64_to_cpu(*((__le64 *)JUMP(inode_block, x_tag)));
 	src = ADDR(sbi, src_addr);
 	if (src_addr != 0) {
 		summary = get_summary_by_addr(sbi, src_addr);
@@ -346,6 +344,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 	}
 
 	dst = ADDR(sbi, dst_addr);
+	*((__le64 *)JUMP(inode_block, x_tag)) = cpu_to_le64(dst_addr);
 
 	if (need_copy && src_addr != 0)
 		hmfs_memcpy(dst, src, HMFS_BLOCK_SIZE[SEG_DATA_INDEX]);
