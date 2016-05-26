@@ -577,6 +577,8 @@ static void read_super_block(struct hmfs_sb_info *sbi, struct hmfs_super_block *
 	sbi->sb->s_xattr = hmfs_xattr_handlers;
 	sbi->sb->s_maxbytes = hmfs_max_file_size();
 	sbi->sb->s_flags |= MS_NOSEC;
+	sbi->sb->s_flags = (sbi->sb->s_flags & ~MS_POSIXACL) | 
+			(test_opt(sbi, POSIX_ACL) ? MS_POSIXACL : 0);
 }
 
 static int build_manager(struct hmfs_sb_info *sbi)

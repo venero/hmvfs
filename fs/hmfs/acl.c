@@ -114,9 +114,16 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 	int size;
 	int ofs_access, ofs_default, ofs_end;
 
+	if (!test_opt(HMFS_I_SB(inode), POSIX_ACL))
+		return NULL;
+	
+	acl = get_cached_acl(inode, type);
+	if (acl != ACL_NOT_CACHED)
+		return acl;
+
 	acl_header = get_acl_block(inode);
 	if (!acl_header)
-		return ERR_PTR(-ENODATA);
+		return NULL;
 	
 	if (acl_header->a_version != cpu_to_le32(HMFS_ACL_VERSION))
 		return ERR_PTR(-EINVAL);
@@ -170,19 +177,21 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl, in
 		return ERR_PTR(-ENOSPC);
 
 	init_acl_block(acl_header);
+	/* Skip sizeof(struct hmfs_acl_header) */
 	entry = ACL_ENTRY(acl_header + 1);
 
-	if (type == ACL_TYPE_ACCESS)
-		acl_header->acl_access_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
-	else if (type == ACL_TYPE_DEFAULT)
-		acl_header->acl_default_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
-
-	if (!src_header)
+	if (!src_header) {
+		if (type == ACL_TYPE_ACCESS)
+			acl_header->acl_access_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
+		else if (type == ACL_TYPE_DEFAULT)
+			acl_header->acl_default_ofs = cpu_to_le16(DISTANCE(acl_header, entry));
 		goto write;
-	
+	}
+
 	ofs_access = le16_to_cpu(src_header->acl_access_ofs);
 	ofs_default = le16_to_cpu(src_header->acl_default_ofs);
 	ofs_end = le16_to_cpu(src_header->acl_end);
+	
 	if (type == ACL_TYPE_ACCESS) {
 		if (ofs_default) {
 			cpy_size = ofs_access < ofs_default ? ofs_end - ofs_default :
@@ -287,8 +296,7 @@ int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	return 0;
 }
 
-static struct posix_acl *hmfs_acl_clone(const struct posix_acl *acl,
-				gfp_t flags)
+static struct posix_acl *hmfs_acl_clone(const struct posix_acl *acl, gfp_t flags)
 {
 	struct posix_acl *clone = NULL;
 	int size;
