@@ -431,8 +431,9 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 				goto out;
 			}
 		} else {
-			err = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
-			err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
+			err = posix_acl_chmod(&acl, GFP_KERNEL, fi->i_acl_mode);
+			if (!err)
+				err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		}
 		if (err || is_inode_flag_set(fi, FI_ACL_MODE)) {
 			inode->i_mode = fi->i_acl_mode;

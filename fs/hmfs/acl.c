@@ -210,6 +210,13 @@ static void *hmfs_write_acl(struct inode *inode, const struct posix_acl *acl, in
 	}
 
 write:
+	if (!acl) {
+		if (type == ACL_TYPE_ACCESS)
+			acl_header->acl_access_ofs = 0;
+		else if (type == ACL_TYPE_DEFAULT)
+			acl_header->acl_default_ofs = 0;
+		goto done;
+	}
 	for (i = 0; i < acl->a_count; i++) {
 		entry->e_tag = cpu_to_le16(acl->a_entries[i].e_tag);
 		entry->e_perm = cpu_to_le16(acl->a_entries[i].e_perm);
@@ -233,6 +240,7 @@ write:
 			goto fail;
 		}
 	}
+done:
 	acl_header->acl_end = le16_to_cpu(DISTANCE(acl_header, entry));
 	return (void *)acl_header;
 fail:
@@ -266,20 +274,17 @@ int hmfs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 		return -EINVAL;
 	}
 
-	error = 0;
-	if (acl) {
-		value = hmfs_write_acl(inode, acl, type);
-		if (IS_ERR(value)) {
-			clear_inode_flag(fi, FI_ACL_MODE);
-			return PTR_ERR(value);
-		}
+	value = hmfs_write_acl(inode, acl, type);
+	if (IS_ERR(value)) {
+		clear_inode_flag(fi, FI_ACL_MODE);
+		return PTR_ERR(value);
 	}
 
-	if (!error)
-		set_cached_acl(inode, type, acl);
+	set_cached_acl(inode, type, acl);
+	inode->i_ctime = CURRENT_TIME;
 
 	clear_inode_flag(fi, FI_ACL_MODE);
-	return error;
+	return 0;
 }
 
 static struct posix_acl *hmfs_acl_clone(const struct posix_acl *acl,
@@ -359,7 +364,7 @@ static int hmfs_acl_create(struct inode *dir, umode_t *mode,
 	*acl = NULL;
 	*default_acl = NULL;
 
-	if (S_ISLNK(*mode) || !IS_POSIXACL(dir))
+	if (S_ISLNK(*mode))
 		return 0;
 
 	p = hmfs_get_acl(dir, ACL_TYPE_DEFAULT);

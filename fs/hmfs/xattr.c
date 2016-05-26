@@ -367,6 +367,7 @@ static int hmfs_xattr_advise_set(struct dentry *dentry, const char *name,
 
 	inode_write_lock(inode);
 	HMFS_I(inode)->i_advise = *(char *)value;
+	inode->i_ctime = CURRENT_TIME;
 	inode_write_unlock(inode);
 	mark_inode_dirty(inode);
 	return 0;
