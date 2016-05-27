@@ -391,7 +391,6 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 		inode->i_ctime = timespec_trunc(attr->ia_ctime, inode->i_sb->s_time_gran);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
-		hmfs_dbg("%x\n",mode);
 		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
 			mode &= ~S_ISGID;
 		set_acl_inode(HMFS_I(inode), mode);
@@ -425,23 +424,18 @@ int hmfs_setattr(struct dentry *dentry, struct iattr *attr)
 	__setattr_copy(inode, attr);
 
 	if (attr->ia_valid & ATTR_MODE) {
-			hmfs_dbg("\n");
 		acl = hmfs_get_acl(inode, ACL_TYPE_ACCESS);
 		if (acl && !IS_ERR(acl)) {
-			hmfs_dbg("\n");
 			err = posix_acl_chmod(&acl, GFP_KERNEL, fi->i_acl_mode);
 			if (!err)
 				err = hmfs_set_acl(inode, acl, ACL_TYPE_ACCESS);
 		}
-			hmfs_dbg("\n");
 		if (err || is_inode_flag_set(fi, FI_ACL_MODE)) {
-			hmfs_dbg("\n");
 			inode->i_mode = fi->i_acl_mode;
 			clear_inode_flag(fi, FI_ACL_MODE);
 		}
 	}
 
-out:
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 	mark_inode_dirty(inode);
