@@ -227,6 +227,9 @@ write:
 		goto done;
 	}
 	for (i = 0; i < acl->a_count; i++) {
+		if (DISTANCE(acl_header, entry) + ACL_ENTRY_SIZE > HMFS_BLOCK_SIZE[SEG_DATA_INDEX]) {
+			goto done;
+		}
 		entry->e_tag = cpu_to_le16(acl->a_entries[i].e_tag);
 		entry->e_perm = cpu_to_le16(acl->a_entries[i].e_perm);
 
