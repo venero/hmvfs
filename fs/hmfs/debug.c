@@ -401,7 +401,7 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 					le64_to_cpu(cp->valid_block_count));
 
 		for (i = 0; i < sbi->nr_page_types; i++) {
-			len += hmfs_print(si, 1, "current segment (%d)[%lu, %lu]", i,
+			len += hmfs_print(si, 1, "current segment (%d)[%lu, %lu]\n", i,
 						le32_to_cpu(cp->cur_segno[i]), le32_to_cpu(cp->cur_blkoff[i]));
 		}
 		len += hmfs_print(si, 1, "prev_cp_addr: %x\n",
