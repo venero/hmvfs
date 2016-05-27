@@ -124,17 +124,8 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 
 void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 {
-	struct hmfs_nm_info *nm_i = NM_I(sbi);
-
-	lock_free_nid(nm_i);
-	/*
-	 * here, we have lost free bit of nid, therefore, we set
-	 * free bit of nid for every nid which is fail in
-	 * allocation
-	 */
-	nm_i->free_nids[nm_i->fcnt].nid = make_free_nid(nid, 1);
-	nm_i->fcnt++;
-	unlock_free_nid(nm_i);
+	/* Treat as deleted nid, which will be collected in scan_delete_nid */
+	update_nat_entry(NM_I(sbi), nid, nid, 0, true);
 }
 
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
@@ -486,14 +477,16 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 
 	/* search in nat cache */
+	lock_read_nat(nm_i);
 	e = __lookup_nat_cache(nm_i, nid);
 	if (e) {
-		lock_read_nat(nm_i);
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
 		unlock_read_nat(nm_i);
 		return 0;
 	}
+	unlock_read_nat(nm_i);
+	/* Search free nid */
 
 	/* search in main area */
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
@@ -657,8 +650,7 @@ static int build_free_nids(struct hmfs_sb_info *sbi)
 		return BUILD_FREE_NID_COUNT;
 
 	while (pos >= 0 && nid < nm_i->max_nid) {
-		nat_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version,
-							nid);
+		nat_block = get_nat_entry_block(sbi, CM_I(sbi)->last_cp_i->version, nid);
 		nid = scan_nat_block(sbi, nat_block, nid, &pos);
 	}
 
@@ -692,6 +684,7 @@ retry:
 		nm_i->fcnt--;
 		*nid = get_free_nid(nm_i->free_nids[nm_i->fcnt].nid);
 		unlock_free_nid(nm_i);
+		update_nat_entry(nm_i, *nid, *nid, 0, true);
 		return true;
 	}
 	unlock_free_nid(nm_i);
