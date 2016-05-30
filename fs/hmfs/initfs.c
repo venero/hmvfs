@@ -38,6 +38,7 @@ static block_t mk_metadata(struct hmfs_sb_info *sbi, block_t *nofs, block_t *dof
 	block_t end_ofs, area_ofs;
 	pgc_t nr_main_segments, nr_ssa_pages;
 
+	memset(sbi->virt_addr, 0, initsize);
 	sbi->max_page_size_bits = hmfs_max_page_size_bits(initsize);
 	segment_sz = 1 << calculate_segment_size_bits(sbi->max_page_size_bits);
 	end_ofs = initsize & (~(segment_sz - 1));
