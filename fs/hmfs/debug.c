@@ -23,7 +23,12 @@
 			"    help  --   show this usage.\n" \
 			"=========================================\n"
 
-#define USAGE_CP	"cp"
+#define USAGE_CP	"cp\n"\
+     "cp c    [<d>]  -- dump current checkpoint info.\n"\
+     "cp <n>  [<d>]  -- dump the n-th checkpoint info on NVM, 0 is the last one.\n"\
+     "cp a    [<d>]  -- dump whole checkpoint list on NVM.\n"\
+     "cp d	<n>    [<d>]  -- delete the n-th checkpoint\n"\
+     "cp             -- print this usage.\n"
 
 #define USAGE_SSA	"=============== SSA USAGE ==============\n"\
       			" `ssa <idx1> <idx2>`\n"\
@@ -493,6 +498,10 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 	} else if ('a' == opt[0]) {
 		hmfs_print(si, 1, "======Total checkpoints info======\n");
 		len = print_cp_all(sbi, detail);
+	} else if ('d' == opt[0]) {
+		ver_t v = simple_strtoull((const char *)argv[2], NULL, 0);
+		detail = delete_checkpoint(sbi, v);
+		len = hmfs_print(si, 0, "Delete checkpoint %d: done\n", v);
 	} else {
 		unsigned long long n = simple_strtoull(opt, NULL, 0);
 		hmfs_print(si, 1, "======%luth checkpoint info======\n", n);
