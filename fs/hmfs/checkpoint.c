@@ -360,8 +360,7 @@ retry:
 			sync_checkpoint_info(sbi, hmfs_cp, entry);
 
 			list_add(&entry->list, &cm_i->last_cp_i->list);
-			radix_tree_insert(&cm_i->cp_tree_root, entry->version,
-					entry);
+			radix_tree_insert(&cm_i->cp_tree_root, entry->version, entry);
 			cp_i = entry;
 			if (cp_i->version == version || (no_fail && cp_i->version > version))
 				break;
@@ -915,8 +914,7 @@ delete:
 			if (!*cur_child)
 				continue;
 			cur_node = ADDR(sbi, le64_to_cpu(*cur_child));
-			next_node = next_child ? ADDR(sbi, le64_to_cpu(*next_child)) 
-					: NULL;
+			next_node = next_child ? ADDR(sbi, le64_to_cpu(*next_child)) : NULL;
 			__delete_checkpoint(sbi, cur_node, next_node, prev_ver, next_ver);
 		}
 		return 0;
@@ -934,10 +932,8 @@ delete:
 			if (!cur_entry->ino)
 				continue;
 			cur_child = ADDR(sbi, le64_to_cpu(cur_entry->block_addr));
-			next_child = next_entry ? 
-					ADDR(sbi, le64_to_cpu(next_entry->block_addr)) : NULL;
-			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
-					next_ver);
+			next_child = next_entry ? ADDR(sbi, le64_to_cpu(next_entry->block_addr)) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		return 0;
 	}
@@ -963,10 +959,8 @@ delete:
 			if (!xaddr)
 				continue;
 			cur_child = ADDR(sbi, xaddr);
-			next_child = next_node ? 
-					ADDR(sbi, XBLOCK_ADDR(next_inode, xblock_tags[i])) : NULL;
-			__delete_checkpoint(sbi, cur_child, next_child, prev_ver,
-					next_ver);
+			next_child = next_node ? ADDR(sbi, XBLOCK_ADDR(next_inode, xblock_tags[i])) : NULL;
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		
 		/* Delete data blocks */
@@ -978,11 +972,10 @@ delete:
 				continue;
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
 			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
-			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, 
-					next_ver);
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
-
 		/* We don't need to handle nid. Because they are in NAT entry block, too */
+		return 0;
 	}
 	
 	case SUM_TYPE_DN: {
@@ -1003,14 +996,12 @@ delete:
 		
 		cur_db = cur_dn->addr;
 		next_db = next_node ? next_dn->addr : NULL;
-		for (i = 0; i < ADDRS_PER_BLOCK; i++, cur_db++,
-				next_db = next_db ? next_db + 1 : NULL) {
+		for (i = 0; i < ADDRS_PER_BLOCK; i++, cur_db++,	next_db = next_db ? next_db + 1 : NULL) {
 			if (!*cur_db)
 				continue;
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
 			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
-			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, 
-					next_ver);
+			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		return 0;
 	}

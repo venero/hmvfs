@@ -484,6 +484,7 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 	size_t len = 0;
 	int detail = 1;
 
+	hmfs_dbg("\n");
 	if (args >= 3 && '0' == argv[2][0])
 		detail = 0;
 	if ('c' == opt[0]) {
