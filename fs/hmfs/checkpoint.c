@@ -1054,9 +1054,11 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 	}
 
 	if (cur_cp == last_cp) {
-		/* We want to delete the newest checkpoint */
-		next_root = NULL;
-		next_ver = HMFS_DEF_DEAD_VER;
+		/* It is not allowed to delete the newest checkpoint */
+		hmfs_dbg("It's not allowed to delete the newest checkpoint\n");
+		return -EINVAL;
+		// next_root = NULL;
+		// next_ver = HMFS_DEF_DEAD_VER;
 	} else {
 		next_root = ADDR(sbi, le64_to_cpu(next_cp->nat_addr));
 		next_ver = le32_to_cpu(next_cp->checkpoint_ver);
