@@ -303,8 +303,7 @@ retry:
 		sync_checkpoint_info(sbi, next_cp, next_cp_i);
 		//TODO: sort cp_i according to version
 		list_add(&next_cp_i->list, &cm_i->last_cp_i->list);
-		radix_tree_insert(&cm_i->cp_tree_root, next_cp_i->version,
-				next_cp_i);
+		radix_tree_insert(&cm_i->cp_tree_root, next_cp_i->version, next_cp_i);
 	}
 	return next_cp_i;
 }
@@ -349,18 +348,22 @@ struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *sbi,
 			next_addr = le64_to_cpu(cp_i->cp->next_cp_addr);
 
 			hmfs_cp = ADDR(sbi, next_addr);
-retry:
-			entry = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+			entry = radix_tree_lookup(&cm_i->cp_tree_root, le32_to_cpu(hmfs_cp->checkpoint_ver));
 
 			if (!entry) {
-				cond_resched();
-				goto retry;
+retry:
+				entry = kmem_cache_alloc(cp_info_entry_slab, GFP_KERNEL);
+
+				if (!entry) {
+					cond_resched();
+					goto retry;
+				}
+
+				sync_checkpoint_info(sbi, hmfs_cp, entry);
+
+				list_add(&entry->list, &cm_i->last_cp_i->list);
+				radix_tree_insert(&cm_i->cp_tree_root, entry->version, entry);
 			}
-
-			sync_checkpoint_info(sbi, hmfs_cp, entry);
-
-			list_add(&entry->list, &cm_i->last_cp_i->list);
-			radix_tree_insert(&cm_i->cp_tree_root, entry->version, entry);
 			cp_i = entry;
 			if (cp_i->version == version || (no_fail && cp_i->version > version))
 				break;
@@ -752,10 +755,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	set_summary_valid_bit(summary);
 
 	/* 6. connect to super */
-	hmfs_memcpy_atomic(&prev_cp->next_cp_addr, 
-			&cur_cp_addr, 8);
-	hmfs_memcpy_atomic(&next_cp->prev_cp_addr,
-			&cur_cp_addr, 8);
+	hmfs_memcpy_atomic(&prev_cp->next_cp_addr, &cur_cp_addr, 8);
+	hmfs_memcpy_atomic(&next_cp->prev_cp_addr,&cur_cp_addr, 8);
 	hmfs_memcpy_atomic(&raw_super->cp_page_addr, &cur_cp_addr, 8);
 	sb_checksum = hmfs_make_checksum(raw_super);
 
@@ -1062,8 +1063,7 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 	set_fs_state_arg(last_cp, cur_addr);
 
 	cur_root = ADDR(sbi, le64_to_cpu(cur_cp->nat_addr));
-	ret = __delete_checkpoint(sbi, cur_root, next_root,
-				prev_ver, next_ver);
+	ret = __delete_checkpoint(sbi, cur_root, next_root,	prev_ver, next_ver);
 
 	/* Delete orphan blocks */
 	for (i = 0; i < NUM_ORPHAN_BLOCKS; i++) {
@@ -1094,8 +1094,7 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 		raw_super->cp_page_addr = cpu_to_le64(L_ADDR(sbi, prev_cp));
 		raw_super->checksum = cpu_to_le16(hmfs_make_checksum(raw_super));
 		raw_super = next_super_block(raw_super);
-		hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), 
-				sizeof(struct hmfs_super_block));
+		hmfs_memcpy(raw_super, HMFS_RAW_SUPER(sbi), sizeof(struct hmfs_super_block));
 	}
 
 	return 0;

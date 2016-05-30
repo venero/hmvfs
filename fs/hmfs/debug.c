@@ -489,7 +489,6 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 	size_t len = 0;
 	int detail = 1;
 
-	hmfs_dbg("\n");
 	if (args >= 3 && '0' == argv[2][0])
 		detail = 0;
 	if ('c' == opt[0]) {
@@ -499,9 +498,13 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 		hmfs_print(si, 1, "======Total checkpoints info======\n");
 		len = print_cp_all(sbi, detail);
 	} else if ('d' == opt[0]) {
-		ver_t v = simple_strtoull((const char *)argv[2], NULL, 0);
-		detail = delete_checkpoint(sbi, v);
-		len = hmfs_print(si, 0, "Delete checkpoint %d: done\n", v);
+		if (hmfs_readonly(sbi->sb))
+			len = hmfs_print(si, 0, "Readonly\n");
+		else {
+			ver_t v = simple_strtoull((const char *)argv[2], NULL, 0);
+			detail = delete_checkpoint(sbi, v);
+			len = hmfs_print(si, 0, "Delete checkpoint %d: %d\n", v, detail);
+		}
 	} else {
 		unsigned long long n = simple_strtoull(opt, NULL, 0);
 		hmfs_print(si, 1, "======%luth checkpoint info======\n", n);
