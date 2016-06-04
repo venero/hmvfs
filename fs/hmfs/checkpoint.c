@@ -881,12 +881,6 @@ static int __delete_checkpoint(struct hmfs_sb_info *sbi, void *cur_node,
 
 	next_sum = get_summary_by_addr(sbi, L_ADDR(sbi, next_node));
 	next_node_ver = get_summary_start_version(next_sum);
-	{
-		block_t check_addr = L_ADDR(sbi, cur_node);
-		//hmfs_dbg("[%d %d](%d)\n", GET_SEGNO(sbi, check_addr), GET_SEG_OFS(sbi, check_addr), get_summary_type(cur_sum));
-		check_addr = L_ADDR(sbi, next_node);
-		//hmfs_dbg("[%d %d](%d)\n", GET_SEGNO(sbi, check_addr), GET_SEG_OFS(sbi, check_addr), get_summary_type(next_sum));
-	}
 
 	/* this block is COW */
 	if (cur_node_ver != next_node_ver) {
@@ -920,9 +914,8 @@ delete:
 				next_child = next_child ? next_child + 1 : NULL) {
 			if (!*cur_child)
 				continue;
-		//	hmfs_dbg("Check NATN:%d\n", i);
 			cur_node = ADDR(sbi, le64_to_cpu(*cur_child));
-			next_node = *next_child ? ADDR(sbi, le64_to_cpu(*next_child)) : NULL;
+			next_node = next_child && *next_child ? ADDR(sbi, le64_to_cpu(*next_child)) : NULL;
 			__delete_checkpoint(sbi, cur_node, next_node, prev_ver, next_ver);
 		}
 		return 0;
@@ -937,12 +930,12 @@ delete:
 
 		for (i = 0; i < NAT_ENTRY_PER_BLOCK; i++, cur_entry++,
 				next_entry = next_entry ? next_entry + 1 : NULL) {
-			if (!cur_entry->ino)
+			if (!cur_entry->ino || !cur_entry->block_addr)
 				continue;
-		//	hmfs_dbg("Check NATD:%d\n", i);
 			cur_child = ADDR(sbi, le64_to_cpu(cur_entry->block_addr));
-			next_child = next_entry->block_addr ? ADDR(sbi, le64_to_cpu(next_entry->block_addr))
-					: NULL;
+			hmfs_bug_on(sbi, !next_entry);
+			next_child = next_entry && next_entry->block_addr ? 
+					ADDR(sbi, le64_to_cpu(next_entry->block_addr)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		return 0;
@@ -981,8 +974,7 @@ delete:
 			if (!*cur_db)
 				continue;
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
-			next_child = *next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
-		//	hmfs_dbg("Check INODE:%d[%d %d]\n", i,*cur_db,*next_db);
+			next_child = next_db && *next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		/* We don't need to handle nid. Because they are in NAT entry block, too */
@@ -1010,9 +1002,8 @@ delete:
 		for (i = 0; i < ADDRS_PER_BLOCK; i++, cur_db++,	next_db = next_db ? next_db + 1 : NULL) {
 			if (!*cur_db)
 				continue;
-		//	hmfs_dbg("Check DN:%d\n", i);
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
-			next_child = *next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
+			next_child = next_db && *next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
 		}
 		return 0;
