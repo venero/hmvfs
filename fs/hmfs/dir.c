@@ -809,7 +809,8 @@ static int hmfs_readdir(struct file *file, struct dir_context *ctx)
 
 	for (; n < npages; n++) {
 		if (buf_index >= buf_size) {
-			err = get_data_blocks_ahead(inode, n, npages, blocks_buf);
+			uint64_t end_id = n + buf_size < npages ? n + buf_size : npages;
+			err = get_data_blocks_ahead(inode, n, end_id, blocks_buf);
 			if (err)
 				goto stop;
 			buf_index = 0;
