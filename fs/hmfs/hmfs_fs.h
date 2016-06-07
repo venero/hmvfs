@@ -486,8 +486,7 @@ static inline void set_fs_state(struct hmfs_checkpoint *hmfs_cp, u8 state)
 	hmfs_memcpy_atomic(&hmfs_cp->state, &state, 1);
 }
 
-static inline struct hmfs_super_block *next_super_block(
-				struct hmfs_super_block *raw_super)
+static inline struct hmfs_super_block *next_super_block(struct hmfs_super_block *raw_super)
 {
 	unsigned int size = sizeof(struct hmfs_super_block);
 
@@ -495,6 +494,13 @@ static inline struct hmfs_super_block *next_super_block(
 	raw_super = HMFS_SUPER_BLOCK(((char *)raw_super) + size);
 
 	return raw_super;
+}
+
+static inline block_t read_address(void *node_block, uint16_t ofs_in_node,	bool is_inode)
+{
+	if (is_inode)
+		return le64_to_cpu(HMFS_INODE(node_block)->i_addr[ofs_in_node]);
+	return le64_to_cpu(DIRECT_NODE(node_block)->addr[ofs_in_node]);
 }
 
 #endif /* _LINUX_HMFS_FS_H */

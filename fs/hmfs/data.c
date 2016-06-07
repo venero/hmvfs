@@ -174,7 +174,6 @@ void *get_data_block(struct inode *inode, int64_t index)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct db_info di;
-	block_t addr;
 	int err;
 
 	di.inode = inode;
@@ -182,11 +181,7 @@ void *get_data_block(struct inode *inode, int64_t index)
 	if (err) 
 		return ERR_PTR(err);
 
-	if (di.local)
-		addr = le64_to_cpu(HMFS_INODE(di.node_block)->i_addr[di.ofs_in_node]);
-	else
-		addr = le64_to_cpu(DIRECT_NODE(di.node_block)->addr[di.ofs_in_node]);
-	return ADDR(sbi, addr);
+	return ADDR(sbi, read_address(di.node_block, di.ofs_in_node, di.local));
 }
 
 /* Caller should restrict value of end within size of inode */
@@ -214,11 +209,8 @@ int get_data_blocks_ahead(struct inode *inode, int64_t start, int64_t end,
 			*blocks++ = NULL;
 		else {
 			block_t addr;
-			if (di.local)
-				addr = le64_to_cpu(HMFS_INODE(di.node_block)->i_addr[di.ofs_in_node]);
-			else
-				addr = le64_to_cpu(DIRECT_NODE(di.node_block)->addr[di.ofs_in_node]);
-			*blocks++ = ADDR(sbi, addr);
+			addr = read_address(di.node_block, di.ofs_in_node++, di.local);
+			*blocks++ = addr ? ADDR(sbi, addr) : NULL;
 		}
 		start++;
 	}
@@ -244,10 +236,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	hn = di.node_block;
 
-	if (di.local)
-		src_addr = le64_to_cpu(hn->i.i_addr[di.ofs_in_node]);
-	else
-		src_addr = le64_to_cpu(hn->dn.addr[di.ofs_in_node]);
+	src_addr = read_address(hn, di.ofs_in_node, di.local);
 
 	if (src_addr != 0) {
 		src = ADDR(sbi, src_addr);
