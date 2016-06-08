@@ -306,7 +306,7 @@ alloc_log:
 	lock_allocator(allocator);
 	
 	if (allocator->next_blkoff == SM_I(sbi)->page_4k_per_seg) {
-		if (allocator->mode & ALLOC_LOG) {
+		if ((allocator->mode & ALLOC_LOG) && sbi->gc_thread) {
 			allocator->mode = ALLOC_BUF;
 			unlock_allocator(allocator);
 			goto alloc_buf;

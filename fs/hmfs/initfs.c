@@ -186,7 +186,8 @@ static void init_sb(struct hmfs_sb_info *sbi, uint64_t cp_ofs)
 	set_struct(super, nat_height, hmfs_get_nat_height(sbi->initsize));
 
 	nr_main_segs = (end_ofs - main_ofs) >> segment_sz_bits;
-	nr_user_blks = div64_u64(nr_main_segs * (100 - DEF_OP_SEGMENTS), 100) << segment_sz_bits;
+	nr_user_blks = div64_u64(nr_main_segs * (100 - DEF_OP_SEGMENTS), 100) 
+			<< (segment_sz_bits - HMFS_MIN_PAGE_SIZE_BITS);
 	set_struct(super, segment_count_main, nr_main_segs);
 	set_struct(super, init_size, sbi->initsize);
 	set_struct(super, segment_count, sbi->initsize >> segment_sz_bits);
