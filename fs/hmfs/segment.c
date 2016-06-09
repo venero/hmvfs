@@ -194,7 +194,7 @@ static void reset_curseg(struct allocator *allocator)
 //TODO:check blkoff
 inline block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t blkoff)
 {
-	return (segno << SM_I(sbi)->segment_size_bits) + (blkoff << HMFS_MIN_PAGE_SIZE_BITS)
+	return ((uint64_t)segno << SM_I(sbi)->segment_size_bits) + (blkoff << HMFS_MIN_PAGE_SIZE_BITS)
 				+ sbi->main_addr_start;
 }
 

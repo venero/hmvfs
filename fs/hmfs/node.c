@@ -301,6 +301,7 @@ int truncate_inode_blocks(struct inode *inode, loff_t from)
 		err = truncate_data_blocks_range(&di, NORMAL_ADDRS_PER_INODE - di.ofs_in_node);
 		if (err < 0 && err != -ENODATA)
 			goto fail;
+		start = NORMAL_ADDRS_PER_INODE;
 	}
 
 	start -= NORMAL_ADDRS_PER_INODE;

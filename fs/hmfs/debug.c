@@ -870,6 +870,8 @@ static int hmfs_print_inode(struct hmfs_sb_info *sbi, int args,	char argv[][MAX_
 			len += hmfs_print(si, 1, "name:%s\n", hn->i.i_name);
 			len += hmfs_print(si, 1, "block type:%d %d\n", hn->i.i_blk_type, 
 						HMFS_BLOCK_SIZE[hn->i.i_blk_type]);
+			len += hmfs_print(si, 1, "height: %d\n", hn->i.i_height);
+			len += hmfs_print(si, 1, "nid: %d\n", hn->i.i_nid);
 			for (i = 0; i < NORMAL_ADDRS_PER_INODE; i++) {
 				addr = le64_to_cpu(hn->i.i_addr[i]);
 				len += hmfs_print(si, 1, "i_addr[%d]:%lu(%d %d)\n", i, addr,

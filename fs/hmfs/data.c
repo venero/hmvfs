@@ -273,6 +273,7 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	summary = get_summary_by_addr(sbi, new_addr);
 	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
+
 	return dest;
 }
 
