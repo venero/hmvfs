@@ -49,7 +49,7 @@
 static LIST_HEAD(hmfs_stat_list);
 static struct dentry *debugfs_root;
 
-static int hmfs_dispatch_cmd(struct hmfs_sb_info *, const char *cmd, int len);
+static int hmfs_dispatch_cmd(struct hmfs_sb_info *, const char *cmd);
 
 void update_nat_stat(struct hmfs_sb_info *sbi, int flush_count)
 {
@@ -209,13 +209,15 @@ static int info_open(struct inode *inode, struct file *file)
 }
 
 static ssize_t info_read(struct file *file, char __user * buffer, size_t count,
-			 loff_t * ppos)
+			 loff_t *ppos)
 {
 	struct inode *inode = file->f_inode;
 	struct hmfs_stat_info *si = inode->i_private;
 
 	if (!si)
 		return 0;
+	if (!*ppos)
+		hmfs_dispatch_cmd(si->sbi, si->cmd);
 
 	if (*ppos >= si->buf_size)
 		return 0;
@@ -234,7 +236,6 @@ static ssize_t info_read(struct file *file, char __user * buffer, size_t count,
 static ssize_t info_write(struct file *file, const char __user * buffer,
 			  size_t count, loff_t * ppos)
 {
-	char cmd[MAX_CMD_LEN + 1] = { 0 };
 	struct inode *inode = file->f_inode;
 	struct hmfs_stat_info *si = inode->i_private;
 
@@ -247,9 +248,8 @@ static ssize_t info_write(struct file *file, const char __user * buffer,
 	if (*ppos + count > MAX_CMD_LEN + 1)
 		return -EFAULT;	//cmd buffer overflow
 
-	if (copy_from_user(cmd, buffer, count))
+	if (copy_from_user(si->cmd, buffer, count))
 		return -EFAULT;
-	hmfs_dispatch_cmd(si->sbi, cmd, count);
 
 	*ppos += count;
 	return count;
@@ -272,6 +272,11 @@ static int hmfs_build_info(struct hmfs_sb_info *sbi, size_t c)
 
 	if (!si->buffer)
 		return -ENOMEM;
+	si->cmd = kzalloc(sizeof(char) * MAX_CMD_LEN, GFP_KERNEL);
+	if (!si->cmd) {
+		kfree(si->buffer);
+		return -ENOMEM;
+	}
 	return 0;
 }
 
@@ -282,7 +287,9 @@ static void hmfs_destroy_info(struct hmfs_sb_info *sbi)
 	si->buf_size = 0;
 	si->buf_capacity = 0;
 	kfree(si->buffer);
+	kfree(si->cmd);
 	si->buffer = NULL;
+	si->cmd = NULL;
 }
 
 int hmfs_build_stats(struct hmfs_sb_info *sbi)
@@ -901,12 +908,13 @@ out:
  * RETURN VALUE:
  * 	success with the length of written file buffer, else -EFAULT;
  */
-static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd, int len)
+static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd)
 {
 
 	int args, res = 0;
 	char argv[MAX_ARG_NUM][MAX_ARG_LEN + 1];
 	struct hmfs_stat_info *si = STAT_I(sbi);
+	int len = strnlen(cmd, MAX_CMD_LEN);
 
 	args = hmfs_parse_cmd(cmd, len, argv);
 	if (args <= 0) {

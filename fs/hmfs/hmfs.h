@@ -273,6 +273,7 @@ struct hmfs_stat_info {
 	unsigned long flush_nat_time;
 
 	char *buffer;			/* buffer for info */
+	char *cmd;
 	int buf_capacity;		/* max size of buffer */
 	int buf_size;
 	struct dentry *root_dir;
