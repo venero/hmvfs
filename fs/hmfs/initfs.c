@@ -268,7 +268,7 @@ enum {
 	Opt_mode,
 	Opt_uid,
 	Opt_gid,
-	Opt_bg_gc,
+	Opt_gc,
 	Opt_gc_min_time,
 	Opt_gc_max_time,
 	Opt_gc_time_step,
@@ -286,7 +286,7 @@ static const match_table_t tokens = {
 	{Opt_mode, "mode=%o"},
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
-	{Opt_bg_gc, "bg_gc=%u"},
+	{Opt_gc, "gc=%u"},
 	{Opt_gc_min_time, "gc_min_time=%u"},
 	{Opt_gc_max_time, "gc_max_time=%u"},
 	{Opt_gc_time_step, "gc_time_step=%u"},
@@ -365,11 +365,11 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi, bool remo
 			if (option)
 				set_opt(sbi, INLINE_DATA);
 			break;
-		case Opt_bg_gc:
+		case Opt_gc:
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			if (option)
-				set_opt(sbi, BG_GC);
+				set_opt(sbi, GC);
 			break;
 		case Opt_gc_min_time:
 			if (match_int(&args[0], &option))
@@ -609,7 +609,7 @@ static int build_manager(struct hmfs_sb_info *sbi)
 	if (retval)
 		goto free_segment_mgr;
 
-	if (test_opt(sbi, BG_GC) && !hmfs_readonly(sbi->sb)) {
+	if (test_opt(sbi, GC) && !hmfs_readonly(sbi->sb)) {
 		/* start gc kthread */
 		retval = start_gc_thread(sbi);
 		if (retval)

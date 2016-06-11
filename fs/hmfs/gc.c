@@ -673,7 +673,7 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 
 	hmfs_dbg("Enter GC\n");
 	INC_GC_TRY(STAT_I(sbi));
-	if (!(sbi->sb->s_flags & MS_ACTIVE))
+	if (!(sbi->sb->s_flags & MS_ACTIVE) || !test_opt(sbi, GC))
 		goto out;
 
 	if (hmfs_cp->state == HMFS_NONE)

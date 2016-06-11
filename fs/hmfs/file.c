@@ -983,24 +983,24 @@ static int hmfs_get_mmap_block(struct inode *inode, pgoff_t index,
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	block_t data_block_addr;
 
-	if (vm_type & VM_WRITE) {
+//	if (vm_type & VM_WRITE) {
 		data_block = alloc_new_data_block(sbi, inode, index);
 		if (IS_ERR(data_block))
 			return PTR_ERR(data_block);
-	} else {
+/*	} else {
 		hmfs_bug_on(sbi, !(vm_type & VM_READ));
 		data_block = get_data_block(inode, index);
 
 		if (IS_ERR(data_block) && PTR_ERR(data_block) != -ENODATA)
 			return PTR_ERR(data_block);
-
+*/
 		/* A hole in file */
-		if (IS_ERR(data_block)) {
+/*		if (IS_ERR(data_block)) {
 			*pfn = sbi->map_zero_page_number;
 			goto out;
 		}
 	}
-	data_block_addr = L_ADDR(sbi, data_block);
+*/	data_block_addr = L_ADDR(sbi, data_block);
 	*pfn = (sbi->phys_addr + data_block_addr) >> PAGE_SHIFT;
 out:
 	return 0;
@@ -1107,27 +1107,32 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	int err = 0;
 
 	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
-	if (offset >= size)
+	if (offset >= size) {
 		return VM_FAULT_SIGBUS;
+	}
 
 	inode_write_lock(inode);
 	err = hmfs_get_mmap_block(inode, offset, &pfn, vma->vm_flags);
 	inode_write_unlock(inode);
-	if (unlikely(err))
+	if (unlikely(err)) {
 		return VM_FAULT_SIGBUS;
+	}
 
+/*
 	err = add_mmap_block(sbi, vma->vm_mm, (unsigned long)vmf->virtual_address,
 				vmf->pgoff);
 	if (err)
 		return VM_FAULT_SIGBUS;
-
+*/
 	err = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address, pfn);
 
-	if (err == -ENOMEM)
+	if (err == -ENOMEM) {
 		return VM_FAULT_SIGBUS;
+	}
 
-	if (err != -EBUSY)
+	if (err != -EBUSY) {
 		hmfs_bug_on(HMFS_I_SB(inode), err);
+	}
 
 	return VM_FAULT_NOPAGE;
 }

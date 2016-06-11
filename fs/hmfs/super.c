@@ -173,8 +173,7 @@ static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	struct hmfs_sb_info *sbi = HMFS_SB(dentry->d_sb);
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 	struct free_segmap_info *free_i = FREE_I(sbi);
-	pgc_t nr_user_segment = cm_i->user_block_count >> SM_I(sbi)->page_4k_per_seg_bits;
-	pgc_t nr_segment_reserve = sbi->segment_count_main - nr_user_segment;
+	pgc_t nr_segment_reserve = SM_I(sbi)->ovp_segments;
 
 	hmfs_bug_on(sbi, nr_segment_reserve < 0);
 
