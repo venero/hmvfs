@@ -136,15 +136,17 @@ struct posix_acl *hmfs_get_acl(struct inode *inode, int type)
 			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_access_ofs));
 			size = ofs_access < ofs_default ? ofs_default - ofs_access :
 						ofs_end - ofs_access;
-		} else
+		} else {
 			return ERR_PTR(-ENODATA);
+		}
 	} else if (type == ACL_TYPE_DEFAULT) {
 		if (acl_header->acl_default_ofs) {
 			entry = JUMP(acl_header, le16_to_cpu(acl_header->acl_default_ofs));
 			size = ofs_access < ofs_default ? ofs_end - ofs_default :
 						ofs_access - ofs_default;
-		} else
+		} else {
 			return ERR_PTR(-ENODATA);
+		}
 	} else
 		return ERR_PTR(-EINVAL);
 
@@ -480,8 +482,9 @@ int hmfs_acl_xattr_get(struct dentry *dentry, const char *name, void *buffer,
 	inode_read_unlock(dentry->d_inode);
 	if (IS_ERR(acl))
 		return PTR_ERR(acl);
-	if (acl == NULL)
+	if (acl == NULL) {
 		return -ENODATA;
+	}
 	error = posix_acl_to_xattr(&init_user_ns, acl, buffer, size);
 	posix_acl_release(acl);
 

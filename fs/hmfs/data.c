@@ -174,6 +174,7 @@ void *get_data_block(struct inode *inode, int64_t index)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct db_info di;
+	block_t addr;
 	int err;
 
 	di.inode = inode;
@@ -181,7 +182,10 @@ void *get_data_block(struct inode *inode, int64_t index)
 	if (err) 
 		return ERR_PTR(err);
 
-	return ADDR(sbi, read_address(di.node_block, di.ofs_in_node, di.local));
+	addr = read_address(di.node_block, di.ofs_in_node, di.local);
+	if (!addr)
+		return ERR_PTR(-ENODATA);
+	return ADDR(sbi, addr);
 }
 
 /* Caller should restrict value of end within size of inode */

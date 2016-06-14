@@ -569,15 +569,14 @@ start:
 			goto add_dentry;
 		} else {
 			dentry_blk = get_data_block(dir, block);
-			if (IS_ERR(dentry_blk))
-				return PTR_ERR(dentry_blk);
 			err = 0;
 
 			/* There may be a hole in data blocks */
-			if (dentry_blk)
-				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots, NR_DENTRY_IN_BLOCK);
-			else 
+			if (IS_ERR(dentry_blk))
 				bit_pos = 0;
+			else
+				bit_pos = room_for_filename(dentry_blk->dentry_bitmap, slots, NR_DENTRY_IN_BLOCK);
+
 			if (bit_pos < NR_DENTRY_IN_BLOCK) {
 				dentry_blk = alloc_new_data_block(sbi, dir, block);
 

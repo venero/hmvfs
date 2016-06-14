@@ -465,8 +465,9 @@ ssize_t hmfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 	size_t size, rest = buffer_size;
 
 	xattr_block  = get_xattr_block(inode);
-	if (!xattr_block)
+	if (!xattr_block) {
 		return -ENODATA;
+	}
 
 	list_for_each_xattr(entry, xattr_block) {
 		const struct xattr_handler *handler = 

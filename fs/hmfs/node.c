@@ -380,8 +380,9 @@ void *get_node(struct hmfs_sb_info *sbi, nid_t nid)
 	struct node_info ni;
 	int err;
 
-	if (nid == NULL_NID)
+	if (nid == NULL_NID) {
 		return ERR_PTR(-ENODATA);
+	}
 
 	err = get_node_info(sbi, nid, &ni);
 
@@ -491,8 +492,9 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in main area */
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
-	if (ne_local == NULL)
+	if (ne_local == NULL) {
 		return -ENODATA;
+	}
 	node_info_from_raw_nat(ni, ne_local);
 
 	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, false);

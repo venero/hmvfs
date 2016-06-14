@@ -41,8 +41,9 @@ static int hmfs_readlink(struct dentry *dentry, char __user * buffer, int buflen
 	inode_read_lock(inode);
 	data_blk = get_data_block(inode, 0);
 	inode_read_unlock(inode);
-	if (IS_ERR(data_blk))
+	if (IS_ERR(data_blk)) {
 		return -ENODATA;
+	}
 	return vfs_readlink(dentry, buffer, buflen, data_blk);
 
 }
@@ -55,8 +56,9 @@ static void *hmfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	inode_read_lock(inode);
 	data_blk = get_data_block(inode, 0);
 	inode_read_unlock(inode);
-	if (IS_ERR(data_blk))
+	if (IS_ERR(data_blk)) {
 		return ERR_PTR(-ENODATA);
+	}
 	nd_set_link(nd, data_blk);
 	return 0;
 }
