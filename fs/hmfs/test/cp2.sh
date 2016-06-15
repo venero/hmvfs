@@ -2,7 +2,7 @@
 
 # test remove checkpoints
 DIR="/home/goku/mnt-hmfs"	#Mount ppoint of tested HMFS instance
-NUM=10
+NUM=100000
 
 function rand()
 {
@@ -30,12 +30,14 @@ for i in $(seq $NUM); do
 		done
 		continue
 	fi
-	if [ $mode -gt 40 ];then
+	if [ $mode -gt 60 ];then
 		touch $RANDOM
 	else
 		file=$RANDOM
 		if [ -f $file ];then
 			rm $file
+		else
+			touch $file
 		fi
 	fi
 	sync

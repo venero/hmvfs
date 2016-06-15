@@ -239,6 +239,7 @@ static int hmfs_unlink(struct inode *dir, struct dentry *dentry)
 	res_blk = get_dentry_block_for_write(dir, bidx);
 	if (IS_ERR(res_blk)) {
 		err = PTR_ERR(res_blk);
+		inode_write_unlock(dir);
 		mutex_unlock_op(sbi, ilock);
 		goto fail;
 	}

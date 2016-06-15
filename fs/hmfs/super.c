@@ -196,7 +196,6 @@ int hmfs_sync_fs(struct super_block *sb, int sync)
 	
 	if (sync) {
 		lock_gc(sbi);
-		hmfs_dbg("write checkpoint\n");
 		ret = write_checkpoint(sbi, true);
 		unlock_gc(sbi);
 	} else {

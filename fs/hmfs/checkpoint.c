@@ -796,6 +796,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 		goto unlock;
 	}
 
+	hmfs_dbg("write checkpoint\n");
 	ret = do_checkpoint(sbi);
 
 unlock:
