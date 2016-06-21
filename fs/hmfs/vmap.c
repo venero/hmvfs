@@ -149,6 +149,7 @@ int remap_data_blocks_for_write(struct inode *inode, unsigned long st_addr,
 	uint64_t *pfns = buf;
 	int i = 0;
 
+	hmfs_bug_on(sbi, end - start > 8);
 	while (start < end) {
 		data_block = alloc_new_data_block(sbi, inode, start++);
 		if (IS_ERR(data_block))

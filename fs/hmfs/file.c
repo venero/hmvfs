@@ -347,7 +347,6 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	ret = generic_file_open(inode, filp);
 	if (ret || is_inline_inode(inode))
 		return ret;
-	return ret;
 
 	if (atomic_add_return(1, &fi->nr_open) != 1) {
 		return 0;
@@ -557,9 +556,13 @@ retry:
 			int i = start;
 			int ret;
 			
-			while ((fi->block_bitmap[start >> 3] >> (i - start)) & 1) i++;
+			while ((((unsigned char)fi->block_bitmap[start >> 3]) >> (i - start)) & 1)
+				i++;
+			if (i - start >= 8 || i >= end)
+				goto next_8;
 
-			ret = remap_data_blocks_for_write(inode, rw_addr, i, end);
+			ret = remap_data_blocks_for_write(inode, rw_addr, i,
+					start + 8 < end ? start + 8 : end);
 			if (ret == -ENOMEM)
 				return __hmfs_xip_file_write(inode, buf, len, ppos);
 			else if (ret)
@@ -570,6 +573,7 @@ retry:
 				fi->block_bitmap[start >> 3] |= (1 << (end - start)) - 1;
 			}
 		}
+next_8:
 		start += 8;
 		rw_addr += 8 << PAGE_SHIFT;
 	}
