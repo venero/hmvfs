@@ -348,6 +348,8 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	if (ret || is_inline_inode(inode))
 		return ret;
 
+	//FIXME:
+	return ret;
 	if (atomic_add_return(1, &fi->nr_open) != 1) {
 		return 0;
 	}
@@ -385,8 +387,10 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		fi->nr_map_page = 0;
 		inode_write_unlock(inode);
 		
-		kfree(bitmap);
-		vm_unmap_ram(rw_addr, nr_map_page);
+		if (bitmap)
+			kfree(bitmap);
+		if (rw_addr)
+			vm_unmap_ram(rw_addr, nr_map_page);
 	}
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
