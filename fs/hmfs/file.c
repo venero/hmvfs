@@ -561,8 +561,8 @@ retry:
 			if (i - start >= 8 || i >= end)
 				goto next_8;
 
-			ret = remap_data_blocks_for_write(inode, rw_addr, i,
-					start + 8 < end ? start + 8 : end);
+			ret = remap_data_blocks_for_write(inode, rw_addr + ((i - start) << PAGE_SHIFT),
+					i, start + 8 < end ? start + 8 : end);
 			if (ret == -ENOMEM)
 				return __hmfs_xip_file_write(inode, buf, len, ppos);
 			else if (ret)

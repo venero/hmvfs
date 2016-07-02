@@ -181,6 +181,7 @@ int vmap_file_range(struct inode *inode)
 	struct page **pages;
 	uint8_t blk_type = fi->i_blk_type;
 	size_t size = i_size_read(inode);
+	unsigned long page_buf_sz;
 	int ret = 0;
 	uint64_t old_nr_map_page = 0;
 	
@@ -193,6 +194,8 @@ int vmap_file_range(struct inode *inode)
 			return 1;
 
 		bitmap = kzalloc(file_block_bitmap_size(fi->nr_map_page), GFP_KERNEL);
+		if (!bitmap)
+			goto out;
 		memcpy(bitmap, fi->block_bitmap, fi->bitmap_size);
 		fi->bitmap_size = file_block_bitmap_size(fi->nr_map_page);
 		kfree(fi->block_bitmap);
@@ -216,7 +219,12 @@ int vmap_file_range(struct inode *inode)
 	if (!fi->block_bitmap)
 		goto out;
 
-	pages = kzalloc(fi->nr_map_page * sizeof(struct page *), GFP_KERNEL);
+	page_buf_sz = fi->nr_map_page * sizeof(struct page *);
+	if (page_buf_sz > (1 << (MAX_ORDER - 1) << PAGE_SHIFT)) 
+		pages = vmalloc(page_buf_sz);
+	else
+		pages = kzalloc(page_buf_sz, GFP_KERNEL);
+
 	if (!pages)
 		goto free_bitmap;
 
@@ -231,10 +239,15 @@ int vmap_file_range(struct inode *inode)
 	fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL);
 	if (!fi->rw_addr)
 		goto free_pages;
-	kfree(pages);
+#define free_pages(sz, pgs)	do {\
+	if (sz > (1 << (MAX_ORDER - 1) << PAGE_SHIFT))	\
+		vfree(pgs);	\
+	else\
+		kfree(pgs);} while (0)
+	free_pages(page_buf_sz, pages);
 	return 0;
 free_pages:
-	kfree(pages);
+	free_pages(page_buf_sz, pages);
 free_bitmap:
 	kfree(fi->block_bitmap);
 out:
