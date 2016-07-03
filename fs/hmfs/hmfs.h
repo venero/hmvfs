@@ -48,7 +48,7 @@
 
 typedef uint32_t nid_t;
 typedef uint32_t ver_t;		/* version type */
-typedef uint32_t seg_t;		/* segment number type */
+typedef int32_t seg_t;		/* segment number type */
 typedef uint64_t pgc_t;	/* page count type */
 
 
