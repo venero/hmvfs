@@ -903,8 +903,8 @@ void reinit_gc_logs(struct hmfs_sb_info *sbi);
 int init_gc_stat(struct hmfs_sb_info *);
 void destroy_gc_stat(struct hmfs_sb_info *);
 #else
-#define init_gc_stat(sbi);
-#define destroy_gc_stat(sbi);
+#define init_gc_stat(sbi) 0
+#define destroy_gc_stat(sbi)
 #endif
 
 /* xattr.c */
