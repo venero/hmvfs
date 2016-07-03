@@ -14,7 +14,7 @@
  * Setup arguments for GC and GC recovery
  */
 void prepare_move_argument(struct gc_move_arg *arg,	struct hmfs_sb_info *sbi, seg_t mv_segno,
-				unsigned mv_off, seg_t d_segno, unsigned d_off, int type)
+				unsigned mv_off, int64_t d_segno, unsigned d_off, int type)
 {
 	arg->src_addr = __cal_page_addr(sbi, mv_segno, mv_off);
 	arg->src = ADDR(sbi, arg->src_addr);

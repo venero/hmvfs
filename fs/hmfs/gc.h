@@ -57,7 +57,7 @@ enum {
 };
 
 void prepare_move_argument(struct gc_move_arg *arg, struct hmfs_sb_info *sbi, seg_t mv_segno,
-				unsigned mv_offset, seg_t d_segno, unsigned d_off, int type);
+				unsigned mv_offset, int64_t d_segno, unsigned d_off, int type);
 
 #ifdef CONFIG_HMFS_DEBUG_GC
 #define INC_GC_TRY(si)					(si)->nr_gc_try++
