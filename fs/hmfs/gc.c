@@ -16,13 +16,12 @@
 void prepare_move_argument(struct gc_move_arg *arg,	struct hmfs_sb_info *sbi, seg_t mv_segno,
 				unsigned mv_off, seg_t d_segno, unsigned d_off, int type)
 {
-	struct hmfs_summary *sum = NULL;
 	arg->src_addr = __cal_page_addr(sbi, mv_segno, mv_off);
 	arg->src = ADDR(sbi, arg->src_addr);
 	arg->src_sum = get_summary_by_addr(sbi, arg->src_addr);
-	arg->start_version = get_summary_start_version(sum);
-	arg->nid = get_summary_nid(sum);
-	arg->ofs_in_node = get_summary_offset(sum);
+	arg->start_version = get_summary_start_version(arg->src_sum);
+	arg->nid = get_summary_nid(arg->src_sum);
+	arg->ofs_in_node = get_summary_offset(arg->src_sum);
 
 	arg->cp_i = get_checkpoint_info(sbi, arg->start_version, true);
 
@@ -873,6 +872,7 @@ static int gc_thread_func(void *data)
 			continue;
 		}
 
+		continue;
 		if (!trylock_gc(sbi))
 			continue;
 

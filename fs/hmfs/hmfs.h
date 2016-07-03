@@ -696,8 +696,7 @@ static inline unsigned int get_summary_offset(struct hmfs_summary *summary)
 	return le16_to_cpu(summary->ofs_in_node);
 }
 
-static inline ver_t get_summary_start_version(struct hmfs_summary
-						     *summary)
+static inline ver_t get_summary_start_version(struct hmfs_summary *summary)
 {
 	return le32_to_cpu(summary->start_version);
 }
@@ -947,13 +946,4 @@ static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 	return ret;
 }
 
-#endif
-
-#ifdef TEST
-void printtty(const char *format, ...);
-#define print printtty
-#define tprint printtty
-#else
-#define print printk
-#define tprint printk
 #endif
