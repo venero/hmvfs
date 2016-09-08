@@ -182,6 +182,8 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define SUM_TYPE_CP			(7)		/* checkpoint block */
 #define SUM_TYPE_ORPHAN		(8)		/* orphan block */
 
+/* Precise Write */
+#define PW_THRESHOLD	4	/* The threshold to perform classical COW */
 
 /* For superblock */
 struct hmfs_super_block {

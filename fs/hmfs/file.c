@@ -468,6 +468,7 @@ static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf
 			}
 			goto normal_write;
 		}
+		// write a new inode
 		inode_block = alloc_new_node(HMFS_I_SB(inode), inode->i_ino, inode,
 							SUM_TYPE_INODE, false);
 		if (IS_ERR(inode_block)) {
@@ -486,9 +487,16 @@ static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf
 	}
 
 normal_write:
+	/*	Devide normal write into 4 types (write in #, from pw_start to page_size-pw_end)
+		Type A: ####_
+		Type B: _####
+		Type C: _###_
+		Type D: #####
+	*/ 
 	do {
 		unsigned long index;
 		unsigned long offset;
+
 		size_t copied;
 		void *xip_mem;
 
@@ -497,8 +505,9 @@ normal_write:
 		bytes = block_size - offset;
 		if (bytes > count)
 			bytes = count;
-
-		xip_mem = alloc_new_data_block(sbi, inode, index);
+			
+		xip_mem = __alloc_new_data_block(inode, index, offset, block_size-offset-bytes);
+		// xip_mem = alloc_new_data_block(sbi, inode, index);
 		if (unlikely(IS_ERR(xip_mem))) {
 			status = -ENOSPC;
 			break;
@@ -694,7 +703,7 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t le
 	ret = file_remove_suid(filp);
 	if (ret)
 		goto out_backing;
-
+	// Duplicate with the later two lines of code
 	ret = file_update_time(filp);
 	if (ret)
 		goto out_backing;

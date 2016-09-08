@@ -221,7 +221,7 @@ int get_data_blocks_ahead(struct inode *inode, int64_t start, int64_t end,
 	return 0;
 }
 
-static void *__alloc_new_data_block(struct inode *inode, int block)
+static void *__alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
@@ -271,8 +271,19 @@ static void *__alloc_new_data_block(struct inode *inode, int block)
 
 	dest = ADDR(sbi, new_addr);
 
-	if (src_addr != 0)
-		hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
+	if (src_addr != 0) {
+		if ( (pw_end - pw_start) >> PW_THRESHOLD == 0 ) {
+			hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
+		}
+		else {
+			if (pw_start != 0) {
+				hmfs_memcpy(dest, src, pw_start);
+			}
+			if (pw_end != 0) {
+				hmfs_memcpy(dest + HMFS_BLOCK_SIZE[seg_type] - pw_end, src + HMFS_BLOCK_SIZE[seg_type] - pw_end, pw_end);
+			}
+		}
+	}		
 	else memset(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
 
 	summary = get_summary_by_addr(sbi, new_addr);
@@ -291,11 +302,12 @@ void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode,
 	block_t addr;
 
 	if (likely(inode))
-		return __alloc_new_data_block(inode, block);
+		return __alloc_new_data_block(inode, block,0,0);
 
 	if (!inc_gc_block_count(sbi, block))
 		return ERR_PTR(-ENOSPC);
-
+	// inode = NULL? 
+	// In GC?
 	addr = alloc_free_data_block(sbi, block);
 	return ADDR(sbi, addr);
 }
