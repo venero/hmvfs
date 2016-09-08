@@ -506,7 +506,7 @@ normal_write:
 		if (bytes > count)
 			bytes = count;
 			
-		xip_mem = __alloc_new_data_block(inode, index, offset, block_size-offset-bytes);
+		xip_mem = pw_alloc_new_data_block(inode, index, offset, block_size-offset-bytes);
 		// xip_mem = alloc_new_data_block(sbi, inode, index);
 		if (unlikely(IS_ERR(xip_mem))) {
 			status = -ENOSPC;

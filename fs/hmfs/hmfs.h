@@ -854,6 +854,7 @@ int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
+void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end);
 void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, int block);
 int get_data_block_info(struct db_info *di, int64_t index, int mode);
 void *get_data_block(struct inode *inode, int64_t index);
