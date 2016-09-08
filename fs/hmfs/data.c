@@ -272,7 +272,7 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 	dest = ADDR(sbi, new_addr);
 
 	if (src_addr != 0) {
-		if ( (pw_end - pw_start) >> PW_THRESHOLD == 0 ) {
+		if ( (HMFS_BLOCK_SIZE[seg_type] - pw_end - pw_start) >> PW_THRESHOLD == 0 ) {
 			hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
 		}
 		else {
@@ -300,9 +300,10 @@ void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode,
 				int block)
 {
 	block_t addr;
+	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
 	if (likely(inode))
-		return pw_alloc_new_data_block(inode, block,0,0);
+		return pw_alloc_new_data_block(inode, block,HMFS_BLOCK_SIZE[seg_type],0);
 
 	if (!inc_gc_block_count(sbi, block))
 		return ERR_PTR(-ENOSPC);
