@@ -175,6 +175,7 @@ static inline uint64_t file_block_bitmap_size(uint64_t nr_map_page)
 	return	(nr_map_page + 7) >> 3;
 }
 
+// How about a vmap for node?
 int vmap_file_range(struct inode *inode)
 {
 	struct hmfs_inode_info *fi = HMFS_I(inode);
@@ -185,6 +186,8 @@ int vmap_file_range(struct inode *inode)
 	int ret = 0;
 	uint64_t old_nr_map_page = 0;
 	
+	// Reuse previous mapping bitmap
+	// Or allocate a new mapping bitmap according to file size
 	if (fi->rw_addr) {
 		unsigned char *bitmap = NULL;
 		old_nr_map_page = fi->nr_map_page;
@@ -203,6 +206,7 @@ int vmap_file_range(struct inode *inode)
 	} else {
 		uint64_t nr_pages;
 
+		// why ">> 1"?
 		if (!size)
 			size = (NORMAL_ADDRS_PER_INODE >> 1) << HMFS_BLOCK_SIZE_BITS(blk_type);
 		
@@ -219,6 +223,8 @@ int vmap_file_range(struct inode *inode)
 	if (!fi->block_bitmap)
 		goto out;
 
+	// Allocate virtual pages in kernel space according to bitmap size
+	// If larger than what SLUB can offer, use vmalloc
 	page_buf_sz = fi->nr_map_page * sizeof(struct page *);
 	if (page_buf_sz > (1 << (MAX_ORDER - 1) << PAGE_SHIFT)) 
 		pages = vmalloc(page_buf_sz);
@@ -228,6 +234,7 @@ int vmap_file_range(struct inode *inode)
 	if (!pages)
 		goto free_bitmap;
 
+	// Map the data pages of inode
 	ret = get_file_page_struct(inode, pages, fi->nr_map_page);
 
 	if (ret && ret != -ENODATA)
@@ -236,6 +243,7 @@ int vmap_file_range(struct inode *inode)
 	if (fi->rw_addr)
 		vm_unmap_ram(fi->rw_addr, old_nr_map_page);
 
+	// PAGE_KERNEL could be PAGE_KERNEL_RO for read only access
 	fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL);
 	if (!fi->rw_addr)
 		goto free_pages;
@@ -256,4 +264,68 @@ out:
 	fi->bitmap_size = 0;
 	fi->nr_map_page = 0;
 	return 1;
+}
+
+int vmap_file_read_only(struct inode *inode)
+{
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct page **pages;
+	uint8_t blk_type = fi->i_blk_type;
+	size_t size = i_size_read(inode);
+	unsigned long page_buf_sz;
+	int ret = 0;
+	
+	uint64_t nr_pages;
+
+	hmfs_dbg("[Before vmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	
+	// Number of data blocks to be mapped
+	nr_pages = (size + HMFS_BLOCK_SIZE[blk_type] - 1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
+
+	// Convert from data blocks(4K,8K,...) in NVM to pages in DRAM(4K)
+	fi->nr_map_page = nr_pages << (HMFS_BLOCK_SIZE_BITS(blk_type) - PAGE_SHIFT);
+
+	// Allocate virtual pages in kernel space according to bitmap size
+	// Always use vmalloc
+	page_buf_sz = fi->nr_map_page * sizeof(struct page *);
+	pages = vmalloc(page_buf_sz);
+
+	if (!pages)
+		goto out;
+
+	// Map the data pages of inode
+	ret = get_file_page_struct(inode, pages, fi->nr_map_page);
+
+	if (ret && ret != -ENODATA)
+		goto free_pages;
+
+	// PAGE_KERNEL_RO for read only access
+	fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL_RO);
+	if (!fi->rw_addr)
+		goto free_pages;
+
+	hmfs_dbg("[After vmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	return 0;
+
+free_pages:
+	vfree(pages);
+
+out:
+	fi->rw_addr = NULL;
+	fi->block_bitmap = NULL;
+	fi->bitmap_size = 0;
+	fi->nr_map_page = 0;
+	return 1;
+}
+
+int unmap_file_read_only(struct inode *inode){
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	hmfs_dbg("[Before unmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	if (fi->rw_addr!=NULL){
+		vm_unmap_ram(fi->rw_addr, fi->nr_map_page);
+		fi->rw_addr = NULL;
+		fi->nr_map_page = 0;
+	}
+	hmfs_dbg("[After unmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	return 0;
 }

@@ -244,13 +244,13 @@ struct hmfs_inode_info {
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
 	struct rw_semaphore i_lock;			/* Lock for inode read-write */
-	void *rw_addr;					/* Start address of fast read/write */
-	unsigned char *block_bitmap;
-	uint64_t nr_map_page;
-	uint32_t bitmap_size;
-	atomic_t nr_open;
-	struct hmfs_inode *i_node_block;
-	uint8_t i_height;
+	void *rw_addr;						/* Start address of fast read/write */
+	unsigned char *block_bitmap;		/* Bitmap for mapped data blocks */
+	uint64_t nr_map_page;				/* Number of mapped data blocks */
+	uint32_t bitmap_size;				/* Size of mapped data blocks */
+	atomic_t nr_open;					/* Number of processes which opens this file */
+	struct hmfs_inode *i_node_block;	/* HMFS inode on NVM */
+	uint8_t i_height;					/* Height of this inode */
 };
 
 struct hmfs_stat_info {
@@ -890,6 +890,8 @@ inline void destroy_map_zero_page(struct hmfs_sb_info *sbi);
 /* vmap.c */
 int vmap_file_range(struct inode *);
 int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
+int vmap_file_read_only(struct inode *inode);
+int unmap_file_read_only(struct inode *inode);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);

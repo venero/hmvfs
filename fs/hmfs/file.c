@@ -311,6 +311,7 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count
 				goto out;
 			buf_size = r_ed - r_st;
 			
+			// Write addresses to blocks_buf
 			err = get_data_blocks_ahead(inode, r_st, r_ed, blocks_buf);
 			if (err)
 				goto out;
@@ -339,16 +340,21 @@ out:
  * Open file for hmfs, if it's a read-only file, then remap it into 
  * VMALLOC area to accelerate reading
  */
+//  This could be improved to select frequently read files (not only ro) by Prediction.
 int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
 	ret = generic_file_open(inode, filp);
+
+	vmap_file_read_only(inode);
+
 	if (ret || is_inline_inode(inode))
 		return ret;
 
 	//FIXME:
+	// Invoke Prediction and calls vmap.
 	return ret;
 	if (atomic_add_return(1, &fi->nr_open) != 1) {
 		return 0;
@@ -392,6 +398,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		if (rw_addr)
 			vm_unmap_ram(rw_addr, nr_map_page);
 	}
+	// TODO: Consistency
+	unmap_file_read_only(inode);
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
