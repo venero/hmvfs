@@ -417,6 +417,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 	size_t copied = len;
 	unsigned long left;
 	int err = 0;
+	loff_t pos = *ppos;
 
 	if (*ppos + len > isize)
 		copied = isize - *ppos;
@@ -425,7 +426,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 		return 0;
 
 	inode_read_unlock(inode);
-	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr, copied);
+	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr + pos, copied);
 	inode_read_lock(inode);
 
 	if (left == copied)
@@ -444,10 +445,14 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
-	if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode))
+	if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
+		hmfs_dbg("[Fast read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
-	else
+		}
+	else{
+		hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
+	}
 
 out:
 	inode_read_unlock(filp->f_inode);

@@ -277,7 +277,7 @@ int vmap_file_read_only(struct inode *inode)
 	
 	uint64_t nr_pages;
 
-	hmfs_dbg("[Before vmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	hmfs_dbg("[Before vmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	
 	// Number of data blocks to be mapped
 	nr_pages = (size + HMFS_BLOCK_SIZE[blk_type] - 1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
@@ -304,7 +304,7 @@ int vmap_file_read_only(struct inode *inode)
 	if (!fi->rw_addr)
 		goto free_pages;
 
-	hmfs_dbg("[After vmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	hmfs_dbg("[After vmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	return 0;
 
 free_pages:
@@ -320,12 +320,12 @@ out:
 
 int unmap_file_read_only(struct inode *inode){
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	hmfs_dbg("[Before unmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	hmfs_dbg("[Before unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	if (fi->rw_addr!=NULL){
 		vm_unmap_ram(fi->rw_addr, fi->nr_map_page);
 		fi->rw_addr = NULL;
 		fi->nr_map_page = 0;
 	}
-	hmfs_dbg("[After unmap] Addr:%llu PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	hmfs_dbg("[After unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	return 0;
 }
