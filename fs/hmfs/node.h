@@ -23,6 +23,7 @@
 /* vector size for gang look-up from nat cache that consist of radix tree */
 #define NATVEC_SIZE					64
 
+// this is the node info from node
 struct node_info {
 	nid_t nid;
 	nid_t ino;

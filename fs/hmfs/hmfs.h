@@ -68,6 +68,9 @@ enum {
 	FI_ACL_MODE,		/* ACL */
 	FI_INLINE_DATA,		/* inline data of inode */
 	FI_CONVERT_INLINE,
+	FI_MAPPED_PARTIAL,	/* partially mapped */
+	FI_MAPPED_FULL,		/* fully mapped */
+	FI_MAPPED_FAST,		/* fully mapped (goku style)*/
 };
 
 
@@ -244,7 +247,9 @@ struct hmfs_inode_info {
 	umode_t i_acl_mode;					/* For ACL mode */
 	struct list_head list;
 	struct rw_semaphore i_lock;			/* Lock for inode read-write */
+	// unsigned long map_flags;			/* How this inode is mapped */
 	void *rw_addr;						/* Start address of fast read/write */
+										/* For prediction, it's just the start address for mapped read */
 	unsigned char *block_bitmap;		/* Bitmap for mapped data blocks */
 	uint64_t nr_map_page;				/* Number of mapped data blocks */
 	uint32_t bitmap_size;				/* Size of mapped data blocks */
@@ -527,6 +532,16 @@ static inline bool is_inline_inode(struct inode *inode)
 	return is_inode_flag_set(HMFS_I(inode), FI_INLINE_DATA);
 }
 
+static inline bool is_partially_mapped_inode(struct inode *inode)
+{
+	return is_inode_flag_set(HMFS_I(inode), FI_MAPPED_PARTIAL);
+}
+
+static inline bool is_fully_mapped_inode(struct inode *inode)
+{
+	return is_inode_flag_set(HMFS_I(inode), FI_MAPPED_FULL);
+}
+
 static inline void set_acl_inode(struct hmfs_inode_info *fi, umode_t mode)
 {
 	fi->i_acl_mode = mode;
@@ -768,7 +783,7 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
-int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count);
+int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index, int64_t count, int64_t pageoff);
 void truncate_file_block_bitmap(struct inode *inode, loff_t from);
 int create_mmap_struct_cache(void);
 void destroy_mmap_struct_cache(void);
@@ -890,7 +905,7 @@ inline void destroy_map_zero_page(struct hmfs_sb_info *sbi);
 /* vmap.c */
 int vmap_file_range(struct inode *);
 int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
-int vmap_file_read_only(struct inode *inode);
+int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length);
 int unmap_file_read_only(struct inode *inode);
 
 /* gc.c */

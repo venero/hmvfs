@@ -1,5 +1,11 @@
 #include <asm/tlbflush.h>
+#include <asm/cacheflush.h>
+#include <asm/pgtable.h>
 #include <asm/pgalloc.h>
+#include <linux/mm.h>
+#include <linux/sched.h>
+#include <linux/module.h>
+#include <linux/export.h>
 
 #include "hmfs.h"
 
@@ -235,7 +241,7 @@ int vmap_file_range(struct inode *inode)
 		goto free_bitmap;
 
 	// Map the data pages of inode
-	ret = get_file_page_struct(inode, pages, fi->nr_map_page);
+	ret = get_file_page_struct(inode, pages, 0, fi->nr_map_page,0);
 
 	if (ret && ret != -ENODATA)
 		goto free_pages;
@@ -266,7 +272,202 @@ out:
 	return 1;
 }
 
-int vmap_file_read_only(struct inode *inode)
+//	pvmap_page_range
+//	'p' stands for partial
+// 	Basically the same with vmap_page_range in vmalloc.c
+// 	Use init_task.mm instead of init_mm because init_mm is no longer exported
+
+pte_t *hmfsp_pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
+{
+	pte_t *pte;
+
+	pte = (pte_t *)__get_free_page(GFP_KERNEL|__GFP_REPEAT|__GFP_ZERO);
+	return pte;
+}
+
+int _hmfsp__pte_alloc_kernel(pmd_t *pmd, unsigned long address)
+{
+	pte_t *new = hmfsp_pte_alloc_one_kernel(init_task.mm, address);
+	if (!new)
+		return -ENOMEM;
+
+	smp_wmb(); /* See comment in __pte_alloc */
+
+	spin_lock(&(init_task.mm->page_table_lock));
+	if (likely(pmd_none(*pmd))) {	/* Has another populated it ? */
+		pmd_populate_kernel(init_task.mm, pmd, new);
+		new = NULL;
+	} else
+		VM_BUG_ON(pmd_trans_splitting(*pmd));
+	spin_unlock(&(init_task.mm->page_table_lock));
+	if (new)
+		pte_free_kernel(init_task.mm, new);
+	return 0;
+}
+
+int pvmap_pte_range(pmd_t *pmd, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr)
+{
+	pte_t *pte;
+	/*
+	 * nr is a running index into the array which helps higher level
+	 * callers keep track of where we're up to.
+	 */
+
+	pte = ((unlikely(pmd_none(*(pmd))) && _hmfsp__pte_alloc_kernel(pmd, addr))? NULL: pte_offset_kernel(pmd, addr));
+	// pte = pte_alloc_kernel(pmd, addr);
+	if (!pte)
+		return -ENOMEM;
+	do {
+		struct page *page = pages[*nr];
+
+		if (WARN_ON(!pte_none(*pte)))
+			return -EBUSY;
+		if (WARN_ON(!page))
+			return -ENOMEM;
+		set_pte_at(init_task.mm, addr, pte, mk_pte(page, prot));
+		(*nr)++;
+	} while (pte++, addr += PAGE_SIZE, addr != end);
+	return 0;
+}
+
+int _hmfsp__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+{
+	pmd_t *new = pmd_alloc_one(mm, address);
+	if (!new)
+		return -ENOMEM;
+
+	smp_wmb(); /* See comment in __pte_alloc */
+
+	spin_lock(&mm->page_table_lock);
+#ifndef __ARCH_HAS_4LEVEL_HACK
+	if (pud_present(*pud))		/* Another has populated it */
+		pmd_free(mm, new);
+	else
+		pud_populate(mm, pud, new);
+#else
+	if (pgd_present(*pud))		/* Another has populated it */
+		pmd_free(mm, new);
+	else
+		pgd_populate(mm, pud, new);
+#endif /* __ARCH_HAS_4LEVEL_HACK */
+	spin_unlock(&mm->page_table_lock);
+	return 0;
+}
+
+static inline pmd_t *hmfsp_pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+{
+	return (unlikely(pud_none(*pud)) && _hmfsp__pmd_alloc(mm, pud, address))?
+		NULL: pmd_offset(pud, address);
+}
+
+int pvmap_pmd_range(pud_t *pud, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr)
+{
+	pmd_t *pmd;
+	unsigned long next;
+
+	pmd = hmfsp_pmd_alloc(init_task.mm, pud, addr);
+	if (!pmd)
+		return -ENOMEM;
+	do {
+		next = pmd_addr_end(addr, end);
+		if (pvmap_pte_range(pmd, addr, next, prot, pages, nr))
+			return -ENOMEM;
+	} while (pmd++, addr = next, addr != end);
+	return 0;
+}
+
+int _hmfsp__pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
+{
+	pud_t *new = pud_alloc_one(mm, address);
+	if (!new)
+		return -ENOMEM;
+
+	smp_wmb(); /* See comment in __pte_alloc */
+
+	spin_lock(&mm->page_table_lock);
+	if (pgd_present(*pgd))		/* Another has populated it */
+		pud_free(mm, new);
+	else
+		pgd_populate(mm, pgd, new);
+	spin_unlock(&mm->page_table_lock);
+	return 0;
+}
+
+static inline pud_t *hmfsp_pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
+{
+	return (unlikely(pgd_none(*pgd)) && _hmfsp__pud_alloc(mm, pgd, address))?
+		NULL: pud_offset(pgd, address);
+}
+
+int pvmap_pud_range(pgd_t *pgd, unsigned long addr,
+		unsigned long end, pgprot_t prot, struct page **pages, int *nr)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	pud = hmfsp_pud_alloc(init_task.mm, pgd, addr);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+		if (pvmap_pmd_range(pud, addr, next, prot, pages, nr))
+			return -ENOMEM;
+	} while (pud++, addr = next, addr != end);
+	return 0;
+}
+
+/*
+ * Set up page tables in kva (addr, end). The ptes shall have prot "prot", and
+ * will have pfns corresponding to the "pages" array.
+ *
+ * Ie. pte at addr+N*PAGE_SIZE shall point to pfn corresponding to pages[N]
+ */
+int pvmap_page_range_noflush(unsigned long start, unsigned long end,
+				   pgprot_t prot, struct page **pages)
+{
+	pgd_t *pgd;
+	unsigned long next;
+	unsigned long addr = start;
+	int err = 0;
+	int nr = 0;
+
+	BUG_ON(addr >= end);
+	pgd_offset(init_task.mm, addr);
+	// pgd = pgd_offset_k(addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		err = pvmap_pud_range(pgd, addr, next, prot, pages, &nr);
+		if (err)
+			return err;
+	} while (pgd++, addr = next, addr != end);
+
+	return nr;
+}
+
+int pvmap_page_range(unsigned long start, unsigned long end, pgprot_t prot, struct page **pages)
+{
+	int ret;
+
+	ret = pvmap_page_range_noflush(start, end, prot, pages);
+	flush_cache_vmap(start, end);
+	return ret;
+}
+
+/*	If length is zero, allocate space and map whole file. (A)
+ *	Else
+ *		If previously mapped, remap input area. (B)
+ *		Else allocate space and map input area. (C)
+ *	Check if inode is fully mapped before calling this function
+ *	TODO:zsa If we have to update mapping:
+ *		1. Change the mapping state from fully mapped to partial mapped,
+ *		2. Call this function to partially map the revised area,
+ *		3. If all blocks of this file is mapped, change the state back to fully mapped.
+ *	TODO:zsa nr_map_page
+ *	TODO:bitmap
+ */
+int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 {
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct page **pages;
@@ -274,37 +475,70 @@ int vmap_file_read_only(struct inode *inode)
 	size_t size = i_size_read(inode);
 	unsigned long page_buf_sz;
 	int ret = 0;
-	
+	bool full = false;
 	uint64_t nr_pages;
+	uint64_t offset = 0;
+	void* start;
+	void* end;
 
-	hmfs_dbg("[Before vmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	if (length==0) full = true;
+
+	if (full) hmfs_dbg("[Before vmap][A] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	else 
+		if (fi->rw_addr) hmfs_dbg("[Before vmap][B] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+		else hmfs_dbg("[Before vmap][C] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	
-	// Number of data blocks to be mapped
+	// Number of data blocks to be mapped (file size in block)
 	nr_pages = (size + HMFS_BLOCK_SIZE[blk_type] - 1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
 
-	// Convert from data blocks(4K,8K,...) in NVM to pages in DRAM(4K)
+	// Convert from data blocks(4K,8K,...) in NVM to pages in DRAM(4K) (file size in page)
 	fi->nr_map_page = nr_pages << (HMFS_BLOCK_SIZE_BITS(blk_type) - PAGE_SHIFT);
+	if (full) length = fi->nr_map_page;
 
-	// Allocate virtual pages in kernel space according to bitmap size
+	// Allocate virtual page buffer to contain the page addresses in kernel space according to file size (AC)
 	// Always use vmalloc
-	page_buf_sz = fi->nr_map_page * sizeof(struct page *);
-	pages = vmalloc(page_buf_sz);
+	if ( !is_partially_mapped_inode(inode) ) {
+		page_buf_sz = fi->nr_map_page * sizeof(struct page *);
+		pages = vmalloc(page_buf_sz);
+	}
+	// Allocate virtual page buffer to contain the page addresses in kernel space according to mapping size (B)
+	else {
+		page_buf_sz = (length - index + 1) * sizeof(struct page *);
+		pages = vmalloc(page_buf_sz);
+		offset = index;
+	}
+	if (!pages) goto out;
 
-	if (!pages)
-		goto out;
-
-	// Map the data pages of inode
-	ret = get_file_page_struct(inode, pages, fi->nr_map_page);
-
+	// Map the data pages of inode (ABC)
+	ret = get_file_page_struct(inode, pages, index, length, offset);
 	if (ret && ret != -ENODATA)
-		goto free_pages;
+		goto free_pages;	
 
-	// PAGE_KERNEL_RO for read only access
-	fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL_RO);
-	if (!fi->rw_addr)
-		goto free_pages;
+	// PAGE_KERNEL_RO for read only access (AC)
+	if ( !is_partially_mapped_inode(inode) ) {
+		fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL_RO);
+		if (!fi->rw_addr)
+			goto free_pages;
+	}
+	else {
+		start = (void*)fi->rw_addr + index*HMFS_BLOCK_SIZE_BITS(blk_type);
+		end = (void*)fi->rw_addr + (index+length)*HMFS_BLOCK_SIZE_BITS(blk_type);
+		ret = pvmap_page_range(start, end, PAGE_KERNEL_RO, pages);
+		if (ret)
+			goto free_pages;
+	}
 
-	hmfs_dbg("[After vmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	if (full) {
+		set_inode_flag(fi,FI_MAPPED_FULL);
+		hmfs_dbg("[After vmap][A] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	}
+	else if ( !is_partially_mapped_inode(inode) ) {
+		set_inode_flag(fi,FI_MAPPED_PARTIAL);
+		hmfs_dbg("[After vmap][C] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	}
+	else {
+		hmfs_dbg("[After vmap][B] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	}
 	return 0;
 
 free_pages:
@@ -318,6 +552,7 @@ out:
 	return 1;
 }
 
+// TODO:zsa specific unmap points and timing
 int unmap_file_read_only(struct inode *inode){
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	hmfs_dbg("[Before unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
@@ -326,6 +561,8 @@ int unmap_file_read_only(struct inode *inode){
 		fi->rw_addr = NULL;
 		fi->nr_map_page = 0;
 	}
+	clear_inode_flag(fi,FI_MAPPED_PARTIAL);
+	clear_inode_flag(fi,FI_MAPPED_FULL);
 	hmfs_dbg("[After unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	return 0;
 }

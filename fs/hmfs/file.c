@@ -281,17 +281,18 @@ out:
 	return (copied ? copied : error);
 }
 
-int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count)
+int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index, int64_t count, int64_t pageoff)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
+	// the total block number of an inode
 	uint64_t end_index = (i_size_read(inode) + HMFS_BLOCK_SIZE[blk_type] - 1) >>
 			HMFS_BLOCK_SIZE_BITS(blk_type);
 	const int max_buf_size = 32;
 	void *blocks_buf[max_buf_size];
 	int buf_size = 0;
 	int b_index = 0;	/* index of buffer */
-	int f_index = 0;	/* index of file data */
+	int f_index = index;	/* index of file data */
 	uint64_t pfn;
 	int err = 0;
 	int i;
@@ -320,19 +321,24 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t count
 		if (blocks_buf[b_index]) {
 			pfn = pfn_from_vaddr(sbi, blocks_buf[b_index]);
 			while (i++ < HMFS_BLOCK_SIZE_4K[blk_type]) {
-				pages[f_index++] = pfn_to_page(pfn++);	
+				pages[f_index-pageoff] = pfn_to_page(pfn++);
+				f_index++;	
 			}
 		} else {
-			while (i++ < HMFS_BLOCK_SIZE_4K[blk_type])
-				pages[f_index++] = sbi->map_zero_page;
+			while (i++ < HMFS_BLOCK_SIZE_4K[blk_type]) {
+				pages[f_index-pageoff] = sbi->map_zero_page;
+				f_index++;
+			}
 		}
 
 		b_index++;
-	} while (f_index < count);
+	} while (f_index < index + count);
 
 out:
-	while (f_index < count)
-		pages[f_index++] = sbi->map_zero_page;
+	while (f_index < index + count) {
+		pages[f_index-pageoff] = sbi->map_zero_page;
+		f_index++;
+	}
 	return err;
 }
 
@@ -348,7 +354,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	ret = generic_file_open(inode, filp);
 
-	vmap_file_read_only(inode);
+	vmap_file_read_only(inode,0,0);
 
 	if (ret || is_inline_inode(inode))
 		return ret;
@@ -445,7 +451,8 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
-	if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
+	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
+	if (is_fully_mapped_inode(filp->f_inode) && !is_inline_inode(filp->f_inode)){
 		hmfs_dbg("[Fast read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
