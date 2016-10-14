@@ -906,6 +906,7 @@ inline void destroy_map_zero_page(struct hmfs_sb_info *sbi);
 int vmap_file_range(struct inode *);
 int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
 int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length);
+int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len);
 int unmap_file_read_only(struct inode *inode);
 
 /* gc.c */

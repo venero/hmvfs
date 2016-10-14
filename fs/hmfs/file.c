@@ -352,9 +352,10 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	int ret;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
+	hmfs_dbg("hmfs_file_open() Inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
 
-	vmap_file_read_only(inode,0,0);
+	// vmap_file_read_only(inode,0,1);
 
 	if (ret || is_inline_inode(inode))
 		return ret;
@@ -375,7 +376,8 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	hmfs_bug_on(HMFS_I_SB(inode), fi->block_bitmap);
 	
-	vmap_file_range(inode);
+	// Originally used for mapping in goku version
+	// vmap_file_range(inode);
 out:
 	inode_write_unlock(inode);
 	return 0;
@@ -386,6 +388,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
+	hmfs_dbg("hmfs_release_file() Inode:%lu\n", filp->f_inode->i_ino);
 	/* FIXME: Is the value of i_count correct */
 	if (!atomic_sub_return(1, &fi->nr_open)) {
 		//TODO: Use lazy free
@@ -405,7 +408,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 			vm_unmap_ram(rw_addr, nr_map_page);
 	}
 	// TODO: Consistency
-	unmap_file_read_only(inode);
+	if ( is_partially_mapped_inode(inode) || is_fully_mapped_inode(inode)) unmap_file_read_only(inode);
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
@@ -446,14 +449,26 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
 	int ret = 0;
+	
+	struct hmfs_inode_info *fi = HMFS_I(filp->f_inode);
+	uint8_t blk_type = fi->i_blk_type;
+
+	hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
+	if ( !is_fully_mapped_inode(filp->f_inode) && !is_partially_mapped_inode(filp->f_inode) ){
+		vmap_file_read_only(filp->f_inode,0,i_size_read(filp->f_inode)>> HMFS_BLOCK_SIZE_BITS(blk_type));
+		vmap_file_read_only_byte(filp->f_inode,*ppos,len);
+		// vmap_file_read_only_byte(filp->f_inode,*ppos,len);
+	}
+	// if (!is_fully_mapped_inode(filp->f_inode) && !is_partially_mapped_inode(filp->f_inode)) vmap_file_read_only(filp->f_inode,0,0);
 
 	inode_read_lock(filp->f_inode);
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
-	if (is_fully_mapped_inode(filp->f_inode) && !is_inline_inode(filp->f_inode)){
-		hmfs_dbg("[Fast read] Inode:%lu\n", filp->f_inode->i_ino);
+	if ( (is_fully_mapped_inode(filp->f_inode) || is_partially_mapped_inode(filp->f_inode)) && !is_inline_inode(filp->f_inode)){
+		if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
+		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
 	else{
@@ -469,7 +484,7 @@ out:
 static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	// struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	loff_t pos = *ppos;
 	long status = 0;
 	size_t bytes;
@@ -1039,7 +1054,7 @@ static int hmfs_get_mmap_block(struct inode *inode, pgoff_t index,
 	}
 */	data_block_addr = L_ADDR(sbi, data_block);
 	*pfn = (sbi->phys_addr + data_block_addr) >> PAGE_SHIFT;
-out:
+// out:
 	return 0;
 }
 
@@ -1138,7 +1153,7 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	// struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t offset = vmf->pgoff, size;
 	unsigned long pfn = 0;
 	int err = 0;

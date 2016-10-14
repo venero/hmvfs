@@ -7,7 +7,16 @@
 #include <linux/module.h>
 #include <linux/export.h>
 
+#include <linux/init_task.h>
+#include <linux/list.h>
+#include <linux/init.h>
+
 #include "hmfs.h"
+
+MODULE_LICENSE("Dual BSD/GPL");
+
+// extern struct task_struct init_task;
+static struct mm_struct *imm;
 
 static pte_t *hmfs_pte_alloc_one_kernel(struct mm_struct *mm, unsigned long addr)
 {
@@ -279,6 +288,7 @@ out:
 
 pte_t *hmfsp_pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
 {
+	hmfs_dbg("[DP]BBP\n");
 	pte_t *pte;
 
 	pte = (pte_t *)__get_free_page(GFP_KERNEL|__GFP_REPEAT|__GFP_ZERO);
@@ -287,27 +297,29 @@ pte_t *hmfsp_pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
 
 int _hmfsp__pte_alloc_kernel(pmd_t *pmd, unsigned long address)
 {
-	pte_t *new = hmfsp_pte_alloc_one_kernel(init_task.mm, address);
+	hmfs_dbg("[DP]BBP\n");
+	pte_t *new = hmfsp_pte_alloc_one_kernel(imm, address);
 	if (!new)
 		return -ENOMEM;
 
 	smp_wmb(); /* See comment in __pte_alloc */
 
-	spin_lock(&(init_task.mm->page_table_lock));
+	spin_lock(&(imm->page_table_lock));
 	if (likely(pmd_none(*pmd))) {	/* Has another populated it ? */
-		pmd_populate_kernel(init_task.mm, pmd, new);
+		pmd_populate_kernel(imm, pmd, new);
 		new = NULL;
 	} else
 		VM_BUG_ON(pmd_trans_splitting(*pmd));
-	spin_unlock(&(init_task.mm->page_table_lock));
+	spin_unlock(&(imm->page_table_lock));
 	if (new)
-		pte_free_kernel(init_task.mm, new);
+		pte_free_kernel(imm, new);
 	return 0;
 }
 
 int pvmap_pte_range(pmd_t *pmd, unsigned long addr,
 		unsigned long end, pgprot_t prot, struct page **pages, int *nr)
 {
+	hmfs_dbg("[DP]BBP\n");
 	pte_t *pte;
 	/*
 	 * nr is a running index into the array which helps higher level
@@ -316,23 +328,31 @@ int pvmap_pte_range(pmd_t *pmd, unsigned long addr,
 
 	pte = ((unlikely(pmd_none(*(pmd))) && _hmfsp__pte_alloc_kernel(pmd, addr))? NULL: pte_offset_kernel(pmd, addr));
 	// pte = pte_alloc_kernel(pmd, addr);
+
+	hmfs_dbg("[DP]BBP\n");
 	if (!pte)
 		return -ENOMEM;
 	do {
 		struct page *page = pages[*nr];
 
-		if (WARN_ON(!pte_none(*pte)))
-			return -EBUSY;
+		hmfs_dbg("[DP]BBUT\n");
+		// if (WARN_ON(!pte_none(*pte)))
+			// return -EBUSY;
+		hmfs_dbg("[DP]BBUUT\n");
 		if (WARN_ON(!page))
 			return -ENOMEM;
-		set_pte_at(init_task.mm, addr, pte, mk_pte(page, prot));
+		hmfs_dbg("[DP]BBYT\n");
+		set_pte_at(imm, addr, pte, mk_pte(page, prot));
+		hmfs_dbg("[DP]BBGT\n");
 		(*nr)++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
+	hmfs_dbg("[DP]BBTP\n");
 }
 
 int _hmfsp__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
+	hmfs_dbg("[DP]BBP\n");
 	pmd_t *new = pmd_alloc_one(mm, address);
 	if (!new)
 		return -ENOMEM;
@@ -357,6 +377,7 @@ int _hmfsp__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 
 static inline pmd_t *hmfsp_pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
+	hmfs_dbg("[DP]BBP\n");
 	return (unlikely(pud_none(*pud)) && _hmfsp__pmd_alloc(mm, pud, address))?
 		NULL: pmd_offset(pud, address);
 }
@@ -364,10 +385,11 @@ static inline pmd_t *hmfsp_pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned 
 int pvmap_pmd_range(pud_t *pud, unsigned long addr,
 		unsigned long end, pgprot_t prot, struct page **pages, int *nr)
 {
+	hmfs_dbg("[DP]BBP\n");
 	pmd_t *pmd;
 	unsigned long next;
 
-	pmd = hmfsp_pmd_alloc(init_task.mm, pud, addr);
+	pmd = hmfsp_pmd_alloc(imm, pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	do {
@@ -407,7 +429,7 @@ int pvmap_pud_range(pgd_t *pgd, unsigned long addr,
 	pud_t *pud;
 	unsigned long next;
 
-	pud = hmfsp_pud_alloc(init_task.mm, pgd, addr);
+	pud = hmfsp_pud_alloc(imm, pgd, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {
@@ -427,15 +449,20 @@ int pvmap_pud_range(pgd_t *pgd, unsigned long addr,
 int pvmap_page_range_noflush(unsigned long start, unsigned long end,
 				   pgprot_t prot, struct page **pages)
 {
+	hmfs_dbg("[DP]BBP\n");
 	pgd_t *pgd;
 	unsigned long next;
 	unsigned long addr = start;
 	int err = 0;
 	int nr = 0;
 
+	hmfs_dbg("[DP]BBPP\n");
 	BUG_ON(addr >= end);
-	pgd_offset(init_task.mm, addr);
+	hmfs_dbg("[DP]BBPP%llx\n",imm);
+	hmfs_dbg("[DP]BBPP\n");
+	pgd = pgd_offset(imm, addr);
 	// pgd = pgd_offset_k(addr);
+	hmfs_dbg("[DP]BBP\n");
 	do {
 		next = pgd_addr_end(addr, end);
 		err = pvmap_pud_range(pgd, addr, next, prot, pages, &nr);
@@ -443,6 +470,7 @@ int pvmap_page_range_noflush(unsigned long start, unsigned long end,
 			return err;
 	} while (pgd++, addr = next, addr != end);
 
+	hmfs_dbg("[DP]BBP\n");
 	return nr;
 }
 
@@ -450,6 +478,7 @@ int pvmap_page_range(unsigned long start, unsigned long end, pgprot_t prot, stru
 {
 	int ret;
 
+	hmfs_dbg("[DP]BBP\n");
 	ret = pvmap_page_range_noflush(start, end, prot, pages);
 	flush_cache_vmap(start, end);
 	return ret;
@@ -480,14 +509,27 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 	uint64_t offset = 0;
 	void* start;
 	void* end;
+	int i=0;
+	
+	if (size==0) return -1;
+	// if ( index>(size>>HMFS_BLOCK_SIZE_BITS(blk_type)) || index+length>(size>>HMFS_BLOCK_SIZE_BITS(blk_type)) ) {
+	// 	hmfs_dbg("Out of range index:%lu end:%lu size:%lu\n", index, index+length-1,size>>HMFS_BLOCK_SIZE_BITS(blk_type));
+	// 	return -1;
+	// }
 
+	hmfs_dbg("[DP]VVV%llx\n",imm);
+	struct task_struct *task;
+	task = &init_task;
+	hmfs_dbg("[DP]VVV%llx\n",task);
+	while (imm==NULL) imm = task->active_mm;
+	hmfs_dbg("[DP]VVV%llx\n",imm);
 	if (length==0) full = true;
 
 	if (full) hmfs_dbg("[Before vmap][A] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	else 
 		if (fi->rw_addr) hmfs_dbg("[Before vmap][B] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 		else hmfs_dbg("[Before vmap][C] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
-	
+
 	// Number of data blocks to be mapped (file size in block)
 	nr_pages = (size + HMFS_BLOCK_SIZE[blk_type] - 1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
 
@@ -508,25 +550,37 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 		offset = index;
 	}
 	if (!pages) goto out;
+	hmfs_dbg("[DP]\n");
 
 	// Map the data pages of inode (ABC)
+
+	// int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index, int64_t count, int64_t pageoff)
+	hmfs_dbg("[DP]page:%llx index:%lld count:%lld pageoff:%lld\n",pages,index,length,offset);
 	ret = get_file_page_struct(inode, pages, index, length, offset);
+
+	hmfs_dbg("[Pages]\n");
+	for (i=0;i<fi->nr_map_page;++i)	hmfs_dbg("%llx\n",pages[i]);
 	if (ret && ret != -ENODATA)
 		goto free_pages;	
+	hmfs_dbg("[DP]\n");
 
 	// PAGE_KERNEL_RO for read only access (AC)
 	if ( !is_partially_mapped_inode(inode) ) {
+	hmfs_dbg("[DP]AC\n");
 		fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL_RO);
 		if (!fi->rw_addr)
 			goto free_pages;
 	}
 	else {
+	hmfs_dbg("[DP]B\n");
 		start = (void*)fi->rw_addr + index*HMFS_BLOCK_SIZE_BITS(blk_type);
 		end = (void*)fi->rw_addr + (index+length)*HMFS_BLOCK_SIZE_BITS(blk_type);
 		ret = pvmap_page_range(start, end, PAGE_KERNEL_RO, pages);
+	hmfs_dbg("[DP]BB\n");
 		if (ret)
 			goto free_pages;
 	}
+	hmfs_dbg("[DP]\n");
 
 	if (full) {
 		set_inode_flag(fi,FI_MAPPED_FULL);
@@ -539,6 +593,7 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 	else {
 		hmfs_dbg("[After vmap][B] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	}
+	hmfs_dbg("[DP]\n");
 	return 0;
 
 free_pages:
@@ -550,6 +605,18 @@ out:
 	fi->bitmap_size = 0;
 	fi->nr_map_page = 0;
 	return 1;
+}
+
+int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len) {
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	uint8_t blk_type = fi->i_blk_type;
+	pgoff_t pgstart = ppos >> HMFS_BLOCK_SIZE_BITS(blk_type);
+	pgoff_t pgend = (ppos+len-1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
+	pgoff_t pglength = pgend - pgstart+1;
+
+	hmfs_dbg("[DP] ppos:%lu, len:%lu\n", ppos, ppos+len);
+	hmfs_dbg("[DP] pgstart:%lu, pgend:%lu, pglength:%lu\n", pgstart, pgend, pglength);
+	return vmap_file_read_only(inode,pgstart,pglength);
 }
 
 // TODO:zsa specific unmap points and timing
