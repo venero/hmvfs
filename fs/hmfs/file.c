@@ -281,6 +281,20 @@ out:
 	return (copied ? copied : error);
 }
 
+int get_empty_page_struct(struct inode *inode, struct page **pages, int64_t count) {
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	int p_index = 0;
+	while (p_index < count) {
+		pages[p_index] = sbi->map_zero_page;
+		p_index++;
+	}
+	return 0;
+}
+/*
+ *	Map date blocks of inode to **pages;
+ *	index, count indicates file range to map [index, index+count-1]
+ *	pageoff, count indicates page range to map [pageoff, pageoff+count-1]
+ */
 int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index, int64_t count, int64_t pageoff)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -389,7 +403,9 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
 	hmfs_dbg("hmfs_release_file() Inode:%lu\n", filp->f_inode->i_ino);
+
 	/* FIXME: Is the value of i_count correct */
+	// To active long term mapping in kernel virtual address space, remove the code below
 	if (!atomic_sub_return(1, &fi->nr_open)) {
 		//TODO: Use lazy free
 		unsigned char *bitmap = fi->block_bitmap;
@@ -409,6 +425,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	}
 	// TODO: Consistency
 	if ( is_partially_mapped_inode(inode) || is_fully_mapped_inode(inode)) unmap_file_read_only(inode);
+
+	hmfs_dbg("[After release] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
@@ -435,6 +453,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 		return 0;
 
 	inode_read_unlock(inode);
+
 	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr + pos, copied);
 	inode_read_lock(inode);
 
@@ -448,31 +467,31 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
-	int ret = 0;
+	int ret = 0;	
+
+	// hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
+
+	/* Full mapping */
+	// vmap_file_read_only(filp->f_inode,0,0);
+	/* Partial mapping (block API and byte API)*/
+	// vmap_file_read_only(filp->f_inode,0,i_size_read(filp->f_inode)>> HMFS_BLOCK_SIZE_BITS(blk_type));
+	ret=vmap_file_read_only_byte(filp->f_inode,*ppos,len);
+	// if (ret==0) hmfs_dbg("hmfs_xip_file_read() Successfully mapped\n");
+	// if (ret==1) hmfs_dbg("hmfs_xip_file_read() Not successfully mapped\n");
+	// if (ret==2) hmfs_dbg("hmfs_xip_file_read() No mapping at all\n");
 	
-	struct hmfs_inode_info *fi = HMFS_I(filp->f_inode);
-	uint8_t blk_type = fi->i_blk_type;
-
-	hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
-	if ( !is_fully_mapped_inode(filp->f_inode) && !is_partially_mapped_inode(filp->f_inode) ){
-		vmap_file_read_only(filp->f_inode,0,i_size_read(filp->f_inode)>> HMFS_BLOCK_SIZE_BITS(blk_type));
-		vmap_file_read_only_byte(filp->f_inode,*ppos,len);
-		// vmap_file_read_only_byte(filp->f_inode,*ppos,len);
-	}
-	// if (!is_fully_mapped_inode(filp->f_inode) && !is_partially_mapped_inode(filp->f_inode)) vmap_file_read_only(filp->f_inode,0,0);
-
 	inode_read_lock(filp->f_inode);
 	if (!i_size_read(filp->f_inode))
 		goto out;
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
 	if ( (is_fully_mapped_inode(filp->f_inode) || is_partially_mapped_inode(filp->f_inode)) && !is_inline_inode(filp->f_inode)){
-		if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
-		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
+		// if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
+		// if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
 	else{
-		hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
+		// hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	}
 
@@ -750,11 +769,15 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t le
 	ilock = mutex_lock_op(sbi);
 	inode_write_lock(inode);
 
-	if (likely(HMFS_I(inode)->rw_addr) && !is_inline_inode(inode))
-		ret = hmfs_file_fast_write(inode, buf, count, ppos);
-	else {
-		ret = __hmfs_xip_file_write(inode, buf, count, ppos);
-	}
+	// Normal write only for now (probably for a long time)
+	if (true) ret = __hmfs_xip_file_write(inode, buf, count, ppos);
+	else ret = hmfs_file_fast_write(inode, buf, count, ppos);
+
+	// if (likely(HMFS_I(inode)->rw_addr) && !is_inline_inode(inode))
+	// 	ret = hmfs_file_fast_write(inode, buf, count, ppos);
+	// else {
+	// 	ret = __hmfs_xip_file_write(inode, buf, count, ppos);
+	// }
 
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);

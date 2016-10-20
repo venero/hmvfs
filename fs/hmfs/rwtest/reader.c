@@ -1,8 +1,14 @@
 #include <stdio.h>
 #include <string.h>
 
-//  argv[1] = address of the file
-//  argv[2] = block number
+/*
+ *  Usage: ./a.out file 2 1
+ *  file: "1234"
+ *  output: "3"
+ *  argv[1] = address of the file
+ *  argv[2] = start byte
+ *  argv[3] = length
+ */
 
 int main(int argc, char* argv[]){
     int start = 0;

@@ -661,6 +661,39 @@ free_cp_mgr:
 	return retval;
 }
 
+static int obtain_init_mm_addr(struct hmfs_sb_info *sbi)
+{
+    const char name[20] = "init_mm";
+    unsigned long long addr;
+    int ret=0;
+    loff_t pos=0;
+    struct file* filp;
+    char* buffer;
+    int j;
+    int p1=0;
+    int p2=0;
+    set_fs(get_ds());
+    buffer = (char*)kmalloc(sizeof(char)*100,GFP_KERNEL);
+    filp = filp_open("/proc/kallsyms", O_RDONLY, 0);
+    while (ret>=0) {
+        for (j=0;j<100;++j) {
+            ret = vfs_read(filp, &buffer[j], 1, &pos);
+            if (buffer[j]==' ') {p1=j;}
+            if (buffer[j]=='\n') {p2=j;buffer[j]='\0';break;}
+        }
+        if (!strcmp(buffer+p1+1,name)) {
+            buffer[p1-2]='\0';
+            break;
+        }
+    }
+    ret = kstrtou64(&buffer[0], 16, &addr);
+	sbi->init_mm_addr = addr;
+    if (ret!=0) {hmfs_dbg("Unsuccessful kstrtou64%d,%llx\n",ret,addr);return ret;}
+    hmfs_dbg("Successful kstrtou64 for init_mm:%llx\n",addr);
+	// hmfs_dbg("zero_page:%llx\n",sbi->map_zero_page);
+	return 0;
+}
+
 int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 {
 	int retval = 0;
@@ -693,6 +726,10 @@ int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	read_super_block(sbi, super);
 	/* init checkpoint */
 
+	retval = obtain_init_mm_addr(sbi);
+	if (retval)
+		goto out;
+	
 	retval = build_manager(sbi);
 	if (retval)
 		goto out;

@@ -1,7 +1,12 @@
 #include <stdio.h>
 
-//  argv[1] = address of the file
-//  argv[2] = size of the file in KB, default = 4
+/*
+ *  Usage: ./a.out file 5
+ *  file: "AAA...AAA\nBBB...BBB\nCCC...CCC\nDDD...DDD\nEEE...EEE\n" with 1023 copies of each character
+ *  thus, file size = 5*1024 = 5KB in this case
+ *  argv[1] = address of the file
+ *  argv[2] = size of the file in KB, default = 4
+ */
 
 int main(int argc, char* argv[]){
     int filesize = 4;

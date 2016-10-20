@@ -228,6 +228,9 @@ struct hmfs_sb_info {
 	struct page *map_zero_page;					/* Empty page for hole in file */
 	u64 map_zero_page_number; 					/* pfn of above empty page */
 
+	/* Vmap */
+    unsigned long long init_mm_addr;
+
 	int recovery_doing;							/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
 	spinlock_t dirty_inodes_lock;
@@ -783,6 +786,7 @@ void hmfs_truncate(struct inode *inode);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
+int get_empty_page_struct(struct inode *inode, struct page **pages, int64_t count);
 int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index, int64_t count, int64_t pageoff);
 void truncate_file_block_bitmap(struct inode *inode, loff_t from);
 int create_mmap_struct_cache(void);
