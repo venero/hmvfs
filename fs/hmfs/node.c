@@ -114,7 +114,9 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 
 	INIT_LIST_HEAD(&nm_i->nat_entries);
 	INIT_LIST_HEAD(&nm_i->dirty_nat_entries);
+	// INIT_LIST_HEAD(&nm_i->wp_inode_entries);
 	INIT_LIST_HEAD(&nm_i->free_nid_list);
+	INIT_RADIX_TREE(&nm_i->wp_inode_root, GFP_ATOMIC);
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);
@@ -128,6 +130,9 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 	update_nat_entry(NM_I(sbi), nid, nid, 0, true);
 }
 
+/*
+ *	Add a new nat_entry(node info) to nm_i->nat_entries
+ */
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 {
 	struct nat_entry *new;
@@ -371,6 +376,109 @@ unlock:
 	unlock_write_nat(nm_i);
 }
 
+// rb_tree operations
+struct wp_data_page_entry *wp_data_page_search(struct rb_root *root, int key) {
+	struct rb_node *node = root->rb_node;
+
+  	while (node) {
+  		struct wp_data_page_entry *data = container_of(node, struct wp_data_page_entry, node);
+		int result;
+
+		result = key-data->index;
+
+		if (result < 0)
+  			node = node->rb_left;
+		else if (result > 0)
+  			node = node->rb_right;
+		else
+  			return data;
+	}
+	return NULL;
+}
+
+int wp_data_page_insert(struct rb_root *root, struct wp_data_page_entry *data) {
+  	struct rb_node **new = &(root->rb_node), *parent = NULL;
+
+  	/* Figure out where to put new node */
+  	while (*new) {
+  		struct wp_data_page_entry *this = container_of(*new, struct wp_data_page_entry, node);
+  		int result = data->index - this->index;
+
+		parent = *new;
+  		if (result < 0)
+  			new = &((*new)->rb_left);
+  		else if (result > 0)
+  			new = &((*new)->rb_right);
+  		else
+  			return 1;
+  	}
+
+  	/* Add new node and rebalance tree. */
+  	rb_link_node(&data->node, parent, new);
+  	rb_insert_color(&data->node, root);
+
+	return 0;
+}
+
+// caller should check if nid represents a valid inode number
+// insert radix tree
+// build red black tree
+struct wp_nat_entry *init_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode) {
+	struct wp_nat_entry *wne;
+	nid_t nid = inode->i_ino;
+	wne = (struct wp_nat_entry *)kzalloc(sizeof(struct wp_nat_entry),GFP_KERNEL);
+	wne->ino = nid;
+	wne->rr = RB_ROOT;
+	radix_tree_insert(&nm_i->wp_inode_root,nid,wne);
+	return wne;
+}
+
+struct wp_nat_entry *search_wp_inode_entry_nid(struct hmfs_nm_info *nm_i, nid_t nid) {
+	return radix_tree_lookup(&nm_i->wp_inode_root,nid);
+}
+
+struct wp_nat_entry *search_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode) {
+	nid_t nid = inode->i_ino;
+	return search_wp_inode_entry_nid(nm_i,nid);
+}
+
+struct wp_data_page_entry *search_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index) {
+	struct wp_nat_entry *wne = search_wp_inode_entry(nm_i, inode);
+	if (!wne) return NULL;
+	return wp_data_page_search(&wne->rr, index);
+}
+
+// insert red black tree
+int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index, void *block) {
+	struct wp_nat_entry *wne;
+	struct wp_data_page_entry *wdp;
+	void *dp;
+	int ret;
+	nid_t nid = inode->i_ino;
+	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
+	size_t page_size = 1 << HMFS_BLOCK_SIZE_BITS(blk_type);
+	wne = radix_tree_lookup(&nm_i->wp_inode_root,nid);
+	if (!wne) return 1;
+	wdp = (struct wp_data_page_entry *)kzalloc(sizeof(struct wp_data_page_entry),GFP_KERNEL);
+	if (!wdp) {
+		return -ENOMEM;
+	}
+	dp = (void*)kzalloc(page_size,GFP_KERNEL);
+	if (!dp) {
+		kfree(wdp);
+		return -ENOMEM;
+	}
+	if (block) memcpy(dp,block,page_size);
+	wdp->index = index;
+	wdp->dp_addr = dp;
+	ret = wp_data_page_insert(&wne->rr, wdp);
+	if (ret) return 1;
+	return 0;
+}
+
+void cleanup_wp_inode_entry(struct hmfs_nm_info *nm_i, nid_t nid) {
+
+}
 /*
  * return node address in NVM by nid, would not allocate
  * new node

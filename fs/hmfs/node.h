@@ -36,6 +36,7 @@ struct nat_entry {
 	struct node_info ni;
 };
 
+
 struct free_nid {
 	nid_t nid;
 };

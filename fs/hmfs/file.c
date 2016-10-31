@@ -271,6 +271,8 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		offset += (nr - left);
 		index += offset >> block_size_bits;
 		offset &= block_ofs_mask;
+
+		hmfs_dbg("copied:%lu, nr:%lu, left:%lu\n",copied,nr,left);
 	} while (copied < len);
 
 out:
@@ -356,6 +358,25 @@ out:
 	return err;
 }
 
+int debug_test(struct inode *inode, struct file *filp) {
+	struct wp_nat_entry *wne;
+	struct wp_data_page_entry *wdp;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	void *data;
+	if (sbi->cm_info->new_version<3) return 0;
+	hmfs_dbg("----------Entering debug test---------\n");
+	wne = search_wp_inode_entry(sbi->nm_info,inode);
+	if (!wne) init_wp_inode_entry(sbi->nm_info,inode);
+	wdp = search_wp_data_block(sbi->nm_info,inode,0);
+	if (!wdp) add_wp_data_block(sbi->nm_info,inode,0,NULL);
+	wdp = search_wp_data_block(sbi->nm_info,inode,0);
+	data = wdp->dp_addr;
+	hmfs_dbg("data in %llx: len:%d\n",(char*)data,strlen((char*)data));
+	hmfs_dbg("%s\n",(char*)data);
+	hmfs_dbg("----------Leaving debug test----------\n");
+	return 0;
+}
+
 /* 
  * Open file for hmfs, if it's a read-only file, then remap it into 
  * VMALLOC area to accelerate reading
@@ -365,10 +386,10 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-
 	hmfs_dbg("hmfs_file_open() Inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
 
+	debug_test(inode, filp);
 	// vmap_file_read_only(inode,0,1);
 
 	if (ret || is_inline_inode(inode))
@@ -426,7 +447,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	// TODO: Consistency
 	if ( is_partially_mapped_inode(inode) || is_fully_mapped_inode(inode)) unmap_file_read_only(inode);
 
-	hmfs_dbg("[After release] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
+	// hmfs_dbg("[After release] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
@@ -473,9 +494,9 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 	/* Full mapping */
 	// vmap_file_read_only(filp->f_inode,0,0);
-	/* Partial mapping (block API and byte API)*/
+	/* Partial mapping (block API and byte API, byte API is recommended)*/
 	// vmap_file_read_only(filp->f_inode,0,i_size_read(filp->f_inode)>> HMFS_BLOCK_SIZE_BITS(blk_type));
-	ret=vmap_file_read_only_byte(filp->f_inode,*ppos,len);
+	// ret=vmap_file_read_only_byte(filp->f_inode,*ppos,len);
 	// if (ret==0) hmfs_dbg("hmfs_xip_file_read() Successfully mapped\n");
 	// if (ret==1) hmfs_dbg("hmfs_xip_file_read() Not successfully mapped\n");
 	// if (ret==2) hmfs_dbg("hmfs_xip_file_read() No mapping at all\n");

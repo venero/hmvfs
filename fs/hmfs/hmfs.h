@@ -11,6 +11,7 @@
 #include <linux/spinlock.h>
 #include <linux/radix-tree.h>
 #include <linux/vmalloc.h>
+#include <linux/rbtree.h>
 #include "hmfs_fs.h"
 
 #define HMFS_DEF_FILE_MODE	0664
@@ -121,6 +122,10 @@ struct hmfs_nm_info {
 	unsigned int nat_cnt;	/* the # of cached nat entries */
 	struct list_head nat_entries;	/* cached nat entry list (clean) */
 	struct list_head dirty_nat_entries;	/* cached nat entry list (dirty) */
+
+	/* write prediction inode tree */
+	struct radix_tree_root wp_inode_root;	/* root of the inode entries */
+	// struct list_head wp_inode_entries;	/* cached nat entry list (DRAM writes) (inode only)*/
 	/*
 	 * If the number of dirty nat entries in a block is less than
 	 * threshold, we write them into journal area of checkpoint
@@ -136,6 +141,18 @@ struct hmfs_nm_info {
 
 	unsigned int fcnt;	/* the number of free node id */
 };
+
+struct wp_nat_entry {
+	nid_t ino;
+	struct rb_root rr;
+};
+
+struct wp_data_page_entry {
+	struct rb_node node;
+	int index;
+	void* dp_addr;
+};
+
 
 /* hmfs checkpoint manager */
 struct hmfs_cm_info {
@@ -297,7 +314,7 @@ struct db_info {
 	struct hmfs_node *node_block;
 	nid_t nid;
 	uint16_t ofs_in_node;
-	uint8_t local;
+	uint8_t local;	/* 1(0) : the data block is(not) in the inode */
 };
 
 extern const struct file_operations hmfs_file_operations;
@@ -832,6 +849,13 @@ int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 int remove_mmap_block(struct hmfs_sb_info *, struct mm_struct *, unsigned long);
 int migrate_mmap_block(struct hmfs_sb_info *sbi);
 void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, block_t blk_addr);
+
+/* write prediction in node.c */
+struct wp_nat_entry *init_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode);
+struct wp_nat_entry *search_wp_inode_entry_nid(struct hmfs_nm_info *nm_i, nid_t nid);
+struct wp_nat_entry *search_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode);
+struct wp_data_page_entry *search_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index);
+int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index, void *block);
 
 /* segment.c*/
 unsigned long total_valid_blocks(struct hmfs_sb_info *);

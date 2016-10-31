@@ -779,6 +779,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	/* Reset new_segmap */
 	reset_new_segmap(sbi);
 	reinit_gc_logs(sbi);
+
+	hmfs_dbg("Snapshot version: %u\n",store_version);
 	return 0;
 }
 
