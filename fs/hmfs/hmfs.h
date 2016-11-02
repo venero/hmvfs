@@ -52,7 +52,9 @@ typedef uint32_t ver_t;		/* version type */
 typedef int32_t seg_t;		/* segment number type */
 typedef uint64_t pgc_t;	/* page count type */
 
-
+enum WRITE_DNODE_TYPE {
+	NORMAL = 1, WRITEBACK = 2,
+};
 
 enum READ_DNODE_TYPE {
 	ALLOC = 1, LOOKUP = 2,
@@ -857,6 +859,12 @@ struct wp_nat_entry *search_wp_inode_entry(struct hmfs_nm_info *nm_i, struct ino
 struct wp_data_page_entry *search_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index);
 int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index, void *block);
 
+int cleanup_all_wp_inode_entry(struct hmfs_sb_info *sbi);
+int delete_all_wp_inode_entry(struct hmfs_sb_info *sbi);
+/* write prediction in file.c */
+void* hmfs_wp_wdp_write_back(struct inode *inode, struct wp_data_page_entry *wdp);
+void* hmfs_wp_data_block_write_back(struct inode *inode, int index);
+
 /* segment.c*/
 unsigned long total_valid_blocks(struct hmfs_sb_info *);
 unsigned long get_seg_vblocks_in_summary(struct hmfs_sb_info *, seg_t);
@@ -897,7 +905,7 @@ int redo_delete_checkpoint(struct hmfs_sb_info *sbi);
 
 /* data.c */
 void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy);
-void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end);
+void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end, int mode);
 void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode, int block);
 int get_data_block_info(struct db_info *di, int64_t index, int mode);
 void *get_data_block(struct inode *inode, int64_t index);

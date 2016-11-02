@@ -363,16 +363,25 @@ int debug_test(struct inode *inode, struct file *filp) {
 	struct wp_data_page_entry *wdp;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	void *data;
+	int i;
+	loff_t isize = i_size_read(inode);
+	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
+	unsigned long long bits = HMFS_BLOCK_SIZE_BITS(blk_type);
+	unsigned long long page_bits = 1<<bits;
+	unsigned long long page_size = (unsigned long long)(page_bits -1 + (unsigned long long)isize) >> bits;
 	if (sbi->cm_info->new_version<3) return 0;
 	hmfs_dbg("----------Entering debug test---------\n");
-	wne = search_wp_inode_entry(sbi->nm_info,inode);
-	if (!wne) init_wp_inode_entry(sbi->nm_info,inode);
-	wdp = search_wp_data_block(sbi->nm_info,inode,0);
-	if (!wdp) add_wp_data_block(sbi->nm_info,inode,0,NULL);
-	wdp = search_wp_data_block(sbi->nm_info,inode,0);
-	data = wdp->dp_addr;
-	hmfs_dbg("data in %llx: len:%d\n",(char*)data,strlen((char*)data));
-	hmfs_dbg("%s\n",(char*)data);
+	hmfs_dbg("page_size:%llu,blk_type:%d,isize:%llu,bits:%llu\n",page_size,blk_type,isize,bits);
+	for (i=0;i<page_size;++i) {
+		wne = search_wp_inode_entry(sbi->nm_info,inode);
+		if (!wne) init_wp_inode_entry(sbi->nm_info,inode);
+		wdp = search_wp_data_block(sbi->nm_info,inode,i);
+		if (!wdp) add_wp_data_block(sbi->nm_info,inode,i,NULL);
+		wdp = search_wp_data_block(sbi->nm_info,inode,i);
+		data = wdp->dp_addr;
+		hmfs_dbg("data in %llx: len:%u\n",(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		hmfs_dbg("%s\n",(char*)data);
+	}
 	hmfs_dbg("----------Leaving debug test----------\n");
 	return 0;
 }
@@ -386,7 +395,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
-	hmfs_dbg("hmfs_file_open() Inode:%lu\n", filp->f_inode->i_ino);
+	hmfs_dbg("Open inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
 
 	debug_test(inode, filp);
@@ -423,7 +432,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
-	hmfs_dbg("hmfs_release_file() Inode:%lu\n", filp->f_inode->i_ino);
+	hmfs_dbg("Release inode:%lu\n", filp->f_inode->i_ino);
 
 	/* FIXME: Is the value of i_count correct */
 	// To active long term mapping in kernel virtual address space, remove the code below
@@ -562,12 +571,20 @@ static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf
 	}
 
 normal_write:
-	/*	Devide normal write into 4 types (write in #, from pw_start to page_size-pw_end)
-		Type A: ####_
-		Type B: _####
-		Type C: _###_
-		Type D: #####
-	*/ 
+	/*
+	 *	WARP write - Block size
+	 *	Devide normal write into 4 types (write in #, from pw_start to page_size-pw_end)
+	 *	Type A: ####_
+	 *	Type B: _####
+	 *	Type C: _###_
+	 *	Type D: #####
+	 */ 
+	/*
+	 * 	WARP write - DRAM cache
+	 *	Normal write:	If wdp exists, write to wdp.
+	 *					If not, commence full write procedure.
+	 *	Write back:		Commence full write procedure, use the page of wdg instead of buf.
+	 */
 	do {
 		unsigned long index;
 		unsigned long offset;
@@ -581,7 +598,8 @@ normal_write:
 		if (bytes > count)
 			bytes = count;
 			
-		xip_mem = pw_alloc_new_data_block(inode, index, offset, block_size-offset-bytes);
+		// return the destination of TRUE write
+		xip_mem = pw_alloc_new_data_block(inode, index, offset, block_size-offset-bytes, NORMAL);
 		// xip_mem = alloc_new_data_block(sbi, inode, index);
 		if (unlikely(IS_ERR(xip_mem))) {
 			status = -ENOSPC;
@@ -617,6 +635,24 @@ out:
 	}
 	return written ? written : status;
 }
+
+void* hmfs_wp_wdp_write_back(struct inode *inode, struct wp_data_page_entry *wdp) {
+	uint8_t blk_type = HMFS_I(inode)->i_blk_type;
+	size_t page_size = 1 << HMFS_BLOCK_SIZE_BITS(blk_type);
+	void *xip_mem;
+	xip_mem = pw_alloc_new_data_block(inode, wdp->index, 0, 0, WRITEBACK);
+	// No metadata operation, therefore no lock is needed here
+	return memcpy(xip_mem,wdp->dp_addr,page_size);
+}
+
+void* hmfs_wp_data_block_write_back(struct inode *inode, int index) {
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct wp_data_page_entry *wdp;
+	wdp = search_wp_data_block(sbi->nm_info, inode, index);
+	if ( wdp==NULL ) return ERR_PTR(-ENOENT);
+	return hmfs_wp_wdp_write_back(inode, wdp);
+}
+
 
 static ssize_t hmfs_file_fast_write(struct inode *inode, const char __user *buf,
 				size_t len, loff_t *ppos)

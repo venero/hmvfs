@@ -92,7 +92,8 @@ void destroy_node_manager(struct hmfs_sb_info *sbi)
 
 	if (nm_i->free_nids)
 		kfree(nm_i->free_nids);
-
+	
+	delete_all_wp_inode_entry(sbi);
 	kfree(nm_i);
 }
 
@@ -450,6 +451,7 @@ struct wp_data_page_entry *search_wp_data_block(struct hmfs_nm_info *nm_i, struc
 
 // insert red black tree
 int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index, void *block) {
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct wp_nat_entry *wne;
 	struct wp_data_page_entry *wdp;
 	void *dp;
@@ -468,7 +470,11 @@ int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index,
 		kfree(wdp);
 		return -ENOMEM;
 	}
-	if (block) memcpy(dp,block,page_size);
+	if (block) {
+		radix_tree_tag_set(&sbi->nm_info->wp_inode_root,wne->ino,1);
+		memcpy(dp,block,page_size);
+	}
+				
 	wdp->index = index;
 	wdp->dp_addr = dp;
 	ret = wp_data_page_insert(&wne->rr, wdp);
@@ -476,9 +482,113 @@ int add_wp_data_block(struct hmfs_nm_info *nm_i, struct inode *inode, int index,
 	return 0;
 }
 
-void cleanup_wp_inode_entry(struct hmfs_nm_info *nm_i, nid_t nid) {
+//	Cleanup: clean dirty bits (write back)
+//	Delete: delete the entry
 
+int cleanup_wp_inode_entry(struct hmfs_sb_info *sbi, struct wp_nat_entry *wne) {
+	struct wp_data_page_entry *wdp;
+	struct rb_node *node;
+	void* ret;
+	hmfs_dbg("Entered data block entry cleanup.\n");
+  	for (node = rb_first(&wne->rr); node; node = rb_next(node)) {
+		wdp = rb_entry(node, struct wp_data_page_entry, node);
+		hmfs_dbg("Cleanup index: %d.\n",wdp->index);
+		ret = hmfs_wp_wdp_write_back(hmfs_iget(sbi->sb, wne->ino), wdp );
+		if (ret==NULL) return 1;
+	}
+	return 0;
 }
+
+int cleanup_one_wp_inode_entry(struct hmfs_sb_info *sbi, struct inode *inode) {
+	struct wp_nat_entry *wne;
+	nid_t nid = inode->i_ino;
+	int ret;
+	wne = radix_tree_lookup(&sbi->nm_info->wp_inode_root,nid);
+	if (!wne) return 1;
+	ret = cleanup_wp_inode_entry(sbi, wne);
+	if (ret!=0) return ret;
+	radix_tree_tag_clear(&sbi->nm_info->wp_inode_root,wne->ino,1);
+	return 0;
+}
+
+int cleanup_all_wp_inode_entry(struct hmfs_sb_info *sbi) {
+	int i;
+	unsigned int count=1;
+	int ret;
+	struct wp_nat_entry *wne[10];
+	hmfs_dbg("Entered inode entry cleanup.\n");
+	while (count>0) {
+		count = radix_tree_gang_lookup_tag(&sbi->nm_info->wp_inode_root,(void **)&wne[0],0,10,1);
+		hmfs_dbg("There are %d dirty inode entries this round.\n",count);
+		for (i=0;i<count;++i) {
+			hmfs_dbg("Cleanup inode: %u.\n",wne[i]->ino);
+			ret = cleanup_wp_inode_entry(sbi, wne[i]);
+			if (ret!=0) return ret;
+			radix_tree_tag_clear(&sbi->nm_info->wp_inode_root,wne[i]->ino,1);
+		}
+	}
+	return 0;
+}
+
+int delete_one_wp_inode_wdp_entry(struct hmfs_nm_info *nm_i, struct inode *inode, int index) {
+	struct wp_nat_entry *wne;
+	nid_t nid = inode->i_ino;
+	struct wp_data_page_entry *wdp;
+	wne = radix_tree_lookup(&nm_i->wp_inode_root,nid);
+	wdp = search_wp_data_block(nm_i, inode, index);
+	rb_erase(&wdp->node, &wne->rr);
+	return 0;	
+}
+
+int delete_all_wp_wdp_entry(struct wp_nat_entry *wne) {
+	struct wp_data_page_entry *wdp;
+	struct rb_node *node;
+	hmfs_dbg("Delete inode: %u.\n",wne->ino);
+  	for (node = rb_first(&wne->rr); node; node = rb_next(node)) {
+		wdp = rb_entry(node, struct wp_data_page_entry, node);
+		hmfs_dbg("Delete index: %d.\n",wdp->index);
+		rb_erase(&wdp->node, &wne->rr);
+		// kfree(wdp);
+	}
+	return 0;
+}
+
+int delete_one_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode) {
+	nid_t nid = inode->i_ino;
+	struct wp_nat_entry *wne;
+	int ret;
+	wne = radix_tree_lookup(&nm_i->wp_inode_root,nid);
+	if (!wne) return 1;
+	ret = delete_all_wp_wdp_entry(wne);
+	if (ret!=0) return ret;
+	radix_tree_delete(&nm_i->wp_inode_root, wne->ino);
+	kfree(wne);
+	return 0;
+}
+
+int delete_all_wp_inode_entry(struct hmfs_sb_info *sbi) {
+	int i;
+	unsigned int count=1;
+	int ret;
+	struct wp_nat_entry *wne[10];
+	if (cleanup_all_wp_inode_entry(sbi)!=0) {
+		hmfs_dbg("There are dirty inode entries after cleanup.\n");
+		return 1;
+	} 
+	hmfs_dbg("Entered inode entry delete.\n");
+	while (count>0) {
+		count = radix_tree_gang_lookup(&sbi->nm_info->wp_inode_root,(void **)&wne[0],0,10);
+		hmfs_dbg("There are %d inode entries this round.\n",count);
+		for (i=0;i<count;++i) {
+			ret = delete_all_wp_wdp_entry(wne[i]);
+			if (ret!=0) return ret;
+			radix_tree_delete(&sbi->nm_info->wp_inode_root, wne[i]->ino);
+			kfree(wne[i]);
+		}
+	}
+	return 0;
+}
+
 /*
  * return node address in NVM by nid, would not allocate
  * new node

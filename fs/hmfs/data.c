@@ -176,9 +176,10 @@ void *get_data_block(struct inode *inode, int64_t index)
 	struct db_info di;
 	block_t addr;
 	int err;
+	nid_t nid = inode->i_ino;
 	// WARP-write
 	struct wp_data_page_entry *wdp = search_wp_data_block(sbi->nm_info,inode,index);
-	if (wdp) return wdp->dp_addr;
+	if (wdp) {hmfs_dbg("Get data blcok from wdg: inode:%u, index:%d.\n",nid,(int)index); return wdp->dp_addr;}
 
 	di.inode = inode;
 	err = get_data_block_info(&di, index, LOOKUP);
@@ -224,7 +225,7 @@ int get_data_blocks_ahead(struct inode *inode, int64_t start, int64_t end,
 	return 0;
 }
 
-void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end)
+void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_start, unsigned long pw_end, int mode)
 {
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
@@ -232,22 +233,26 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 	block_t new_addr, src_addr = 0;
 	void *src = NULL, *dest;
 	int err;
+	struct wp_nat_entry *wne;
 	struct wp_data_page_entry *wdp;
 	struct hmfs_summary *summary = NULL;
 	struct db_info di;
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
 	di.inode = inode;
-	wdp = search_wp_data_block(sbi->nm_info, inode, block);
-	if (wdp!=NULL) {
-		dest = wdp->dp_addr;
-		src = dest;
-		src_addr = dest;
-		// src = ADDR(sbi, src_addr);
-		hmfs_dbg("jump write to:%llx\n",(unsigned long long)dest);
-		hmfs_dbg("start:%lu,end:%lu\n",pw_start,pw_end);
-		goto write;
-	}
+	/*
+	 *	Normal write:	If wdp exists, write to wdp. (just return the in-DRAM address)
+	 *					If not, commence full write procedure.
+	 *	Write back:		Commence partial write procedure.
+	 */
+	if (mode==NORMAL) {
+		wdp = search_wp_data_block(sbi->nm_info, inode, block);
+		if (wdp!=NULL) {
+			wne = search_wp_inode_entry(sbi->nm_info, inode);
+			radix_tree_tag_set(&sbi->nm_info->wp_inode_root,wne->ino,1);
+			return wdp->dp_addr;
+		}
+	} 
 
 	err = get_data_block_info(&di, block, ALLOC);
 	if (err)
@@ -257,6 +262,7 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 
 	src_addr = read_address(hn, di.ofs_in_node, di.local);
 
+	// If this data block is created in this version, just write to it.
 	if (src_addr != 0) {
 		src = ADDR(sbi, src_addr);
 		summary = get_summary_by_addr(sbi, src_addr);
@@ -285,11 +291,7 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 		hn->dn.addr[di.ofs_in_node] = cpu_to_le64(new_addr);
 
 	dest = ADDR(sbi, new_addr);
-	// This has been moved up from if-else to escape from warp-write
-	summary = get_summary_by_addr(sbi, new_addr);
-	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
 
-write:
 	if (src_addr != 0) {
 		if ( (HMFS_BLOCK_SIZE[seg_type] - pw_end - pw_start) >> PW_THRESHOLD == 0 ) {
 			hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
@@ -305,6 +307,8 @@ write:
 	}		
 	else memset(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
 
+	summary = get_summary_by_addr(sbi, new_addr);
+	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
 
 	return dest;
 }
@@ -320,7 +324,7 @@ void *alloc_new_data_block(struct hmfs_sb_info *sbi, struct inode *inode,
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
 	if (likely(inode))
-		return pw_alloc_new_data_block(inode, block,HMFS_BLOCK_SIZE[seg_type],0);
+		return pw_alloc_new_data_block(inode, block,HMFS_BLOCK_SIZE[seg_type],0,NORMAL);
 
 	if (!inc_gc_block_count(sbi, block))
 		return ERR_PTR(-ENOSPC);
