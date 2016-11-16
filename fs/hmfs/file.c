@@ -372,16 +372,18 @@ int debug_test(struct inode *inode, struct file *filp) {
 	if (sbi->cm_info->new_version<3) return 0;
 	hmfs_dbg("----------Entering debug test---------\n");
 	hmfs_dbg("page_size:%llu,blk_type:%d,isize:%llu,bits:%llu\n",page_size,blk_type,isize,bits);
+		
 	for (i=0;i<page_size;++i) {
 		wne = search_wp_inode_entry(sbi->nm_info,inode);
 		if (!wne) init_wp_inode_entry(sbi->nm_info,inode);
 		wdp = search_wp_data_block(sbi->nm_info,inode,i);
-		if (!wdp) add_wp_data_block(sbi->nm_info,inode,i,NULL);
+ 		if (!wdp) add_wp_data_block(sbi->nm_info,inode,i,NULL);
 		wdp = search_wp_data_block(sbi->nm_info,inode,i);
 		data = wdp->dp_addr;
-		hmfs_dbg("data in %llx: len:%u\n",(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		hmfs_dbg("%s\n",(char*)data);
 	}
+
 	hmfs_dbg("----------Leaving debug test----------\n");
 	return 0;
 }
@@ -411,8 +413,8 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 		return 0;
 	}
 	inode_write_lock(inode);
-
-	/* Data have been mapped into kernel space */
+	
+		/* Data have been mapped into kernel space */
 	if (fi->rw_addr) {
 		hmfs_bug_on(HMFS_I_SB(inode), !fi->block_bitmap);
 		goto out;
@@ -420,6 +422,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	hmfs_bug_on(HMFS_I_SB(inode), fi->block_bitmap);
 	
+
 	// Originally used for mapping in goku version
 	// vmap_file_range(inode);
 out:
@@ -462,6 +465,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
 		ret = sync_hmfs_inode_size(inode, false);
+
 
 	return ret;
 }

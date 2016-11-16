@@ -239,6 +239,9 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 	struct db_info di;
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
+	if (mode==WRITEBACK) {
+		hmfs_dbg("inside\n");
+	}
 	di.inode = inode;
 	/*
 	 *	Normal write:	If wdp exists, write to wdp. (just return the in-DRAM address)
@@ -292,6 +295,21 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 
 	dest = ADDR(sbi, new_addr);
 
+	if (mode==WRITEBACK) {
+		inode_write_lock(inode);
+		hmfs_dbg("dest %llx\n",(unsigned long long)dest);
+		wdp = search_wp_data_block(sbi->nm_info, inode, block);
+		if (wdp!=NULL) {
+			src = wdp->dp_addr;
+		}
+		hmfs_dbg("src %llx\n",(unsigned long long)src);
+		// hmfs_dbg("%s\n",(char*)src);
+		memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
+		// hmfs_dbg("%s\n",(char*)dest);
+		inode_write_unlock(inode);
+		goto out;
+	}
+
 	if (src_addr != 0) {
 		if ( (HMFS_BLOCK_SIZE[seg_type] - pw_end - pw_start) >> PW_THRESHOLD == 0 ) {
 			hmfs_memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
@@ -306,7 +324,8 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 		}
 	}		
 	else memset(dest, 0, HMFS_BLOCK_SIZE[seg_type]);
-
+	
+out:
 	summary = get_summary_by_addr(sbi, new_addr);
 	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
 
