@@ -3,6 +3,7 @@
 #include <linux/seq_file.h>
 #include <linux/pagemap.h>
 #include <linux/string.h>
+#include <linux/rtc.h>
 #include "hmfs_fs.h"
 #include "segment.h"
 
@@ -38,6 +39,10 @@
 			"=========================================\n"
 
 #define USAGE_SIT	"=============== SIT USAGE ==============\n" \
+      			" `sit c`\n"\
+			"   -- check sit consistency to ssa\n"\
+      			" `sit s`\n"\
+			"   -- print segment number in Main Area\n"\
 			"=========================================\n"
 
 #define USAGE_INODE	"=============== INODE USAGE ==============\n" \
@@ -391,6 +396,8 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 	size_t len = 0;
 	int i;
 	struct hmfs_stat_info *si = STAT_I(sbi);
+	struct rtc_time tm;
+	unsigned long rtime;
 
 	if (!cp)
 		return 0;
@@ -406,7 +413,7 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 					le64_to_cpu(cp->valid_block_count));
 
 		for (i = 0; i < sbi->nr_page_types; i++) {
-			len += hmfs_print(si, 1, "current segment (%d)[%lu, %lu]\n", i,
+			len += hmfs_print(si, 1, "current segment (%d):[%lu, %lu]\n", i,
 						le32_to_cpu(cp->cur_segno[i]), le32_to_cpu(cp->cur_blkoff[i]));
 		}
 		len += hmfs_print(si, 1, "prev_cp_addr: %x\n",
@@ -431,7 +438,10 @@ static int print_cp_one(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *cp,
 					le32_to_cpu(cp->next_scan_nid));
 		len += hmfs_print(si, 1, "elapsed_time: %u\n",
 					le32_to_cpu(cp->elapsed_time));
-		len += hmfs_print(si, 1, "\n\n");
+		rtime = (unsigned long)(le32_to_cpu(cp->wall_time) - sys_tz.tz_minuteswest*60);
+		rtc_time_to_tm(rtime, &tm);
+		len += hmfs_print(si, 1, "wall_time: %04d-%02d-%02d %02d:%02d:%02d \n",tm.tm_year+1900,tm.tm_mon+1, tm.tm_mday,tm.tm_hour,tm.tm_min,tm.tm_sec);
+		len += hmfs_print(si, 1, "\n");
 	}
 	return len;
 }
@@ -479,6 +489,8 @@ static int print_cp_all(struct hmfs_sb_info *sbi, int detail)
      cp c    [<d>]  -- dump current checkpoint info.
      cp <n>  [<d>]  -- dump the n-th checkpoint info on NVM, 0 is the last one.
      cp a    [<d>]  -- dump whole checkpoint list on NVM.
+     cp t    [<d>]  -- take a snapshot, dump the result
+     cp d    [<d>]  -- delete a snapshot, dump the result
      cp             -- print this usage.
      set option 'd' 0 will not give the detail info, default is 1
  */
@@ -488,6 +500,7 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 	struct hmfs_stat_info *si = STAT_I(sbi);
 	size_t len = 0;
 	int detail = 1;
+	ver_t version;
 
 	if (args >= 3 && '0' == argv[2][0])
 		detail = 0;
@@ -497,13 +510,19 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 	} else if ('a' == opt[0]) {
 		hmfs_print(si, 1, "======Total checkpoints info======\n");
 		len = print_cp_all(sbi, detail);
+	} else if ('t' == opt[0]) {
+		if(hmfs_sync_fs(sbi->sb, 1)) {
+			hmfs_print(si, 1, "Operation failed!\n");
+		} else {
+			hmfs_print(si, 1, "A new checkpoint is added!\n");
+		}
 	} else if ('d' == opt[0]) {
-		if (hmfs_readonly(sbi->sb))
-			len = hmfs_print(si, 0, "Readonly\n");
-		else {
-			ver_t v = simple_strtoull((const char *)argv[2], NULL, 0);
-			detail = delete_checkpoint(sbi, v);
-			len = hmfs_print(si, 0, "Delete checkpoint %d: %d\n", v, detail);
+		//TODO: hmfs_readonly
+		version = simple_strtoul(argv[2], NULL, 0);
+		if(delete_checkpoint(sbi, version)) {
+			hmfs_print(si, 1, "Operation failed!\n");
+		} else {
+			hmfs_print(si, 1, "Checkpoint %lu is deleted!\n", version);
 		}
 	} else {
 		unsigned long long n = simple_strtoull(opt, NULL, 0);
@@ -530,7 +549,7 @@ static size_t print_ssa_one(struct hmfs_sb_info *sbi, block_t blk_addr)
 
 	sum_entry = get_summary_by_addr(sbi, blk_addr);
 
-	len += hmfs_print(si, 1, "-- [%d %d] --\n", GET_SEGNO(sbi, blk_addr), GET_SEG_OFS(sbi, blk_addr));
+	len += hmfs_print(si, 1, "-- [%d: %d] --\n", GET_SEGNO(sbi, blk_addr), GET_SEG_OFS(sbi, blk_addr));
 	len += hmfs_print(si, 1, "  nid: %u\n", le32_to_cpu(sum_entry->nid));
 	len += hmfs_print(si, 1, "  start_version: %u\n",
 			   le32_to_cpu(sum_entry->start_version));
@@ -605,6 +624,7 @@ static inline int print_error_segment(struct hmfs_sb_info *sbi,
 
 static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG_LEN + 1])
 {
+	const char *opt = argv[1];
 	int sit_blk_cnt, len=0;
 	int ssa_blk_cnt;
 	int blk_id = 0;
@@ -612,26 +632,29 @@ static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, char argv[][MAX_AR
 
 	struct hmfs_summary *ssa_entry;
 
+	if('c' == opt[0]) {
+		for (segno = 0; segno < TOTAL_SEGS(sbi); ++segno) {
+			ssa_entry = get_summary_block(sbi, segno);
+			ssa_blk_cnt = 0;
+			for (blk_id = 0; blk_id < SM_I(sbi)->page_4k_per_seg; ++blk_id) {
+				if (get_summary_valid_bit(ssa_entry))//seems that le16 is ok
+					++ssa_blk_cnt;
+				ssa_entry++;
+			}
 
-	for (segno = 0; segno < TOTAL_SEGS(sbi); ++segno) {
-		ssa_entry = get_summary_block(sbi, segno);
-		ssa_blk_cnt = 0;
-		for (blk_id = 0; blk_id < SM_I(sbi)->page_4k_per_seg; ++blk_id) {
-			if (get_summary_valid_bit(ssa_entry))//seems that le16 is ok
-				++ssa_blk_cnt;
-			ssa_entry++;
+			sit_blk_cnt = get_vblocks_from_sit(sbi, segno);
+			if (ssa_blk_cnt != sit_blk_cnt){
+				len = print_error_segment(sbi, segno, sit_blk_cnt, ssa_blk_cnt);
+				break;
+			}
 		}
-
-		sit_blk_cnt = get_vblocks_from_sit(sbi, segno);
-		if (ssa_blk_cnt != sit_blk_cnt){
-			len = print_error_segment(sbi, segno, sit_blk_cnt, ssa_blk_cnt);
-			break;
+		if (segno == TOTAL_SEGS(sbi)){
+			len = hmfs_print(STAT_I(sbi), 1, "no error found in SIT check!\n");
 		}
+	} else if ('s' == opt[0]) {
+		len = hmfs_print(STAT_I(sbi), 1, "Segment count: %lu\n", TOTAL_SEGS(sbi));
+		
 	}
-	if (segno == TOTAL_SEGS(sbi)){
-		len = hmfs_print(STAT_I(sbi), 1, "no error found in SIT check!\n");
-	}
-
 	return len;
 }
 
@@ -931,8 +954,9 @@ static int hmfs_dispatch_cmd(struct hmfs_sb_info *sbi, const char *cmd, int len)
 	} else if (0 == strncasecmp(argv[0], "sit", 3)) {
 		if (args == 1) {
 			hmfs_print(si, 0, USAGE_SIT);
-			res = hmfs_print_sit(sbi, args, argv);
+			return 0;
 		}
+		res = hmfs_print_sit(sbi, args, argv);
 	} else if (0 == strncasecmp(argv[0], "nat", 3)) {
 		if (args == 1) {
 			hmfs_print(si, 0, USAGE_NAT);

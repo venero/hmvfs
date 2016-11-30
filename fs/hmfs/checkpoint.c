@@ -749,6 +749,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	}
 	set_struct(cur_cp, next_scan_nid, nm_i->next_scan_nid);
 	set_struct(cur_cp, elapsed_time, get_mtime(sbi));
+	set_struct(cur_cp, wall_time, current_kernel_time().tv_sec);
 
 	/* 2. flush SIT to cp */
 	flush_sit_entries(sbi, cur_cp_addr, nat_root);
@@ -881,6 +882,12 @@ static int __delete_checkpoint(struct hmfs_sb_info *sbi, void *cur_node,
 
 	next_sum = get_summary_by_addr(sbi, L_ADDR(sbi, next_node));
 	next_node_ver = get_summary_start_version(next_sum);
+	{
+		block_t check_addr = L_ADDR(sbi, cur_node);
+		hmfs_dbg("[%d %d](%d)\n", GET_SEGNO(sbi, check_addr), GET_SEG_OFS(sbi, check_addr), get_summary_type(cur_sum));
+		check_addr = L_ADDR(sbi, next_node);
+		hmfs_dbg("[%d %d](%d)\n", GET_SEGNO(sbi, check_addr), GET_SEG_OFS(sbi, check_addr), get_summary_type(next_sum));
+	}
 
 	/* this block is COW */
 	if (cur_node_ver != next_node_ver) {
@@ -914,6 +921,7 @@ delete:
 				next_child = next_child ? next_child + 1 : NULL) {
 			if (!*cur_child)
 				continue;
+			hmfs_dbg("Check NATN:%d\n", i);
 			cur_node = ADDR(sbi, le64_to_cpu(*cur_child));
 			next_node = next_child ? ADDR(sbi, le64_to_cpu(*next_child)) : NULL;
 			__delete_checkpoint(sbi, cur_node, next_node, prev_ver, next_ver);
@@ -932,6 +940,7 @@ delete:
 				next_entry = next_entry ? next_entry + 1 : NULL) {
 			if (!cur_entry->ino)
 				continue;
+			hmfs_dbg("Check NATD:%d\n", i);
 			cur_child = ADDR(sbi, le64_to_cpu(cur_entry->block_addr));
 			next_child = next_entry ? ADDR(sbi, le64_to_cpu(next_entry->block_addr)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
@@ -971,6 +980,7 @@ delete:
 				cur_db++, next_db = next_db ? next_db + 1 : NULL) {
 			if (!*cur_db)
 				continue;
+			hmfs_dbg("Check INODE:%d\n", i);
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
 			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);
@@ -1000,6 +1010,7 @@ delete:
 		for (i = 0; i < ADDRS_PER_BLOCK; i++, cur_db++,	next_db = next_db ? next_db + 1 : NULL) {
 			if (!*cur_db)
 				continue;
+			hmfs_dbg("Check DN:%d\n", i);
 			cur_child = ADDR(sbi, le64_to_cpu(*cur_db));
 			next_child = next_db ? ADDR(sbi, le64_to_cpu(*next_db)) : NULL;
 			__delete_checkpoint(sbi, cur_child, next_child, prev_ver, next_ver);

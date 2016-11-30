@@ -347,6 +347,7 @@ struct hmfs_checkpoint {
 
 	__le32 next_scan_nid;
 	__le32 elapsed_time;
+	__le32 wall_time;
 
 	__le32 gc_logs;		/* segno of gc log area */
 	__le32 nr_gc_segs;

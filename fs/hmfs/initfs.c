@@ -38,6 +38,7 @@ static block_t mk_metadata(struct hmfs_sb_info *sbi, block_t *nofs, block_t *dof
 	block_t end_ofs, area_ofs;
 	pgc_t nr_main_segments, nr_ssa_pages;
 
+	memset(sbi->virt_addr, 0, initsize);
 	sbi->max_page_size_bits = hmfs_max_page_size_bits(initsize);
 	segment_sz = 1 << calculate_segment_size_bits(sbi->max_page_size_bits);
 	end_ofs = initsize & (~(segment_sz - 1));
@@ -87,8 +88,8 @@ static block_t mk_root(struct hmfs_sb_info *sbi, block_t *nofs, block_t *dofs)
 	hi->i_uid = cpu_to_le32(sbi->uid.val);
 	hi->i_gid = cpu_to_le32(sbi->gid.val);
 #else
-	hi->i_uid = cpu_to_le32(sbi->uid);
-	hi->i_gid = cpu_to_le32(sbi->gid);
+	hi->i_uid = cpu_to_le32(sbi->uid.val);
+	hi->i_gid = cpu_to_le32(sbi->gid.val);
 #endif
 
 	hi->i_size = cpu_to_le64(HMFS_BLOCK_SIZE[SEG_DATA_INDEX] * 1);
@@ -230,6 +231,7 @@ static block_t mk_cp(struct hmfs_sb_info *sbi, block_t *nofs, block_t *dofs, blo
 	set_struct(cp, valid_node_count, nr_nodes);
 	set_struct(cp, next_scan_nid, HMFS_ROOT_INO + 1);
 	set_struct(cp, elapsed_time, 0);
+	set_struct(cp, wall_time, current_kernel_time().tv_sec);
 
 	set_struct(cp, cur_segno[SEG_NODE_INDEX], 0);
 	set_struct(cp, cur_blkoff[SEG_NODE_INDEX], nr_nodes);
