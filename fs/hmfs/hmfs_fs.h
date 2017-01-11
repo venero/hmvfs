@@ -435,7 +435,7 @@ struct hmfs_summary {
 	__le32 start_version;
 	__le16 ofs_in_node;	/* offset in parent node */
 	__le16 bt;		/* valid bit and type */
-	__le32 waste_1;
+	__le32 next_warp;
 } __attribute__ ((packed));
 
 //FIXME: is this mov atomically

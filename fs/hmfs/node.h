@@ -29,6 +29,7 @@ struct node_info {
 	nid_t ino;
 	block_t blk_addr;
 	char flag;
+	nid_t next_warp;
 };
 
 struct nat_entry {

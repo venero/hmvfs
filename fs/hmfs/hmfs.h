@@ -111,6 +111,13 @@ struct hmfs_nm_info {
 	nid_t max_nid;		/* maximum possible node ids */
 	nid_t next_scan_nid;	/* the next nid to be scanned */
 
+	nid_t last_visited_nid;	/* the last visited direct node*/
+	struct node_info* last_visited_ninfo;	/* the last visited direct node info*/
+	
+	// Debug
+	int hitcount;
+	int miscount;
+	nid_t predicted_nid;
 	/*
 	 * Whether scan free nid in NAT wrap around. And we should
 	 * not write journal when nid wrap around
@@ -715,12 +722,13 @@ static inline void make_dentry_ptr(struct hmfs_dentry_ptr *d, void *src, int nor
 
 static inline void make_summary_entry(struct hmfs_summary *summary,
 				nid_t nid, ver_t start_version, unsigned int ofs_in_node,
-				unsigned char type)
+				unsigned char type, nid_t next_warp)
 {
 	summary->nid = cpu_to_le32(nid);
 	summary->start_version = cpu_to_le32(start_version);
 	summary->ofs_in_node = cpu_to_le16(ofs_in_node);
 	summary->bt = cpu_to_le16(type);
+	summary->next_warp = cpu_to_le32(next_warp);
 }
 
 static inline nid_t get_summary_nid(struct hmfs_summary *summary)

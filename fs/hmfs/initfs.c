@@ -71,7 +71,7 @@ static block_t mk_metadata(struct hmfs_sb_info *sbi, block_t *nofs, block_t *dof
 static inline void mk_ssa(struct hmfs_sb_info *sbi, block_t ofs, nid_t nid, uint8_t type)
 {
 	struct hmfs_summary *sum = get_summary_by_addr(sbi, ofs);
-	make_summary_entry(sum, nid, HMFS_DEF_CP_VER, 0, type);
+	make_summary_entry(sum, nid, HMFS_DEF_CP_VER, 0, type, 0);
 	set_summary_valid_bit(sum);
 }
 

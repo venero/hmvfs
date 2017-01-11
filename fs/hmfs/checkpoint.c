@@ -621,7 +621,7 @@ static int flush_orphan_inodes(struct hmfs_sb_info *sbi, block_t *orphan_addrs)
 			orphan_addr = L_ADDR(sbi, orphan_block);
 			summary = get_summary_by_addr(sbi, orphan_addr);
 			make_summary_entry(summary, 0, cm_i->new_version, i,
-					SUM_TYPE_ORPHAN);
+					SUM_TYPE_ORPHAN,0);
 			orphan_addrs[i++] = orphan_addr;
 			end = (__le32 *)JUMP(orphan_block, HMFS_BLOCK_SIZE[SEG_NODE_INDEX]);
 			/* Reseverd for checkpoint address */
@@ -723,7 +723,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 
 	cur_cp_addr = L_ADDR(sbi, cur_cp);
 	summary = get_summary_by_addr(sbi, cur_cp_addr);
-	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP);
+	make_summary_entry(summary, 0, cm_i->new_version, 0, SUM_TYPE_CP,0);
 
 	/* GC process should not update nat tree */
 	nat_root = flush_nat_entries(sbi, cur_cp);

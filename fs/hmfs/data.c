@@ -327,7 +327,7 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 	
 out:
 	summary = get_summary_by_addr(sbi, new_addr);
-	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA);
+	make_summary_entry(summary, di.nid, CM_I(sbi)->new_version, di.ofs_in_node, SUM_TYPE_DATA, 0);
 
 	return dest;
 }
@@ -400,7 +400,7 @@ void *alloc_new_x_block(struct inode *inode, int x_tag, bool need_copy)
 
 	summary = get_summary_by_addr(sbi, dst_addr);
 	make_summary_entry(summary, inode->i_ino, CM_I(sbi)->new_version, 0,
-			SUM_TYPE_XDATA);
+			SUM_TYPE_XDATA,0);
 
 	return dst;
 }

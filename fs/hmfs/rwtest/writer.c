@@ -1,7 +1,8 @@
 #include <stdio.h>
-
+#include <string.h>
+#include <stdlib.h>
 /*
- *  Usage: ./a.out file 5
+ *  Usage: ./a.out file 5 0
  *  file: "AAA...AAA\nBBB...BBB\nCCC...CCC\nDDD...DDD\nEEE...EEE\n" with 1023 copies of each character
  *  thus, file size = 5*1024 = 5KB in this case
  *  argv[1] = address of the file
@@ -12,14 +13,21 @@ int main(int argc, char* argv[]){
     int filesize = 4;
     int i=0;
     int count=0;
-    char c = 'A';
-    if (argc == 3) filesize = atoi(argv[2]);
+    char c[2];
+    c[0] = 'A';
+    c[1] = '\0';
+    char cc[1023];
+    if (argc == 4) c[0]+=atoi(argv[3]);    
+    if (argc >= 3) filesize = atoi(argv[2]);
     FILE *fp;
-    fp = fopen(argv[1],"w");
+    fp = fopen(argv[1],"r+");
     while (count<filesize) {
-        for (i=0;i<1023;++i) fputc(c, fp);
+        cc[0]='\0';
+        for (i=0;i<1023;++i) strcat(cc,c);
+        // pri ntf("%s",cc);
+        fputs(cc, fp);
         fputc('\n', fp);
-        if (c=='Z') c='A'; else c=c+1;
+        if (c[0]=='Z') c[0]='A'; else c[0]=c[0]+1;
         count++;
     }
     fclose(fp);
