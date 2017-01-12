@@ -1,5 +1,6 @@
 #include "hmfs.h"
 #include "hmfs_fs.h"
+#include "node.h"
 #include "segment.h"
 #include <linux/crc16.h>
 #include <linux/pagevec.h>
@@ -705,9 +706,9 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_nat_node *nat_root = NULL;
 	struct hmfs_checkpoint *prev_cp, *next_cp;
 	struct hmfs_checkpoint *cur_cp;
+	struct nat_entry *ne;
 	int ret;
 	int i;
-
 	prev_cp = cm_i->last_cp_i->cp;
 	next_cp = ADDR(sbi, le64_to_cpu(prev_cp->next_cp_addr));
 
@@ -781,6 +782,23 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	reinit_gc_logs(sbi);
 
 	hmfs_dbg("Snapshot version: %u\n",store_version);
+	// WARP cp info
+	ne = radix_tree_lookup(&nm_i->nat_root, 1);
+	for (i=1;i<10;++i) {
+		ne = radix_tree_lookup(&nm_i->nat_root, i);
+		if (ne) {
+			if ((ne->ni.blk_addr)!=0) {
+				summary = get_summary_by_addr(sbi, ne->ni.blk_addr);
+				if (get_warp_read(summary)) hmfs_dbg("[cp] nid:%d [Read] inode:%d.\n",i,(int)ne->ni.ino);
+				else {	
+					if (get_warp_write(summary)) hmfs_dbg("[cp] nid:%d [Write] inode:%d.\n",i,(int)ne->ni.ino);
+					else hmfs_dbg("[cp] nid:%d [Normal] inode:%d.\n",i,(int)ne->ni.ino);
+				}
+			}
+		}
+	}
+	hmfs_dbg("Snapshot version: %u\n",store_version);
+
 	return 0;
 }
 

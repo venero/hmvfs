@@ -179,6 +179,53 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
+static int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type) {
+	struct inode *inode = filp->f_inode;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct db_info di;
+	struct direct_node *dn;
+	int err;
+	long long i;
+	struct hmfs_summary *summary = NULL;
+	loff_t pos_start = *ppos >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
+	loff_t pos_end = (*ppos+ len) >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
+	di.inode = inode;
+	for (i=pos_start;i<pos_end;) {
+		err = get_data_block_info(&di, (int64_t)i, LOOKUP);
+		if (err) return -1;
+		switch (type) {
+			case FLAG_WARP_NORMAL:
+				hmfs_dbg("norm nid:%d\n",di.nid);
+				break;
+			case FLAG_WARP_READ:
+				hmfs_dbg("read nid:%d\n",di.nid);
+				break;
+			case FLAG_WARP_WRITE:
+				hmfs_dbg("write nid:%d\n",di.nid);
+				break;
+		}
+		dn = (struct direct_node *)di.node_block;
+		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
+		switch (type) {
+			case FLAG_WARP_NORMAL:
+				clear_warp_read_bit(summary);
+				clear_warp_write_bit(summary);
+				break;
+			case FLAG_WARP_READ:
+				set_warp_read_bit(summary);
+				clear_warp_write_bit(summary);
+				break;
+			case FLAG_WARP_WRITE:
+				clear_warp_read_bit(summary);
+				set_warp_write_bit(summary);
+				break;
+		}
+		i+=ADDRS_PER_BLOCK;
+	}
+	return 0;
+}
+
+
 static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
@@ -397,8 +444,12 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	hmfs_dbg("Open inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
+
+	nm_i->last_visited_type = FLAG_WARP_NORMAL;
 
 	debug_test(inode, filp);
 	// vmap_file_read_only(inode,0,1);
@@ -503,6 +554,12 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 {
 	int ret = 0;	
 
+
+	struct inode *inode = filp->f_inode;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	nm_i->last_visited_type = FLAG_WARP_READ;
+
 	// hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
 
 	/* Full mapping */
@@ -528,7 +585,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		// hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	}
-
+	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
 out:
 	inode_read_unlock(filp->f_inode);
 	return ret;
@@ -797,6 +854,10 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t le
 	loff_t pos;
 	int ilock;
 
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	nm_i->last_visited_type = FLAG_WARP_WRITE;
+
+
 	if (!access_ok(VERIFY_READ, buf, len)) {
 		ret = -EFAULT;
 		goto out_up;
@@ -843,6 +904,7 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t le
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
+	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_WRITE);
 out_backing:
 	current->backing_dev_info = NULL;
 out_up:

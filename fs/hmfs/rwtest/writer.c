@@ -20,11 +20,13 @@ int main(int argc, char* argv[]){
     if (argc == 4) c[0]+=atoi(argv[3]);    
     if (argc >= 3) filesize = atoi(argv[2]);
     FILE *fp;
+    fp = fopen(argv[1],"a");
+    fclose(fp);
     fp = fopen(argv[1],"r+");
     while (count<filesize) {
         cc[0]='\0';
         for (i=0;i<1023;++i) strcat(cc,c);
-        // pri ntf("%s",cc);
+        //	printf("%s",cc);
         fputs(cc, fp);
         fputc('\n', fp);
         if (c[0]=='Z') c[0]='A'; else c[0]=c[0]+1;

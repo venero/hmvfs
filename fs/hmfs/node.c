@@ -689,7 +689,21 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		if (!e) {
 			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, 0);
 		} else {
-			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, e->ni.next_warp);			
+			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, e->ni.next_warp);	
+			switch (nm_i->last_visited_type) {
+			case FLAG_WARP_READ:
+				set_warp_read_bit(summary);
+				clear_warp_write_bit(summary);
+				break;
+			case FLAG_WARP_WRITE:
+				set_warp_write_bit(summary);
+				clear_warp_read_bit(summary);
+				break;
+			case FLAG_WARP_NORMAL:
+				clear_warp_write_bit(summary);
+				clear_warp_read_bit(summary);
+				break;
+			}
 		}
 	} else {
 		make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, 0);
@@ -741,10 +755,12 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 			unlock_read_nat(nm_i);
 			return 0;
 		}
-		hmfs_dbg("[s1]%p\n",e);
-		hmfs_dbg("[s0]%llu\n",e->ni.blk_addr);
+		// hmfs_dbg("[s1]%p\n",e);
+		// hmfs_dbg("[s0]%llu\n",e->ni.blk_addr);
 		if (e->ni.blk_addr!=0) {
 			summary = get_summary_by_addr(sbi, e->ni.blk_addr);
+			if (get_warp_read(summary)) hmfs_dbg("[ck] nid:%d Read is set.\n",nid);			
+			if (get_warp_write(summary)) hmfs_dbg("[ck] nid:%d Write is set.\n",nid);
 			hmfs_dbg("[s2]%p,%p,%d\n",e,summary,get_summary_valid_bit(summary));
 			if (get_summary_valid_bit(summary)) {
 				hmfs_dbg("[s3]%d\n",summary->next_warp);
@@ -761,12 +777,12 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 			hmfs_dbg("[predict miss]\n");
 			nm_i->miscount++;
 		} 
-		hmfs_dbg("[predict] hit:%d, mis:%d\n", nm_i->hitcount, nm_i->miscount);
+		if((nm_i->hitcount)>0) hmfs_dbg("[predict] hit:%d, mis:%d\n", nm_i->hitcount, nm_i->miscount);
 		if (nm_i->last_visited_ninfo!=NULL) nm_i->last_visited_ninfo->next_warp = nid;
 		nm_i->last_visited_nid = nid;
 		nm_i->last_visited_ninfo = &(e->ni);
 		nm_i->predicted_nid = e->ni.next_warp;
-		hmfs_dbg("[predict]4\n");
+		// hmfs_dbg("[predict]4\n");
 
 		unlock_read_nat(nm_i);
 		return 0;

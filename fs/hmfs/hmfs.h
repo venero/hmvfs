@@ -76,6 +76,12 @@ enum {
 	FI_MAPPED_FAST,		/* fully mapped (goku style)*/
 };
 
+// in-memory WARP parameter
+enum {
+	FLAG_WARP_NORMAL,
+	FLAG_WARP_READ,
+	FLAG_WARP_WRITE,
+};
 
 
 struct free_nid;
@@ -113,8 +119,9 @@ struct hmfs_nm_info {
 
 	nid_t last_visited_nid;	/* the last visited direct node*/
 	struct node_info* last_visited_ninfo;	/* the last visited direct node info*/
+	unsigned long last_visited_type;	/* the last visited direct node info*/
 	
-	// Debug
+	// WARP Debug
 	int hitcount;
 	int miscount;
 	nid_t predicted_nid;
@@ -161,7 +168,6 @@ struct wp_data_page_entry {
 	int index;
 	void* dp_addr;
 };
-
 
 /* hmfs checkpoint manager */
 struct hmfs_cm_info {
@@ -753,7 +759,7 @@ static inline unsigned char get_summary_type(struct hmfs_summary *summary)
 
 static inline int get_summary_valid_bit(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->bt) & (~0x7f);
+	return le16_to_cpu(summary->bt) & 0x0080;
 }
 
 static inline void set_summary_nid(struct hmfs_summary *summary, nid_t nid)
@@ -764,16 +770,54 @@ static inline void set_summary_nid(struct hmfs_summary *summary, nid_t nid)
 static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 {
 	int bt = le16_to_cpu(summary->bt);
-
 	bt |= 0x80;
 	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
+// WARP zone
+static inline unsigned char get_warp_read(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x01;
+}
+
+static inline void set_warp_read_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt |= 0x0100;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void clear_warp_read_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= ~0x0100;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline unsigned char get_warp_write(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x02;
+}
+
+static inline void set_warp_write_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt |= 0x0200;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void clear_warp_write_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= ~0x0200;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
 
 static inline void set_summary_type(struct hmfs_summary *summary, int type)
 {
 	int t = le16_to_cpu(summary->bt);
-	t &= ~0x7f;
-	t |= type & 0x7f;
+	t &= ~0x007f;
+	t |= type & 0x007f;
 	hmfs_memcpy_atomic(&summary->bt, &t, 2);
 }
 
@@ -781,7 +825,7 @@ static inline void clear_summary_valid_bit(struct hmfs_summary *summary)
 {
 	int bt = le16_to_cpu(summary->bt);
 
-	bt &= 0x7f;
+	bt &= 0xff7f;
 	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
 
