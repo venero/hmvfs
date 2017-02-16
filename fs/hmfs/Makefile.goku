@@ -6,7 +6,7 @@ ccflags-y += -DCONFIG_HMFS_ACL
 
 obj-m += hmfs.o
 
-hmfs-objs := super.o node.o inode.o checkpoint.o file.o data.o namei.o segment.o hash.o dir.o symlink.o gc.o recovery.o vmap.o initfs.o util.o
+hmfs-objs := super.o node.o inode.o checkpoint.o file.o data.o namei.o segment.o hash.o dir.o symlink.o gc.o recovery.o vmap.o warp.o initfs.o util.o
 
 hmfs-objs += debug.o
 hmfs-objs += xattr.o

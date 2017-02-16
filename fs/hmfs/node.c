@@ -7,6 +7,8 @@
 
 static struct kmem_cache *nat_entry_slab;
 
+static struct kmem_cache *warp_candidate_entry_slab;
+
 const struct address_space_operations hmfs_nat_aops;
 
 static inline bool inc_valid_node_count(struct hmfs_sb_info *sbi, struct inode *inode,
@@ -127,6 +129,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	// INIT_LIST_HEAD(&nm_i->wp_inode_entries);
 	INIT_LIST_HEAD(&nm_i->free_nid_list);
 	INIT_RADIX_TREE(&nm_i->wp_inode_root, GFP_ATOMIC);
+	INIT_LIST_HEAD(&nm_i->warp_candidate);
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);
@@ -157,6 +160,16 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	new->ni.nid = nid;
 	list_add_tail(&new->list, &nm_i->nat_entries);
 	nm_i->nat_cnt++;
+	return new;
+}
+
+struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni) {
+	struct warp_candidate_entry *new;
+	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
+	if (!new) return NULL;
+	memset(new, 0, sizeof(struct warp_candidate_entry));
+	new->nip = ni;
+	list_add_tail(&new->list, &nm_i->warp_candidate);
 	return new;
 }
 
@@ -743,12 +756,12 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_summary *summary = NULL;
 
-	hmfs_dbg("get_node_info:%d\n",nid);
+	// hmfs_dbg("get_node_info:%d\n",nid);
 	/* search in nat cache */
 	lock_read_nat(nm_i);
 	e = __lookup_nat_cache(nm_i, nid);
 	if (e) {
-		hmfs_dbg("[cache hit]\n");
+		// hmfs_dbg("[cache hit]\n");
 		ni->ino = e->ni.ino;
 		ni->blk_addr = e->ni.blk_addr;
 		if (nid == nm_i->last_visited_nid) {
@@ -759,25 +772,25 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 		// hmfs_dbg("[s0]%llu\n",e->ni.blk_addr);
 		if (e->ni.blk_addr!=0) {
 			summary = get_summary_by_addr(sbi, e->ni.blk_addr);
-			if (get_warp_read(summary)) hmfs_dbg("[ck] nid:%d Read is set.\n",nid);			
-			if (get_warp_write(summary)) hmfs_dbg("[ck] nid:%d Write is set.\n",nid);
-			hmfs_dbg("[s2]%p,%p,%d\n",e,summary,get_summary_valid_bit(summary));
-			if (get_summary_valid_bit(summary)) {
-				hmfs_dbg("[s3]%d\n",summary->next_warp);
-				// For OnDisk result, cat twice.
-				hmfs_dbg("Current:%d, Predicted:%d, PNext:%d, OnDisk:%d\n", nid, nm_i->predicted_nid, e->ni.next_warp, summary->next_warp);
-			}
-			else hmfs_dbg("Current:%d, Predicted:%d, PNext:%d\n", nid, nm_i->predicted_nid, e->ni.next_warp);
+			// if (get_warp_read(summary)) hmfs_dbg("[ck] nid:%d Read is set.\n",nid);			
+			// if (get_warp_write(summary)) hmfs_dbg("[ck] nid:%d Write is set.\n",nid);
+			// hmfs_dbg("[s2]%p,%p,%d\n",e,summary,get_summary_valid_bit(summary));
+			// if (get_summary_valid_bit(summary)) {
+			// 	hmfs_dbg("[s3]%d\n",summary->next_warp);
+			// 	// For OnDisk result, cat twice.
+			// 	hmfs_dbg("Current:%d, Predicted:%d, PNext:%d, OnDisk:%d\n", nid, nm_i->predicted_nid, e->ni.next_warp, summary->next_warp);
+			// }
+			// else hmfs_dbg("Current:%d, Predicted:%d, PNext:%d\n", nid, nm_i->predicted_nid, e->ni.next_warp);
 		}
 		if (nid == nm_i->predicted_nid && nm_i->predicted_nid!=0) {
-			hmfs_dbg("[predict hit]\n");
+			// hmfs_dbg("[predict hit]\n");
 			nm_i->hitcount++;
 		}
 		else {
-			hmfs_dbg("[predict miss]\n");
+			// hmfs_dbg("[predict miss]\n");
 			nm_i->miscount++;
 		} 
-		if((nm_i->hitcount)>0) hmfs_dbg("[predict] hit:%d, mis:%d\n", nm_i->hitcount, nm_i->miscount);
+		// if((nm_i->hitcount)>0) hmfs_dbg("[predict] hit:%d, mis:%d\n", nm_i->hitcount, nm_i->miscount);
 		if (nm_i->last_visited_ninfo!=NULL) nm_i->last_visited_ninfo->next_warp = nid;
 		nm_i->last_visited_nid = nid;
 		nm_i->last_visited_ninfo = &(e->ni);
@@ -792,7 +805,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	/* search in main area */
 	ne_local = get_nat_entry(sbi, CM_I(sbi)->last_cp_i->version, nid);
-	hmfs_dbg("[cache miss]\n");
+	// hmfs_dbg("[cache miss]\n");
 	if (ne_local == NULL) {
 		return -ENODATA;
 	}
@@ -1011,13 +1024,19 @@ int create_node_manager_caches(void)
 							sizeof(struct nat_entry), NULL);
 	if (!nat_entry_slab)
 		return -ENOMEM;
-
+		
+	warp_candidate_entry_slab = hmfs_kmem_cache_create("warp_candidate_entry",
+							sizeof(struct warp_candidate_entry), NULL);
+	if (!warp_candidate_entry_slab)
+		return -ENOMEM;
+		
 	return 0;
 }
 
 void destroy_node_manager_caches(void)
 {
 	kmem_cache_destroy(nat_entry_slab);
+	kmem_cache_destroy(warp_candidate_entry_slab);
 }
 
 /* get a nat/nat page from nat/nat in-NVM tree */

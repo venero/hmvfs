@@ -179,53 +179,6 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
-static int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type) {
-	struct inode *inode = filp->f_inode;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct db_info di;
-	struct direct_node *dn;
-	int err;
-	long long i;
-	struct hmfs_summary *summary = NULL;
-	loff_t pos_start = *ppos >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
-	loff_t pos_end = (*ppos+ len) >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
-	di.inode = inode;
-	for (i=pos_start;i<pos_end;) {
-		err = get_data_block_info(&di, (int64_t)i, LOOKUP);
-		if (err) return -1;
-		switch (type) {
-			case FLAG_WARP_NORMAL:
-				hmfs_dbg("norm nid:%d\n",di.nid);
-				break;
-			case FLAG_WARP_READ:
-				hmfs_dbg("read nid:%d\n",di.nid);
-				break;
-			case FLAG_WARP_WRITE:
-				hmfs_dbg("write nid:%d\n",di.nid);
-				break;
-		}
-		dn = (struct direct_node *)di.node_block;
-		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
-		switch (type) {
-			case FLAG_WARP_NORMAL:
-				clear_warp_read_bit(summary);
-				clear_warp_write_bit(summary);
-				break;
-			case FLAG_WARP_READ:
-				set_warp_read_bit(summary);
-				clear_warp_write_bit(summary);
-				break;
-			case FLAG_WARP_WRITE:
-				clear_warp_read_bit(summary);
-				set_warp_write_bit(summary);
-				break;
-		}
-		i+=ADDRS_PER_BLOCK;
-	}
-	return 0;
-}
-
-
 static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
@@ -577,12 +530,12 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
 	if ( (is_fully_mapped_inode(filp->f_inode) || is_partially_mapped_inode(filp->f_inode)) && !is_inline_inode(filp->f_inode)){
-		// if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
-		// if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
+		if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
+		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
 	else{
-		// hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
+		hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	}
 	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);

@@ -76,13 +76,12 @@ enum {
 	FI_MAPPED_FAST,		/* fully mapped (goku style)*/
 };
 
-// in-memory WARP parameter
+// in-memory WARP flags
 enum {
 	FLAG_WARP_NORMAL,
 	FLAG_WARP_READ,
 	FLAG_WARP_WRITE,
 };
-
 
 struct free_nid;
 
@@ -142,6 +141,9 @@ struct hmfs_nm_info {
 	/* write prediction inode tree */
 	struct radix_tree_root wp_inode_root;	/* root of the inode entries */
 	// struct list_head wp_inode_entries;	/* cached nat entry list (DRAM writes) (inode only)*/
+
+	struct list_head warp_candidate;
+
 	/*
 	 * If the number of dirty nat entries in a block is less than
 	 * threshold, we write them into journal area of checkpoint
@@ -773,6 +775,98 @@ static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 	bt |= 0x80;
 	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
+
+// WARP candidate zone
+static inline unsigned char get_warp_read_candidate(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x04;
+}
+
+static inline void set_warp_read_candidate_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt |= 0x0400;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void clear_warp_read_candidate_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= ~0x0400;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline unsigned char get_warp_write_candidate(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x08;
+}
+
+static inline void set_warp_write_candidate_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt |= 0x0800;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void clear_warp_write_candidate_bit(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= ~0x0800;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+// WARP pure
+static inline bool get_warp_read_pure(struct hmfs_summary *summary)
+{
+	return (le16_to_cpu(summary->bt)<<4)>>8 == 0x1 ? true : false;
+}
+
+static inline bool get_warp_write_pure(struct hmfs_summary *summary)
+{
+	return (le16_to_cpu(summary->bt)<<4)>>8 == 0x2 ? true : false;
+}
+
+static inline bool get_warp_is_candidate(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0xc;
+}
+
+// WARP calculate
+static inline int get_warp_current_type(struct hmfs_summary *summary)
+{
+	return (int)le16_to_cpu(summary->bt)>>8 & 0x03;
+}
+
+static inline int get_warp_next_type(struct hmfs_summary *summary)
+{
+	int ret = (int)le16_to_cpu(summary->bt)>>10 & 0x03;
+	if (ret<3) return ret;
+	else return 0;
+}
+
+static inline void reset_warp_read(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= 0xf0ff;
+	bt |= 0x0100;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void reset_warp_write(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= 0xf0ff;
+	bt |= 0x0200;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
+static inline void reset_warp_normal(struct hmfs_summary *summary)
+{
+	int bt = le16_to_cpu(summary->bt);
+	bt &= 0xf0ff;
+	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
+}
+
 // WARP zone
 static inline unsigned char get_warp_read(struct hmfs_summary *summary)
 {
@@ -854,6 +948,7 @@ int truncate_data_blocks_range(struct db_info *di, int count);
 int64_t hmfs_dir_seek_data_reverse(struct inode *dir, int64_t end_blk);
 int truncate_data_blocks(struct db_info *di);
 void hmfs_truncate(struct inode *inode);
+struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
@@ -996,6 +1091,11 @@ int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_
 int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length);
 int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len);
 int unmap_file_read_only(struct inode *inode);
+
+/* warp.c */
+int warp_test(void);
+int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type);
+int hmfs_warp_update(struct hmfs_sb_info *sbi);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);

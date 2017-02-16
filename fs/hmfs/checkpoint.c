@@ -707,6 +707,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *prev_cp, *next_cp;
 	struct hmfs_checkpoint *cur_cp;
 	struct nat_entry *ne;
+	char *type_name="\0";
 	int ret;
 	int i;
 	prev_cp = cm_i->last_cp_i->cp;
@@ -784,15 +785,23 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	hmfs_dbg("Snapshot version: %u\n",store_version);
 	// WARP cp info
 	ne = radix_tree_lookup(&nm_i->nat_root, 1);
-	for (i=1;i<10;++i) {
+	for (i=1;i<30;++i) {
 		ne = radix_tree_lookup(&nm_i->nat_root, i);
 		if (ne) {
 			if ((ne->ni.blk_addr)!=0) {
 				summary = get_summary_by_addr(sbi, ne->ni.blk_addr);
-				if (get_warp_read(summary)) hmfs_dbg("[cp] nid:%d [Read] inode:%d.\n",i,(int)ne->ni.ino);
+				switch (get_summary_type(summary)) {
+					case SUM_TYPE_INODE:
+						type_name = "Inode";break;
+					case SUM_TYPE_DN:
+						type_name = "Direct";break;
+					case SUM_TYPE_IDN:
+						type_name = "Indirect";break;
+				}
+				if (get_warp_read(summary)) hmfs_dbg("[cp] nid:%d [%s] [Read] inode:%d.\n",i,type_name,(int)ne->ni.ino);
 				else {	
-					if (get_warp_write(summary)) hmfs_dbg("[cp] nid:%d [Write] inode:%d.\n",i,(int)ne->ni.ino);
-					else hmfs_dbg("[cp] nid:%d [Normal] inode:%d.\n",i,(int)ne->ni.ino);
+					if (get_warp_write(summary)) hmfs_dbg("[cp] nid:%d [%s] [Write] inode:%d.\n",i,type_name,(int)ne->ni.ino);
+					else hmfs_dbg("[cp] nid:%d [%s] [Normal] inode:%d.\n",i,type_name,(int)ne->ni.ino);
 				}
 			}
 		}
@@ -818,6 +827,9 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 
 	cleanup_all_wp_inode_entry(sbi);
 	hmfs_dbg("write checkpoint\n");
+
+	hmfs_warp_update(sbi);
+
 	ret = do_checkpoint(sbi);
 
 unlock:

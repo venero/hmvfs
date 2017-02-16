@@ -37,6 +37,11 @@ struct nat_entry {
 	struct node_info ni;
 };
 
+struct warp_candidate_entry {
+	struct list_head list;
+	struct node_info *nip;
+};
+
 
 struct free_nid {
 	nid_t nid;
