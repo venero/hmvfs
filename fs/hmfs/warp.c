@@ -1,3 +1,5 @@
+#include <linux/kthread.h>
+#include <linux/delay.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
 #include "node.h"
@@ -25,8 +27,9 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	di.inode = inode;
 	for (i=pos_start;i<pos_end;) {
 		err = get_data_block_info(&di, (int64_t)i, LOOKUP);
-		hmfs_dbg("i:%d nid:%d\n",(int)i,(int)di.nid);
 		if (err) return -1;
+		/* Useful!
+		hmfs_dbg("i:%d nid:%d\n",(int)i,(int)di.nid);
 		switch (type) {
 			case FLAG_WARP_NORMAL:
 				hmfs_dbg("norm nid:%d\n",(int)di.nid);
@@ -38,13 +41,15 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 				hmfs_dbg("write nid:%d\n",(int)di.nid);
 				break;
 		}
+		*/
 		dn = (struct direct_node *)di.node_block;
 		ne = radix_tree_lookup(&nm_i->nat_root, di.nid);
         if (unlikely(!ne)) {
-            hmfs_dbg("radix_tree_lookup misses.");
+            hmfs_dbg("radix_tree_lookup misses.\n");
             continue;
         }
         ni = &ne->ni;
+
 
 		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
 		switch (type) {
@@ -57,14 +62,38 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 				break;
 			case FLAG_WARP_READ:
                 if (get_warp_read_pure(summary)) break;
-                if (!get_warp_is_candidate(summary)) wce = add_warp_candidate(sbi->nm_info, ni);
+                if (!get_warp_is_candidate(summary)) {
+					wce = add_warp_candidate(sbi->nm_info, ni);
+        			if (unlikely(!wce)) {
+						hmfs_dbg("add_warp_candidate failed.\n");
+            			continue;
+        			}
+					// Why add_warp_pending inside switch?
+					// Because we rather having less pending entries than having too much
+					wce = add_warp_pending(sbi->nm_info, ni);
+        			if (unlikely(!wce)) {
+						hmfs_dbg("add_warp_pending failed.\n");
+            			continue;
+        			}
+				}
 				set_warp_read_candidate_bit(summary);
 				// set_warp_read_bit(summary);
 				// clear_warp_write_bit(summary);
 				break;
 			case FLAG_WARP_WRITE:
                 if (get_warp_write_pure(summary)) break;
-                if (!get_warp_is_candidate(summary)) wce = add_warp_candidate(sbi->nm_info, ni);
+                if (!get_warp_is_candidate(summary)) {
+					wce = add_warp_candidate(sbi->nm_info, ni);
+        			if (unlikely(!wce)) {
+						hmfs_dbg("add_warp_candidate failed.\n");
+            			continue;
+        			}
+					wce = add_warp_pending(sbi->nm_info, ni);
+        			if (unlikely(!wce)) {
+						hmfs_dbg("add_warp_pending failed.\n");
+            			continue;
+        			}
+				}
 				set_warp_write_candidate_bit(summary);
 				// clear_warp_read_bit(summary);
 				// set_warp_write_bit(summary);
@@ -72,6 +101,8 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		}
 		i+=ADDRS_PER_BLOCK;
 	}
+	// Call warp-preparation after a range request
+	wake_up_warp(sbi);
 	return 0;
 }
 
@@ -105,7 +136,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 	struct hmfs_summary *summary = NULL;
     int current_type;
     int next_type;
-    list_for_each_entry_safe(le, tmp, &nm_i->warp_candidate, list) {
+    list_for_each_entry_safe(le, tmp, &nm_i->warp_candidate_list, list) {
         // hmfs_dbg("Dealing with nid:%d\n",le->nip->nid);
 		summary = get_summary_by_addr(sbi, le->nip->blk_addr);
         current_type = get_warp_current_type(summary);
@@ -123,4 +154,67 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 		kfree(le);
 	}
     return 0;
+}
+
+inline void wake_up_warp(struct hmfs_sb_info *sbi) {
+	if (sbi->warp_thread) {
+		smp_wmb();
+		wake_up_process(sbi->warp_thread->hmfs_task);
+	}
+}
+
+static int warp_thread_func(void *data)
+{
+	struct hmfs_sb_info *sbi = data;
+	struct node_info *this;
+	int time_count = 0;  
+    do {
+        hmfs_dbg("warp_function: A %d times\n", ++time_count);  
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule();
+        // hmfs_dbg("warp_function: B %d times\n", ++time_count);  
+		while(!list_empty(&sbi->nm_info->warp_pending_list)) {
+			hmfs_dbg("[warping] In\n");
+			this = pop_one_warp_pending_entry(sbi->nm_info);
+			hmfs_dbg("[warping] ino:%d nid:%d\n",this->ino,this->nid);
+		}
+        // hmfs_dbg("warp_function: C %d times\n", ++time_count);  
+    } while(!kthread_should_stop());  
+    return time_count;
+}
+
+int start_warp_thread(struct hmfs_sb_info *sbi)
+{
+	struct hmfs_kthread *warp_thread = NULL;
+	int err = 0;
+
+	sbi->warp_thread = NULL;
+	/* Initialize WARP kthread */
+	warp_thread = kmalloc(sizeof(struct hmfs_kthread), GFP_KERNEL);
+	if (!warp_thread) {
+		return -ENOMEM;
+	}
+
+	init_waitqueue_head(&(warp_thread->wait_queue_head));
+	warp_thread->hmfs_task = kthread_run(warp_thread_func, sbi, "HMFS warp");
+	sbi->warp_thread = warp_thread;
+	if (IS_ERR(warp_thread->hmfs_task)) {
+		err = PTR_ERR(warp_thread->hmfs_task);
+		goto free_warp;
+	}
+
+	return 0;
+
+free_warp:
+	kfree(warp_thread);
+	return err;
+}
+
+void stop_warp_thread(struct hmfs_sb_info *sbi)
+{
+	if (sbi->warp_thread) {
+		kthread_stop(sbi->warp_thread->hmfs_task);
+		kfree(sbi->warp_thread);
+		sbi->warp_thread = NULL;
+	}
 }

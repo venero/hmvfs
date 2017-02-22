@@ -129,11 +129,13 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	// INIT_LIST_HEAD(&nm_i->wp_inode_entries);
 	INIT_LIST_HEAD(&nm_i->free_nid_list);
 	INIT_RADIX_TREE(&nm_i->wp_inode_root, GFP_ATOMIC);
-	INIT_LIST_HEAD(&nm_i->warp_candidate);
+	INIT_LIST_HEAD(&nm_i->warp_candidate_list);
+	INIT_LIST_HEAD(&nm_i->warp_pending_list);
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);
 	mutex_init(&nm_i->build_lock);
+	mutex_init(&nm_i->wpl_lock);
 	return 0;
 }
 
@@ -163,15 +165,42 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	return new;
 }
 
+// Add node to warp_candidate_list for read/write property adjustion
 struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni) {
 	struct warp_candidate_entry *new;
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
 	memset(new, 0, sizeof(struct warp_candidate_entry));
 	new->nip = ni;
-	list_add_tail(&new->list, &nm_i->warp_candidate);
+	list_add_tail(&new->list, &nm_i->warp_candidate_list);
 	return new;
 }
+
+// Add node to warp_pending_list for back ground warp process to pre-read/pre-write
+struct warp_candidate_entry *add_warp_pending(struct hmfs_nm_info *nm_i, struct node_info *ni) {
+	struct warp_candidate_entry *new;
+	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
+	if (!new) return NULL;
+	memset(new, 0, sizeof(struct warp_candidate_entry));
+	new->nip = ni;
+	mutex_lock(&nm_i->wpl_lock);
+	list_add_tail(&new->list, &nm_i->warp_pending_list);
+	mutex_unlock(&nm_i->wpl_lock);
+	return new;
+}
+
+struct node_info *pop_one_warp_pending_entry(struct hmfs_nm_info *nm_i) {
+	struct warp_candidate_entry *this;
+	struct node_info *that;
+	if (unlikely(list_empty(&nm_i->warp_pending_list))) return NULL;
+	this = list_entry(nm_i->warp_pending_list.next, struct warp_candidate_entry, list);
+	that = this->nip;
+	mutex_lock(&nm_i->wpl_lock);
+	list_del(&this->list);
+	mutex_unlock(&nm_i->wpl_lock);
+	return that;
+}
+
 
 /*  
  *  @nid: NID of node to be truncated

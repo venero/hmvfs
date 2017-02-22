@@ -733,6 +733,11 @@ int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	retval = build_manager(sbi);
 	if (retval)
 		goto out;
+
+	retval = start_warp_thread(sbi);
+	if (retval)
+		goto out;
+
 	return 0;
 out:
 	if (sbi->virt_addr)

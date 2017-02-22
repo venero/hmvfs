@@ -20,11 +20,6 @@
 #define ABS(x, y)		(x > y ? x - y : y - x)
 #define DEFAULT_GC_TOKEN		8
 
-struct hmfs_kthread {
-	struct task_struct *hmfs_task;
-	wait_queue_head_t wait_queue_head;
-};
-
 struct gc_move_arg {
 	unsigned int start_version;
 	unsigned int nid;

@@ -30,6 +30,7 @@ struct node_info {
 	block_t blk_addr;
 	char flag;
 	nid_t next_warp;
+	int current_warp;
 };
 
 struct nat_entry {
@@ -41,7 +42,6 @@ struct warp_candidate_entry {
 	struct list_head list;
 	struct node_info *nip;
 };
-
 
 struct free_nid {
 	nid_t nid;
@@ -66,6 +66,7 @@ static inline void node_info_from_raw_nat(struct node_info *ni,
 {
 	ni->ino = le32_to_cpu(ne->ino);
 	ni->blk_addr = le64_to_cpu(ne->block_addr);
+	ni->current_warp = FLAG_WARP_NORMAL;
 }
 
 static inline bool is_checkpoint_node(char sum_type)

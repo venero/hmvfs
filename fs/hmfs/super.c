@@ -156,6 +156,7 @@ static void hmfs_put_super(struct super_block *sb)
 	hmfs_destroy_stats(sbi);
 	destroy_map_zero_page(sbi);
 	stop_gc_thread(sbi);
+	stop_warp_thread(sbi);
 	destroy_segment_manager(sbi);
 	destroy_node_manager(sbi);
 	destroy_checkpoint_manager(sbi);

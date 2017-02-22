@@ -83,6 +83,11 @@ enum {
 	FLAG_WARP_WRITE,
 };
 
+struct hmfs_kthread {
+	struct task_struct *hmfs_task;
+	wait_queue_head_t wait_queue_head;
+};
+
 struct free_nid;
 
 struct hmfs_mmap_block {
@@ -142,7 +147,10 @@ struct hmfs_nm_info {
 	struct radix_tree_root wp_inode_root;	/* root of the inode entries */
 	// struct list_head wp_inode_entries;	/* cached nat entry list (DRAM writes) (inode only)*/
 
-	struct list_head warp_candidate;
+	/* WARP */
+	struct list_head warp_candidate_list;
+	struct list_head warp_pending_list;
+	struct mutex wpl_lock;
 
 	/*
 	 * If the number of dirty nat entries in a block is less than
@@ -262,8 +270,9 @@ struct hmfs_sb_info {
 	struct page *map_zero_page;					/* Empty page for hole in file */
 	u64 map_zero_page_number; 					/* pfn of above empty page */
 
-	/* Vmap */
+	/* WARP */
     unsigned long long init_mm_addr;
+	struct hmfs_kthread *warp_thread;	
 
 	int recovery_doing;							/* recovery is doing or not */
 	struct list_head dirty_inodes_list;			/* dirty inodes marked by VFS */
@@ -949,6 +958,8 @@ int64_t hmfs_dir_seek_data_reverse(struct inode *dir, int64_t end_blk);
 int truncate_data_blocks(struct db_info *di);
 void hmfs_truncate(struct inode *inode);
 struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni);
+struct warp_candidate_entry *add_warp_pending(struct hmfs_nm_info *nm_i, struct node_info *ni);
+struct node_info *pop_one_warp_pending_entry(struct hmfs_nm_info *nm_i);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
@@ -1096,6 +1107,9 @@ int unmap_file_read_only(struct inode *inode);
 int warp_test(void);
 int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type);
 int hmfs_warp_update(struct hmfs_sb_info *sbi);
+inline void wake_up_warp(struct hmfs_sb_info *sbi);
+int start_warp_thread(struct hmfs_sb_info *sbi);
+void stop_warp_thread(struct hmfs_sb_info *sbi);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);
