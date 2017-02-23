@@ -748,6 +748,11 @@ static inline void make_summary_entry(struct hmfs_summary *summary,
 	summary->next_warp = cpu_to_le32(next_warp);
 }
 
+static inline nid_t get_summary_next_warp(struct hmfs_summary *summary)
+{
+	return le32_to_cpu(summary->next_warp);
+}
+
 static inline nid_t get_summary_nid(struct hmfs_summary *summary)
 {
 	return le32_to_cpu(summary->nid);
@@ -989,6 +994,7 @@ struct node_info;
 int build_node_manager(struct hmfs_sb_info *sbi);
 void destroy_node_manager(struct hmfs_sb_info *sbi);
 int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni);
+struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid);
 void *get_node(struct hmfs_sb_info *sbi, nid_t nid);
 struct hmfs_node *__get_node(struct hmfs_sb_info *, struct checkpoint_info *, nid_t);
 int create_node_manager_caches(void);
@@ -1032,6 +1038,7 @@ int build_segment_manager(struct hmfs_sb_info *);
 void destroy_segment_manager(struct hmfs_sb_info *);
 struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi, seg_t segno);
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_t blk_addr);
+struct hmfs_summary *get_summary_by_ni(struct hmfs_sb_info *sbi, struct node_info *ni);
 inline block_t alloc_free_data_block(struct hmfs_sb_info *sbi, char seg_type);
 inline block_t alloc_free_node_block(struct hmfs_sb_info *sbi, bool sit_lock);
 block_t __cal_page_addr(struct hmfs_sb_info *sbi, seg_t segno, uint16_t blkoff);

@@ -1,5 +1,6 @@
 #include <linux/vmalloc.h>
 #include "segment.h"
+#include "node.h"
 
 /*
  * Judge whether an address is a valid address. i.e.
@@ -930,4 +931,8 @@ struct hmfs_summary *get_summary_block(struct hmfs_sb_info *sbi, seg_t segno)
 struct hmfs_summary *get_summary_by_addr(struct hmfs_sb_info *sbi, block_t blk_addr)
 {
 	return sbi->ssa_entries + ((blk_addr - sbi->main_addr_start) >> HMFS_MIN_PAGE_SIZE_BITS);
+}
+
+struct hmfs_summary *get_summary_by_ni(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	return get_summary_by_addr(sbi, ni->blk_addr);
 }

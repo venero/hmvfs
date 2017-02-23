@@ -272,7 +272,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		index += offset >> block_size_bits;
 		offset &= block_ofs_mask;
 
-		hmfs_dbg("copied:%lu, nr:%lu, left:%lu\n",copied,nr,left);
+		// hmfs_dbg("copied:%lu, nr:%lu, left:%lu\n",copied,nr,left);
 	} while (copied < len);
 
 out:
@@ -507,12 +507,16 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 {
 	int ret = 0;	
 
-
 	struct inode *inode = filp->f_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
-	nm_i->last_visited_type = FLAG_WARP_READ;
+	
+	// debug display
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	uint8_t blk_type = fi->i_blk_type;
+	pgoff_t pgstart = *ppos >> HMFS_BLOCK_SIZE_BITS(blk_type);
 
+	nm_i->last_visited_type = FLAG_WARP_READ;
 	// hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
 
 	/* Full mapping */
@@ -535,7 +539,8 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
 	else{
-		hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
+		// hmfs_dbg("[Normal read] Inode:%lu\n", filp->f_inode->i_ino);
+		hmfs_dbg("[Normal read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	}
 	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);

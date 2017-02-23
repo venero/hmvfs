@@ -246,7 +246,7 @@ struct hmfs_inode {
 			__u8 i_padd[4];
 			__le64 i_addr[NORMAL_ADDRS_PER_INODE];	/* Pointers to data blocks */
 		} __attribute__ ((packed));
-		/* Should modify HMFS_INLINE_SIZE once change size of i_pad */
+		/* Should modify HMFS_INLINE_SIZE once the size of i_pad is changed*/
 		__u8 inline_content[HMFS_INLINE_SIZE];
 	};
 } __attribute__ ((packed));

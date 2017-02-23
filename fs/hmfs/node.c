@@ -165,6 +165,18 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	return new;
 }
 
+struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid){
+	struct nat_entry *ne;
+	struct node_info *nip;
+	ne = radix_tree_lookup(&sbi->nm_info->nat_root, nid);
+    if (unlikely(!ne)) {
+        hmfs_dbg("radix_tree_lookup misses.\n");
+		return NULL;
+    }
+    nip = &ne->ni;
+	return nip;
+}
+
 // Add node to warp_candidate_list for read/write property adjustion
 struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni) {
 	struct warp_candidate_entry *new;

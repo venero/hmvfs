@@ -28,6 +28,7 @@ struct node_info {
 	nid_t nid;
 	nid_t ino;
 	block_t blk_addr;
+	unsigned long long index;
 	char flag;
 	nid_t next_warp;
 	int current_warp;
@@ -53,6 +54,7 @@ struct free_nid {
 #define make_free_nid(nid, free)		((nid) | (((u32)free) << 31))
 #define get_free_nid(nid)			(((nid) << 1) >> 1)
 #define is_dirty_free_nid(nid)		(nid >> 31)
+
 
 static inline void node_info_to_raw_nat(struct node_info *ni,
 					struct hmfs_nat_entry *ne)
