@@ -461,7 +461,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 			vm_unmap_ram(rw_addr, nr_map_page);
 	}
 	// TODO: Consistency
-	if ( is_partially_mapped_inode(inode) || is_fully_mapped_inode(inode)) unmap_file_read_only(inode);
+	// Unmap should be done elsewhere (ie. WARP switch)
+	// if ( is_partially_mapped_inode(inode) || is_fully_mapped_inode(inode)) unmap_file_read_only(inode);
 
 	// hmfs_dbg("[After release] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 
@@ -514,7 +515,8 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	// debug display
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	uint8_t blk_type = fi->i_blk_type;
-	pgoff_t pgstart = *ppos >> HMFS_BLOCK_SIZE_BITS(blk_type);
+	pgoff_t pgstart = 0;
+	pgstart = *ppos >> HMFS_BLOCK_SIZE_BITS(blk_type);
 
 	nm_i->last_visited_type = FLAG_WARP_READ;
 	// hmfs_dbg("hmfs_xip_file_read() Inode:%lu, len:%lu, ppos:%lld\n", filp->f_inode->i_ino, len, *ppos);
@@ -535,7 +537,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
 	if ( (is_fully_mapped_inode(filp->f_inode) || is_partially_mapped_inode(filp->f_inode)) && !is_inline_inode(filp->f_inode)){
 		if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
-		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu\n", filp->f_inode->i_ino);
+		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
 		ret = hmfs_file_fast_read(filp, buf, len, ppos);
 		}
 	else{

@@ -178,26 +178,30 @@ struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid){
 }
 
 // Add node to warp_candidate_list for read/write property adjustion
-struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni) {
+struct warp_candidate_entry *add_warp_candidate(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct warp_candidate_entry *new;
+
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
 	memset(new, 0, sizeof(struct warp_candidate_entry));
 	new->nip = ni;
-	list_add_tail(&new->list, &nm_i->warp_candidate_list);
+	list_add_tail(&new->list, &sbi->nm_info->warp_candidate_list);
 	return new;
 }
 
 // Add node to warp_pending_list for back ground warp process to pre-read/pre-write
-struct warp_candidate_entry *add_warp_pending(struct hmfs_nm_info *nm_i, struct node_info *ni) {
+struct warp_candidate_entry *add_warp_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct warp_candidate_entry *new;
+	struct hmfs_summary *summary = get_summary_by_addr(sbi, ni->blk_addr);
+	// Currently, WARP acceleration is only for direct node.
+	if (get_summary_type(summary) != SUM_TYPE_DN) return NULL;
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
 	memset(new, 0, sizeof(struct warp_candidate_entry));
 	new->nip = ni;
-	mutex_lock(&nm_i->wpl_lock);
-	list_add_tail(&new->list, &nm_i->warp_pending_list);
-	mutex_unlock(&nm_i->wpl_lock);
+	mutex_lock(&sbi->nm_info->wpl_lock);
+	list_add_tail(&new->list, &sbi->nm_info->warp_pending_list);
+	mutex_unlock(&sbi->nm_info->wpl_lock);
 	return new;
 }
 
@@ -745,6 +749,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		} else {
 			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, e->ni.next_warp);	
 			switch (nm_i->last_visited_type) {
+			// switch (FLAG_WARP_NORMAL) {
 			case FLAG_WARP_READ:
 				set_warp_read_bit(summary);
 				clear_warp_write_bit(summary);

@@ -56,51 +56,47 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
 		switch (type) {
 			case FLAG_WARP_NORMAL:
-                // this case won't exist for now.
+                // This case doesn't exist for now, bacause there is no operation can be called as NORMAL operation.
 				clear_warp_read_candidate_bit(summary);
 				clear_warp_write_candidate_bit(summary);
 				clear_warp_read_bit(summary);
 				clear_warp_write_bit(summary);
 				break;
 			case FLAG_WARP_READ:
-                if (get_warp_read_pure(summary)) break;
-                if (!get_warp_is_candidate(summary)) {
+                if (get_warp_read_pure(summary) && ni->current_warp==FLAG_WARP_READ) break;
+                if (!get_warp_is_read_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
 					hmfs_dbg("warp i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
-					wce = add_warp_candidate(sbi->nm_info, ni);
+					wce = add_warp_candidate(sbi, ni);
         			if (unlikely(!wce)) {
 						hmfs_dbg("add_warp_candidate failed.\n");
-            			continue;
         			}
 					// Why add_warp_pending inside switch?
 					// Because we rather having less pending entries than having too much
-					wce = add_warp_pending(sbi->nm_info, ni);
-        			if (unlikely(!wce)) {
-						hmfs_dbg("add_warp_pending failed.\n");
-            			continue;
-        			}
+					wce = add_warp_pending(sbi, ni);
+        			// if (unlikely(!wce)) {
+					// 	break;
+        			// }
 				}
 				set_warp_read_candidate_bit(summary);
 				// set_warp_read_bit(summary);
 				// clear_warp_write_bit(summary);
 				break;
 			case FLAG_WARP_WRITE:
-                if (get_warp_write_pure(summary)) break;
-                if (!get_warp_is_candidate(summary)) {
+                if (get_warp_write_pure(summary) && ni->current_warp==FLAG_WARP_WRITE) break;
+                if (!get_warp_is_write_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
 					hmfs_dbg("warp i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
-					wce = add_warp_candidate(sbi->nm_info, ni);
+					wce = add_warp_candidate(sbi, ni);
         			if (unlikely(!wce)) {
 						hmfs_dbg("add_warp_candidate failed.\n");
-            			continue;
         			}
-					wce = add_warp_pending(sbi->nm_info, ni);
-        			if (unlikely(!wce)) {
-						hmfs_dbg("add_warp_pending failed.\n");
-            			continue;
-        			}
+					wce = add_warp_pending(sbi, ni);
+        			// if (unlikely(!wce)) {
+					// 	break;
+        			// }
 				}
 				set_warp_write_candidate_bit(summary);
 				// clear_warp_read_bit(summary);
@@ -152,11 +148,16 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
         print_update(le->nip->nid,current_type,next_type);
 		switch(next_type){
     		case FLAG_WARP_NORMAL:
+				// hmfs_dbg("bt:%04X\n",le16_to_cpu(summary->bt));
         	    reset_warp_normal(summary);break;
 	    	case FLAG_WARP_READ:
         	    reset_warp_read(summary);break;
+                // if (get_warp_read_pure(summary)) hmfs_dbg("pure_read\n");
+				// else hmfs_dbg("not_pure_read\n");
 	    	case FLAG_WARP_WRITE:
         	    reset_warp_write(summary);break;
+	    	case FLAG_WARP_HYBRID:
+        	    reset_warp_normal(summary);break;
     	}
         list_del(&le->list);
 		kfree(le);
@@ -171,22 +172,32 @@ inline void wake_up_warp(struct hmfs_sb_info *sbi) {
 	}
 }
 
-
-
-int warp_prepare_for_reading(struct node_info *ni) {
-	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+int warp_clean_up_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	// FIXME
+	// unmap_file_read_only_node_info(sbi, ni);
 	return 0;
 }
 
-int warp_prepare_for_writing(struct node_info *ni) {
+int warp_clean_up_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	return 0;	
 }
 
-int warp_clean_up_for_reading(struct node_info *ni) {
+int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	int ret = 0;	
+	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	ret = vmap_file_read_only_node_info(sbi, ni);
+	if (ret!=0) {
+		hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
+		return ret;
+	}
+	ni->current_warp = FLAG_WARP_READ;
 	return 0;
 }
 
-int warp_clean_up_for_writing(struct node_info *ni) {
+int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	if (ni->current_warp == FLAG_WARP_READ)	warp_clean_up_reading(sbi,ni);
+	ni->current_warp = FLAG_WARP_WRITE;
 	return 0;	
 }
 
@@ -194,17 +205,17 @@ int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct hmfs_summary *summary;
 	int type;
 	int cur = ni->current_warp;
-	if (cur!=FLAG_WARP_NORMAL) return 0;
 	summary = get_summary_by_ni(sbi, ni);
 	type = get_warp_current_type(summary);
+	if (cur==type) return 0;
 	hmfs_dbg("[WARP] prepare ino:%d nid:%d\n",ni->ino,ni->nid);
 	switch (type) {
 		case FLAG_WARP_NORMAL:
 			return 0;
 		case FLAG_WARP_READ:
-			return warp_prepare_for_reading(ni);
+			return warp_prepare_for_reading(sbi, ni);
 	    case FLAG_WARP_WRITE:
-			return warp_prepare_for_writing(ni);
+			return warp_prepare_for_writing(sbi, ni);
 	}
 	return 0;
 }
@@ -255,7 +266,7 @@ int start_warp_thread(struct hmfs_sb_info *sbi) {
 	}
 
 	init_waitqueue_head(&(warp_thread->wait_queue_head));
-	warp_thread->hmfs_task = kthread_run(warp_thread_func, sbi, "HMFS warp");
+	warp_thread->hmfs_task = kthread_run(warp_thread_func, sbi, "HMFS_warp");
 	sbi->warp_thread = warp_thread;
 	if (IS_ERR(warp_thread->hmfs_task)) {
 		err = PTR_ERR(warp_thread->hmfs_task);

@@ -81,6 +81,7 @@ enum {
 	FLAG_WARP_NORMAL,
 	FLAG_WARP_READ,
 	FLAG_WARP_WRITE,
+	FLAG_WARP_HYBRID,
 };
 
 struct hmfs_kthread {
@@ -790,7 +791,21 @@ static inline void set_summary_valid_bit(struct hmfs_summary *summary)
 	hmfs_memcpy_atomic(&summary->bt, &bt, 2);
 }
 
-// WARP candidate zone
+// 	WARP candidate zone
+/*	Defination:
+ *	"summary->bt" has 16 bits, but originally only the 9-16 bits are used.
+ *	____|____|xxxx|xxxx
+ *	Therefore, I used the 5-8 bits for WARP.
+ *	____|xxxx|____|____ (Assume |x1,x2,x3,x4|)
+ *	x1: write candidate
+ *	x2: read candidate
+ *	x3: write current type
+ *	x4: read current type
+ *	Current type: what kind of WARP best suits this node according to historical access pattern.
+ *	Candidate: when this node is experiencing an access pattern which does not fits the model of current type, we keep the record here.
+ *	Meanwhile, |x3,x4| is also the enum for WARP type.
+ */
+
 static inline unsigned char get_warp_read_candidate(struct hmfs_summary *summary)
 {
 	return le16_to_cpu(summary->bt)>>8 & 0x04;
@@ -832,17 +847,24 @@ static inline void clear_warp_write_candidate_bit(struct hmfs_summary *summary)
 // WARP pure
 static inline bool get_warp_read_pure(struct hmfs_summary *summary)
 {
-	return (le16_to_cpu(summary->bt)<<4)>>8 == 0x1 ? true : false;
+	if ((le16_to_cpu(summary->bt)<<4)>>12 == 0x1 || (le16_to_cpu(summary->bt)<<4)>>12 == 0x5) return true;
+	else return false;
 }
 
 static inline bool get_warp_write_pure(struct hmfs_summary *summary)
 {
-	return (le16_to_cpu(summary->bt)<<4)>>8 == 0x2 ? true : false;
+	if ((le16_to_cpu(summary->bt)<<4)>>12 == 0x2 || (le16_to_cpu(summary->bt)<<4)>>12 == 0xA) return true;
+	else return false;
 }
 
-static inline bool get_warp_is_candidate(struct hmfs_summary *summary)
+static inline bool get_warp_is_read_candidate(struct hmfs_summary *summary)
 {
-	return le16_to_cpu(summary->bt)>>8 & 0xc;
+	return le16_to_cpu(summary->bt)>>8 & 0x4;
+}
+
+static inline bool get_warp_is_write_candidate(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x8;
 }
 
 // WARP calculate
@@ -962,8 +984,8 @@ int truncate_data_blocks_range(struct db_info *di, int count);
 int64_t hmfs_dir_seek_data_reverse(struct inode *dir, int64_t end_blk);
 int truncate_data_blocks(struct db_info *di);
 void hmfs_truncate(struct inode *inode);
-struct warp_candidate_entry *add_warp_candidate(struct hmfs_nm_info *nm_i, struct node_info *ni);
-struct warp_candidate_entry *add_warp_pending(struct hmfs_nm_info *nm_i, struct node_info *ni);
+struct warp_candidate_entry *add_warp_candidate(struct hmfs_sb_info *sbi, struct node_info *ni);
+struct warp_candidate_entry *add_warp_pending(struct hmfs_sb_info *sbi, struct node_info *ni);
 struct node_info *pop_one_warp_pending_entry(struct hmfs_nm_info *nm_i);
 int truncate_hole(struct inode *inode, pgoff_t start, pgoff_t end);
 long hmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
@@ -1108,7 +1130,9 @@ int vmap_file_range(struct inode *);
 int remap_data_blocks_for_write(struct inode *, unsigned long, uint64_t, uint64_t);
 int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length);
 int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len);
+int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
 int unmap_file_read_only(struct inode *inode);
+int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
 
 /* warp.c */
 int warp_test(void);

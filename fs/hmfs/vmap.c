@@ -11,6 +11,7 @@
 #include <linux/init.h>
 
 #include "hmfs.h"
+#include "node.h"
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -598,6 +599,11 @@ int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len) {
 	return vmap_file_read_only(inode,pgstart,pglength);
 }
 
+int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
+	return vmap_file_read_only(ino,(unsigned long)ni->index,ADDRS_PER_BLOCK);
+}
+
 // TODO:zsa specific unmap points and timing
 int unmap_file_read_only(struct inode *inode){
 	struct hmfs_inode_info *fi = HMFS_I(inode);
@@ -609,6 +615,16 @@ int unmap_file_read_only(struct inode *inode){
 	}
 	clear_inode_flag(fi,FI_MAPPED_PARTIAL);
 	clear_inode_flag(fi,FI_MAPPED_FULL);
+	// hmfs_dbg("[After unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	return 0;
+}
+
+int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni){
+	loff_t pos = (loff_t)ni->index;
+	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
+	struct hmfs_inode_info *fi = HMFS_I(ino);
+	// hmfs_dbg("[Before unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	vm_unmap_ram(fi->rw_addr + pos, ADDRS_PER_BLOCK);
 	// hmfs_dbg("[After unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	return 0;
 }
