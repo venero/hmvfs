@@ -10,6 +10,26 @@ int warp_test() {
     return 0;
 }
 
+struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index) {
+	struct db_info di;
+	int err = 0;
+	struct node_info *ni;
+	struct nat_entry *ne;
+	struct direct_node *dn;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+    struct hmfs_nm_info *nm_i = sbi->nm_info;
+	di.inode = inode;
+	err = get_data_block_info(&di, index, LOOKUP);
+	if (err) return NULL;
+	dn = (struct direct_node *)di.node_block;
+	ne = radix_tree_lookup(&nm_i->nat_root, di.nid);
+    if (!ne) {
+    	hmfs_dbg("radix_tree_lookup misses.\n");
+		return NULL;
+   	}
+    return ni = &ne->ni;
+}
+
 int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type) {
 	struct inode *inode = filp->f_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -174,7 +194,7 @@ inline void wake_up_warp(struct hmfs_sb_info *sbi) {
 
 int warp_clean_up_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	// FIXME
-	// unmap_file_read_only_node_info(sbi, ni);
+	unmap_file_read_only_node_info(sbi, ni);
 	return 0;
 }
 

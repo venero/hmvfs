@@ -623,8 +623,12 @@ int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *n
 	loff_t pos = (loff_t)ni->index;
 	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
 	struct hmfs_inode_info *fi = HMFS_I(ino);
-	// hmfs_dbg("[Before unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	unsigned char seg_type = fi->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	pos = pos << block_size_bits;
+	// hmfs_dbg("[Before unmap] Addr:%p PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	// hmfs_dbg("pos:%lld, add:%d\n",pos,ADDRS_PER_BLOCK);
 	vm_unmap_ram(fi->rw_addr + pos, ADDRS_PER_BLOCK);
-	// hmfs_dbg("[After unmap] Addr:%llx PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
+	// hmfs_dbg("[After unmap] Addr:%p PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	return 0;
 }

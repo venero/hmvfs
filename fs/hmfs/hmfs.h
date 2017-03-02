@@ -1136,6 +1136,7 @@ int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *n
 
 /* warp.c */
 int warp_test(void);
+struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index);
 int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type);
 int hmfs_warp_update(struct hmfs_sb_info *sbi);
 inline void wake_up_warp(struct hmfs_sb_info *sbi);

@@ -24,6 +24,7 @@
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
+#include "node.h"
 #include "segment.h"
 #include "util.h"
 #include "gc.h"
@@ -179,17 +180,20 @@ found:
 	return start_blk + j < end_blk? start_blk + j : end_blk;
 }
 
+// Switch to WARP compatible mode as a unified entrance of read
 static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
 	/* from do_XIP_mapping_read */
 	struct inode *inode = filp->f_inode;
 	pgoff_t index, end_index;
+	pgoff_t index_hint = 0;
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
 	struct hmfs_inode *inode_block;
 	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	struct node_info *ni;
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	const unsigned long long block_ofs_mask = block_size - 1;
@@ -234,6 +238,44 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		int zero = 0;
 
 		/* nr is the maximum number of bytes to copy from this page */
+
+		// index_hint indicates that the direct node covering block [_,index_hint] is NOT WARP_READ now.
+		if ( index_hint >= index ) goto normal;
+
+		ni = hmfs_get_node_info(inode, (int64_t)index);
+		if ( ni == NULL ) goto normal;
+		index_hint = ni->index + ADDRS_PER_BLOCK - 1;
+		if ( index_hint > end_index) index_hint = end_index;
+		if ( ni->current_warp != FLAG_WARP_READ ) {
+			goto normal;
+		}
+		nr = block_size*(index_hint-index+1);
+
+		if (index > end_index) goto out;
+		if (index == end_index) {
+			nr = ((isize - 1) & block_ofs_mask) + 1;
+			if (nr <= offset) {
+				goto out;
+			}
+		}
+		else {
+			if (index_hint == end_index) {
+				nr = nr - block_size + ((isize - 1) & block_ofs_mask) + 1;
+			}
+		}
+
+		hmfs_dbg("[WARP Read] Inode:%lu index:[%lu,%lu]\n", inode->i_ino,index,index_hint);
+		nr = nr - offset;
+		if (nr > len - copied)
+			nr = len - copied;
+
+		xip_mem = HMFS_I(inode)->rw_addr + index * block_size;
+		goto copy;
+		
+
+normal:
+
+		hmfs_dbg("[Normal Read] Inode:%lu index:%lu\n", inode->i_ino, index);
 		nr = block_size;
 		if (index >= end_index) {
 			if (index > end_index)
@@ -258,8 +300,12 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 		}
 
 		/* copy to user space */
-		if (!zero)
+copy:
+		if (!zero) {
 			left = __copy_to_user(buf + copied, xip_mem + offset, nr);
+			// if (index>460 && index<470)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
+			// if (index>972 && index<982)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
+		}
 		else
 			left = __clear_user(buf + copied, nr);
 
@@ -267,8 +313,10 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 			error = -EFAULT;
 			goto out;
 		}
+		// in byte
 		copied += (nr - left);
 		offset += (nr - left);
+		// new offset is now set.
 		index += offset >> block_size_bits;
 		offset &= block_ofs_mask;
 
@@ -293,7 +341,7 @@ int get_empty_page_struct(struct inode *inode, struct page **pages, int64_t coun
 	return 0;
 }
 /*
- *	Map date blocks of inode to **pages;
+ *	Map data blocks of inode to **pages;
  *	index, count indicates file range to map [index, index+count-1]
  *	pageoff, count indicates page range to map [pageoff, pageoff+count-1]
  */
@@ -535,6 +583,14 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		goto out;
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
+	
+	hmfs_dbg("[Read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
+	ret = __hmfs_xip_file_read(filp, buf, len, ppos);
+
+	if (false) 	ret = hmfs_file_fast_read(filp, buf, len, ppos);
+	// This is the original entrance for read
+	// File can only be either fully/partially mapped or no mapping at all
+	/*
 	if ( (is_fully_mapped_inode(filp->f_inode) || is_partially_mapped_inode(filp->f_inode)) && !is_inline_inode(filp->f_inode)){
 		if (is_fully_mapped_inode(filp->f_inode)) hmfs_dbg("[Full read] Inode:%lu\n", filp->f_inode->i_ino);
 		if (is_partially_mapped_inode(filp->f_inode)) hmfs_dbg("[Partial read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
@@ -545,6 +601,8 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 		hmfs_dbg("[Normal read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
 		ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 	}
+	*/
+
 	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
 out:
 	inode_read_unlock(filp->f_inode);
@@ -630,6 +688,8 @@ normal_write:
 		/* To avoid deadlock between fi->i_lock and mm->mmap_sem in mmap */
 		inode_write_unlock(inode);
 		copied = bytes - __copy_from_user_nocache(xip_mem + offset,	buf, bytes);
+		// if (index>460 && index<470)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
+		// if (index>972 && index<982)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
 		inode_write_lock(inode);
 
 		if (likely(copied > 0)) {
