@@ -72,10 +72,15 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 	struct hmfs_sb_info *sbi = HMFS_I_SB(di->inode);
 	struct indirect_node *node;
 	struct hmfs_inode *hi;
+	struct node_info *ni;
 	int ret = 0;
 	uint8_t height = HMFS_I(di->inode)->i_height, set_height = height;
 	uint8_t i = 0;
 	nid_t nid;
+	ver_t bv;
+	struct hmfs_inode_info* hii = HMFS_I(di->inode);
+	// struct node_info *ni = hmfs_get_node_info(&hii->vfs_inode, index);
+	// ver_t bv = ni->begin_version;
 
 	if (index < NORMAL_ADDRS_PER_INODE) {
 		di->local = 1;
@@ -156,8 +161,15 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 		i++;
 	}
 
-	if (mode == ALLOC)
+	if (mode == ALLOC) {
+		ni = get_node_info_by_nid(sbi, nid);
+		bv = ni->begin_version;
+		hmfs_dbg("bv:%u\n",bv);
 		di->node_block = alloc_new_node(sbi, nid, di->inode, SUM_TYPE_DN, false);
+		ni = hmfs_get_node_info(&hii->vfs_inode, index);
+		bv = ni->begin_version;
+		hmfs_dbg("bv:%u\n",bv);
+	}
 	else
 		di->node_block = HMFS_NODE(node);
 
@@ -167,6 +179,10 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 	di->local = 0;
 	di->nid = nid;
 	di->ofs_in_node = index & (ADDRS_PER_BLOCK - 1);
+
+	// ni = hmfs_get_node_info(&hii->vfs_inode, index);
+	// ni->begin_version = bv;
+
 	return 0;
 }
 

@@ -417,7 +417,7 @@ int debug_test(struct inode *inode, struct file *filp) {
 	unsigned long long bits = HMFS_BLOCK_SIZE_BITS(blk_type);
 	unsigned long long page_bits = 1<<bits;
 	unsigned long long page_size = (unsigned long long)(page_bits -1 + (unsigned long long)isize) >> bits;
-	if (sbi->cm_info->new_version<100) return 0;
+	if (sbi->cm_info->new_version<300) return 0;
 	hmfs_dbg("----------Entering debug test---------\n");
 	hmfs_dbg("page_size:%llu,blk_type:%d,isize:%llu,bits:%llu\n",page_size,blk_type,isize,bits);
 		

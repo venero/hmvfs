@@ -708,6 +708,8 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	struct hmfs_checkpoint *cur_cp;
 	struct nat_entry *ne;
 	char *type_name="\0";
+	char *warp_type_name="\0";
+	char *cur_warp_type_name="\0";
 	int ret;
 	int i;
 	prev_cp = cm_i->last_cp_i->cp;
@@ -792,17 +794,34 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 				summary = get_summary_by_addr(sbi, ne->ni.blk_addr);
 				switch (get_summary_type(summary)) {
 					case SUM_TYPE_INODE:
-						type_name = "Inode";break;
+						type_name = "Inod";break;
 					case SUM_TYPE_DN:
-						type_name = "Direct";break;
+						type_name = "Dire";break;
 					case SUM_TYPE_IDN:
-						type_name = "Indirect";break;
+						type_name = "Indi";break;
 				}
-				if (get_warp_read(summary)) hmfs_dbg("[cp] nid:%d [%s] [Read] inode:%d.\n",i,type_name,(int)ne->ni.ino);
-				else {	
-					if (get_warp_write(summary)) hmfs_dbg("[cp] nid:%d [%s] [Write] inode:%d.\n",i,type_name,(int)ne->ni.ino);
-					else hmfs_dbg("[cp] nid:%d [%s] [Normal] inode:%d.\n",i,type_name,(int)ne->ni.ino);
+				switch (get_warp_current_type(summary)) {
+					case FLAG_WARP_NORMAL:
+						warp_type_name = "Norm";break;
+					case FLAG_WARP_READ:
+						warp_type_name = "Read";break;
+					case FLAG_WARP_WRITE:
+						warp_type_name = "Writ";break;
+					case FLAG_WARP_HYBRID:
+						warp_type_name = "Hybr";break;
 				}
+				switch (ne->ni.current_warp) {
+					case FLAG_WARP_NORMAL:
+						cur_warp_type_name = "Norm";break;
+					case FLAG_WARP_READ:
+						cur_warp_type_name = "Read";break;
+					case FLAG_WARP_WRITE:
+						cur_warp_type_name = "Writ";break;
+					case FLAG_WARP_HYBRID:
+						cur_warp_type_name = "Hybr";break;
+				}
+
+				hmfs_dbg("[cp] n:%d \t[%s] \tino:%d \tEff[%s] Sum[%s].\n",ne->ni.nid,type_name,(int)ne->ni.ino,cur_warp_type_name,warp_type_name);
 			}
 		}
 	}

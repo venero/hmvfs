@@ -32,6 +32,7 @@ struct node_info {
 	char flag;
 	nid_t next_warp;
 	int current_warp;
+	ver_t begin_version;
 };
 
 struct nat_entry {
@@ -63,12 +64,14 @@ static inline void node_info_to_raw_nat(struct node_info *ni,
 	ne->block_addr = cpu_to_le64(ni->blk_addr);
 }
 
-static inline void node_info_from_raw_nat(struct node_info *ni,
+static inline void node_info_from_raw_nat(struct hmfs_sb_info *sbi, struct node_info *ni,
 					  struct hmfs_nat_entry *ne)
 {
 	ni->ino = le32_to_cpu(ne->ino);
 	ni->blk_addr = le64_to_cpu(ne->block_addr);
 	ni->current_warp = FLAG_WARP_NORMAL;
+	ni->begin_version = sbi->cm_info->new_version;
+	hmfs_dbg("That %d %d\n", ni->begin_version, sbi->cm_info->new_version);
 }
 
 static inline bool is_checkpoint_node(char sum_type)

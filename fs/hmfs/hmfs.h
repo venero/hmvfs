@@ -126,6 +126,7 @@ struct hmfs_nm_info {
 	struct node_info* last_visited_ninfo;	/* the last visited direct node info*/
 	unsigned long last_visited_type;	/* the last visited direct node info*/
 	
+	struct hmfs_sb_info *sbi;
 	// WARP Debug
 	int hitcount;
 	int miscount;

@@ -205,19 +205,30 @@ int warp_clean_up_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret = 0;	
 	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
-	ret = vmap_file_read_only_node_info(sbi, ni);
-	if (ret!=0) {
-		hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
-		return ret;
+	if (ni->current_warp == FLAG_WARP_WRITE)	{
+		warp_clean_up_writing(sbi,ni);
+		ni->current_warp = FLAG_WARP_NORMAL;
 	}
-	ni->current_warp = FLAG_WARP_READ;
+	else {
+		ret = vmap_file_read_only_node_info(sbi, ni);
+		if (ret!=0) {
+			hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
+			return ret;
+		}
+		ni->current_warp = FLAG_WARP_READ;
+	}
 	return 0;
 }
 
 int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
-	if (ni->current_warp == FLAG_WARP_READ)	warp_clean_up_reading(sbi,ni);
-	ni->current_warp = FLAG_WARP_WRITE;
+	if (ni->current_warp == FLAG_WARP_READ)	{
+		warp_clean_up_reading(sbi,ni);
+		ni->current_warp = FLAG_WARP_NORMAL;
+	}
+	else {
+		ni->current_warp = FLAG_WARP_WRITE;
+	}
 	return 0;	
 }
 
@@ -226,7 +237,11 @@ int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int type;
 	int cur = ni->current_warp;
 	summary = get_summary_by_ni(sbi, ni);
+	// New direct node
+	hmfs_dbg("This %d %d\n", ni->begin_version, sbi->cm_info->new_version);
+	if (ni->begin_version == sbi->cm_info->new_version) return 0;
 	type = get_warp_current_type(summary);
+	// No need to modify
 	if (cur==type) return 0;
 	hmfs_dbg("[WARP] prepare ino:%d nid:%d\n",ni->ino,ni->nid);
 	switch (type) {

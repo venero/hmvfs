@@ -121,6 +121,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	nm_i->next_scan_nid = le32_to_cpu(cp->next_scan_nid);
 	nm_i->journaling_threshold = HMFS_JOURNALING_THRESHOLD;
 	nm_i->nid_wrapped = 0;
+	nm_i->sbi = sbi;
 	if (nm_i->free_nids == NULL)
 		return -ENOMEM;
 
@@ -151,6 +152,8 @@ void alloc_nid_failed(struct hmfs_sb_info *sbi, nid_t nid)
 static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 {
 	struct nat_entry *new;
+	struct hmfs_sb_info *sbi = nm_i->sbi;
+
 	new = kmem_cache_alloc(nat_entry_slab, GFP_ATOMIC);
 	if (!new)
 		return NULL;
@@ -160,6 +163,8 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	}
 	memset(new, 0, sizeof(struct nat_entry));
 	new->ni.nid = nid;
+	new->ni.begin_version = sbi->cm_info->new_version;
+	hmfs_dbg("nid:%d ver:%u\n",nid,new->ni.begin_version);
 	list_add_tail(&new->list, &nm_i->nat_entries);
 	nm_i->nat_cnt++;
 	return new;
@@ -709,8 +714,11 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_summary *summary = NULL;
 	unsigned int ofs_in_node = NID_TO_BLOCK_OFS(nid);
+	// struct node_info *old_ni,*new_ni;
 
 	src = get_node(sbi, nid);
+
+	// old_ni = get_node_info_by_nid(sbi, nid);
 
 	if (!IS_ERR(src)) {
 		src_addr = L_ADDR(sbi, src);
@@ -855,7 +863,7 @@ int get_node_info(struct hmfs_sb_info *sbi, nid_t nid, struct node_info *ni)
 	if (ne_local == NULL) {
 		return -ENODATA;
 	}
-	node_info_from_raw_nat(ni, ne_local);
+	node_info_from_raw_nat(sbi, ni, ne_local);
 
 	update_nat_entry(nm_i, nid, ni->ino, ni->blk_addr, false);
 	return 0;
