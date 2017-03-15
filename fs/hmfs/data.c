@@ -164,11 +164,9 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 	if (mode == ALLOC) {
 		ni = get_node_info_by_nid(sbi, nid);
 		bv = ni->begin_version;
-		hmfs_dbg("bv:%u\n",bv);
 		di->node_block = alloc_new_node(sbi, nid, di->inode, SUM_TYPE_DN, false);
 		ni = hmfs_get_node_info(&hii->vfs_inode, index);
 		bv = ni->begin_version;
-		hmfs_dbg("bv:%u\n",bv);
 	}
 	else
 		di->node_block = HMFS_NODE(node);

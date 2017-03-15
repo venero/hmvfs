@@ -821,7 +821,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 						cur_warp_type_name = "Hybr";break;
 				}
 
-				hmfs_dbg("[cp] n:%d \t[%s] \tino:%d \tEff[%s] Sum[%s].\n",ne->ni.nid,type_name,(int)ne->ni.ino,cur_warp_type_name,warp_type_name);
+				hmfs_dbg("[cp] nid:%d \t[%s] \tino:%d \tEff[%s] Sum[%s].\n",ne->ni.nid,type_name,(int)ne->ni.ino,cur_warp_type_name,warp_type_name);
 			}
 		}
 	}

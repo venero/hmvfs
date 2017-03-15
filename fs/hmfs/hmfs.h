@@ -84,6 +84,17 @@ enum {
 	FLAG_WARP_HYBRID,
 };
 
+// in-memory WARP error flags
+enum {
+	ERR_WARP_OK,
+	ERR_WARP_READ_PRE,
+	ERR_WARP_WRITE_PRE,
+	ERR_WARP_READ,
+	ERR_WARP_WRITE,
+	ERR_WARP_TOO_NEW,
+};
+
+
 struct hmfs_kthread {
 	struct task_struct *hmfs_task;
 	wait_queue_head_t wait_queue_head;

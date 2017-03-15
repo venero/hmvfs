@@ -202,9 +202,18 @@ int warp_clean_up_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	return 0;	
 }
 
+bool warp_is_new_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	if (sbi->cm_info->new_version > ni->begin_version + 1) return false;
+	else return true;
+}
+
 int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret = 0;	
 	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	if (warp_is_new_node_info(sbi,ni)) {
+		hmfs_dbg("[WARP] new node info\n");
+		return ERR_WARP_TOO_NEW;
+	}
 	if (ni->current_warp == FLAG_WARP_WRITE)	{
 		warp_clean_up_writing(sbi,ni);
 		ni->current_warp = FLAG_WARP_NORMAL;
@@ -222,6 +231,10 @@ int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 
 int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	if (warp_is_new_node_info(sbi,ni)) {
+		hmfs_dbg("[WARP] new node info\n");
+		return ERR_WARP_TOO_NEW;
+	}
 	if (ni->current_warp == FLAG_WARP_READ)	{
 		warp_clean_up_reading(sbi,ni);
 		ni->current_warp = FLAG_WARP_NORMAL;
