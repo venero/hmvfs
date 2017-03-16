@@ -186,6 +186,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 {
 	/* from do_XIP_mapping_read */
 	struct inode *inode = filp->f_inode;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t index, end_index;
 	pgoff_t index_hint = 0;
 	unsigned long offset;
@@ -197,6 +198,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	const unsigned long long block_size = HMFS_BLOCK_SIZE[seg_type];
 	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
 	const unsigned long long block_ofs_mask = block_size - 1;
+	struct hmfs_summary *summary;
 
 	pos = *ppos;
 	isize = i_size_read(inode);
@@ -244,7 +246,10 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 		ni = hmfs_get_node_info(inode, (int64_t)index);
 		if ( ni == NULL ) goto normal;
-		index_hint = ni->index + ADDRS_PER_BLOCK - 1;
+		summary = get_summary_by_addr(sbi, ni->blk_addr);
+		if (get_summary_type(summary) == SUM_TYPE_DN) index_hint = ni->index + ADDRS_PER_BLOCK - 1;
+		else if (get_summary_type(summary) == SUM_TYPE_INODE) index_hint = ni->index + NORMAL_ADDRS_PER_INODE - 1;
+		
 		if ( index_hint > end_index) index_hint = end_index;
 		if ( ni->current_warp != FLAG_WARP_READ ) {
 			goto normal;
@@ -264,7 +269,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 			}
 		}
 
-		hmfs_dbg("[WARP Read] Inode:%lu index:[%lu,%lu]\n", inode->i_ino,index,index_hint);
+		// hmfs_dbg("[WARP Read] Inode:%lu index:[%lu,%lu]\n", inode->i_ino,index,index_hint);
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
@@ -275,7 +280,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 normal:
 
-		hmfs_dbg("[Normal Read] Inode:%lu index:%lu\n", inode->i_ino, index);
+		// hmfs_dbg("[Normal Read] Inode:%lu index:%lu\n", inode->i_ino, index);
 		nr = block_size;
 		if (index >= end_index) {
 			if (index > end_index)
@@ -404,6 +409,81 @@ out:
 		f_index++;
 	}
 	return err;
+}
+
+int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	loff_t pos = (loff_t)ni->index;
+	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
+	loff_t isize;
+	int i;
+	struct wp_nat_entry *wne;
+	struct wp_data_page_entry *wdp;
+	void *data;
+	struct hmfs_inode_info *fi = HMFS_I(ino);
+	unsigned int count = 0;
+	unsigned char seg_type = fi->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+
+	struct hmfs_summary *summary = NULL;
+	summary = get_summary_by_addr(sbi, ni->blk_addr);
+	if (get_summary_type(summary) == SUM_TYPE_DN) count = ADDRS_PER_BLOCK;
+	else if (get_summary_type(summary) == SUM_TYPE_INODE) count = NORMAL_ADDRS_PER_INODE;
+
+	isize = i_size_read(ino);
+	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
+	if (isize - pos < count) count = isize - pos;
+	hmfs_dbg("addwp count:%u pos:%llu isize:%llu",count,pos,isize);
+
+	wne = search_wp_inode_entry(sbi->nm_info,ino);
+	if (!wne) init_wp_inode_entry(sbi->nm_info,ino);
+
+	for (i=(unsigned long)ni->index;i<((unsigned long)ni->index) + count;++i) {
+		wdp = search_wp_data_block(sbi->nm_info,ino,i);
+ 		if (!wdp) add_wp_data_block(sbi->nm_info,ino,i,NULL);
+		 
+		wdp = search_wp_data_block(sbi->nm_info,ino,i);
+		data = wdp->dp_addr;
+		hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		if (!data) return ERR_WARP_WRITE_PRE;
+	}
+	return 0;
+}
+
+int clean_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	loff_t pos = (loff_t)ni->index;
+	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
+	loff_t isize;
+	int i;
+	struct wp_nat_entry *wne;
+	struct wp_data_page_entry *wdp;
+	struct hmfs_inode_info *fi = HMFS_I(ino);
+	unsigned int count = 0;
+	unsigned char seg_type = fi->i_blk_type;
+	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	struct hmfs_summary *summary = NULL;
+	summary = get_summary_by_addr(sbi, ni->blk_addr);
+	if (get_summary_type(summary) == SUM_TYPE_DN) count = ADDRS_PER_BLOCK;
+	else if (get_summary_type(summary) == SUM_TYPE_INODE) count = NORMAL_ADDRS_PER_INODE;
+	isize = i_size_read(ino);
+	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
+	if (isize - pos < count) count = isize - pos;
+	hmfs_dbg("delwp count:%u pos:%llu isize:%llu",count,pos,isize);
+
+	wne = search_wp_inode_entry(sbi->nm_info,ino);
+	if (!wne) return ERR_WARP_WRITE_POST;
+
+	// Conservative solution here:
+	// TODO: delay cleanup to checkpoint
+	cleanup_wp_inode_entry(sbi, wne);
+
+	for (i=(unsigned long)ni->index;i<((unsigned long)ni->index) + count;++i) {
+		wdp = search_wp_data_block(sbi->nm_info,ino,i);
+ 		if (!wdp) continue;
+		kfree(wdp->dp_addr);
+		rb_erase(&wdp->node, &wne->rr);
+		kfree(wdp);
+	}
+	return 0;
 }
 
 int debug_test(struct inode *inode, struct file *filp) {

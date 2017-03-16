@@ -163,8 +163,8 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 	}
 	memset(new, 0, sizeof(struct nat_entry));
 	new->ni.nid = nid;
-	new->ni.begin_version = sbi->cm_info->new_version;
-	hmfs_dbg("nid:%d ver:%u\n",nid,new->ni.begin_version);
+	set_node_info_this_version(sbi,&new->ni);
+	// hmfs_dbg("nid:%d ver:%u\n",nid,new->ni.begin_version);
 	list_add_tail(&new->list, &nm_i->nat_entries);
 	nm_i->nat_cnt++;
 	return new;
@@ -185,7 +185,6 @@ struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid){
 // Add node to warp_candidate_list for read/write property adjustion
 struct warp_candidate_entry *add_warp_candidate(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct warp_candidate_entry *new;
-
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
 	memset(new, 0, sizeof(struct warp_candidate_entry));
@@ -199,7 +198,7 @@ struct warp_candidate_entry *add_warp_pending(struct hmfs_sb_info *sbi, struct n
 	struct warp_candidate_entry *new;
 	struct hmfs_summary *summary = get_summary_by_addr(sbi, ni->blk_addr);
 	// Currently, WARP acceleration is only for direct node.
-	if (get_summary_type(summary) != SUM_TYPE_DN) return NULL;
+	if (get_summary_type(summary) != SUM_TYPE_DN && get_summary_type(summary) != SUM_TYPE_INODE) return NULL;
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
 	memset(new, 0, sizeof(struct warp_candidate_entry));
@@ -563,7 +562,7 @@ int cleanup_wp_inode_entry(struct hmfs_sb_info *sbi, struct wp_nat_entry *wne) {
 	hmfs_dbg("Entered data block entry cleanup.\n");
   	for (node = rb_first(&wne->rr); node; node = rb_next(node)) {
 		wdp = rb_entry(node, struct wp_data_page_entry, node);
-		hmfs_dbg("Cleanup index: %d.\n",wdp->index);
+		// hmfs_dbg("Cleanup index: %d.\n",wdp->index);
 		ret = hmfs_wp_wdp_write_back(hmfs_iget(sbi->sb, wne->ino), wdp );
 		if (ret==NULL) return 1;
 	}

@@ -91,6 +91,8 @@ enum {
 	ERR_WARP_WRITE_PRE,
 	ERR_WARP_READ,
 	ERR_WARP_WRITE,
+	ERR_WARP_READ_POST,
+	ERR_WARP_WRITE_POST,
 	ERR_WARP_TOO_NEW,
 };
 
@@ -990,12 +992,15 @@ void mark_size_dirty(struct inode *inode, loff_t size);
 int sync_hmfs_inode_size(struct inode *inode, bool force);
 void hmfs_set_inode_flags(struct inode *inode);
 int hmfs_convert_inline_inode(struct inode *inode);
+int cleanup_wp_inode_entry(struct hmfs_sb_info *sbi, struct wp_nat_entry *wne);
 
 /* file.c */
 int truncate_data_blocks_range(struct db_info *di, int count);
 int64_t hmfs_dir_seek_data_reverse(struct inode *dir, int64_t end_blk);
 int truncate_data_blocks(struct db_info *di);
 void hmfs_truncate(struct inode *inode);
+int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
+int clean_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
 struct warp_candidate_entry *add_warp_candidate(struct hmfs_sb_info *sbi, struct node_info *ni);
 struct warp_candidate_entry *add_warp_pending(struct hmfs_sb_info *sbi, struct node_info *ni);
 struct node_info *pop_one_warp_pending_entry(struct hmfs_nm_info *nm_i);

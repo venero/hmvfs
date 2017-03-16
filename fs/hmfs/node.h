@@ -57,6 +57,10 @@ struct free_nid {
 #define is_dirty_free_nid(nid)		(nid >> 31)
 
 
+static inline void set_node_info_this_version(struct hmfs_sb_info *sbi, struct node_info *ni){
+	ni->begin_version = sbi->cm_info->new_version;
+}
+
 static inline void node_info_to_raw_nat(struct node_info *ni,
 					struct hmfs_nat_entry *ne)
 {
@@ -71,7 +75,7 @@ static inline void node_info_from_raw_nat(struct hmfs_sb_info *sbi, struct node_
 	ni->blk_addr = le64_to_cpu(ne->block_addr);
 	ni->current_warp = FLAG_WARP_NORMAL;
 	ni->begin_version = sbi->cm_info->new_version;
-	hmfs_dbg("That %d %d\n", ni->begin_version, sbi->cm_info->new_version);
+	// hmfs_dbg("That %d %d\n", ni->begin_version, sbi->cm_info->new_version);
 }
 
 static inline bool is_checkpoint_node(char sum_type)

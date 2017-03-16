@@ -30,6 +30,80 @@ struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index) {
     return ni = &ne->ni;
 }
 
+int warp_clean_up_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	// We use the metadata of a node_info to decide whether it is read/write frequent.
+	// Thus there is somehow no need to unmap.
+	// Because when the node_info is read-frequent again, it will remap its data.
+	// unmap_file_read_only_node_info(sbi, ni);
+	if(ni->current_warp != FLAG_WARP_READ) return 0;
+	ni->current_warp = FLAG_WARP_NORMAL;
+	return 0;
+}
+// Functionality is moved to hmfs_warp_update()
+// case FLAG_WARP_NORMAL:
+int warp_clean_up_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	if(ni->current_warp != FLAG_WARP_WRITE) return 0;
+	clean_wp_node_info(sbi, ni);
+	ni->current_warp = FLAG_WARP_NORMAL;
+	return 0;	
+}
+
+inline void wake_up_warp(struct hmfs_sb_info *sbi) {
+	if (sbi->warp_thread) {
+		smp_wmb();
+		wake_up_process(sbi->warp_thread->hmfs_task);
+	}
+}
+
+
+bool warp_is_new_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	if (sbi->cm_info->new_version > ni->begin_version + 1) return false;
+	else return true;
+}
+
+int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	int ret = 0;	
+	struct hmfs_summary *summary = NULL;
+	summary = get_summary_by_addr(sbi, ni->blk_addr);
+	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	if (warp_is_new_node_info(sbi,ni)) {
+		hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
+		return ERR_WARP_TOO_NEW;
+	}
+	if (ni->current_warp == FLAG_WARP_WRITE || get_warp_is_write_candidate(summary))	{
+		// warp_clean_up_writing(sbi,ni);
+		ni->current_warp = FLAG_WARP_NORMAL;
+	}
+	else {
+		ret = vmap_file_read_only_node_info(sbi, ni);
+		if (ret!=0) {
+			hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
+			return ret;
+		}
+		ni->current_warp = FLAG_WARP_READ;
+	}
+	return 0;
+}
+
+int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	struct hmfs_summary *summary = NULL;
+	summary = get_summary_by_addr(sbi, ni->blk_addr);
+	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	if (warp_is_new_node_info(sbi,ni)) {
+		hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
+		return ERR_WARP_TOO_NEW;
+	}
+	if (ni->current_warp == FLAG_WARP_READ || get_warp_is_read_candidate(summary))	{
+		// warp_clean_up_reading(sbi,ni);
+		ni->current_warp = FLAG_WARP_NORMAL;
+	}
+	else {		
+		add_wp_node_info(sbi, ni);
+		ni->current_warp = FLAG_WARP_WRITE;
+	}
+	return 0;	
+}
+
 int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type) {
 	struct inode *inode = filp->f_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -41,6 +115,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
     struct warp_candidate_entry *wce;
 	struct node_info *ni;
 	unsigned long long i;
+	unsigned long long add=0;
 	unsigned long long idx;
     struct hmfs_nm_info *nm_i = sbi->nm_info;
 	struct hmfs_summary *summary = NULL;
@@ -67,13 +142,20 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		*/
 		dn = (struct direct_node *)di.node_block;
 		ne = radix_tree_lookup(&nm_i->nat_root, di.nid);
+		// hmfs_dbg("Updating %u.\n",di.nid);
         if (unlikely(!ne)) {
             hmfs_dbg("radix_tree_lookup misses.\n");
             continue;
         }
         ni = &ne->ni;
 
+		
+
 		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
+
+		if (get_summary_type(summary) == SUM_TYPE_DN) add = ni->index + ADDRS_PER_BLOCK;
+		else if (get_summary_type(summary) == SUM_TYPE_INODE) add = ni->index + NORMAL_ADDRS_PER_INODE;
+
 		switch (type) {
 			case FLAG_WARP_NORMAL:
                 // This case doesn't exist for now, bacause there is no operation can be called as NORMAL operation.
@@ -86,15 +168,17 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
                 if (get_warp_read_pure(summary) && ni->current_warp==FLAG_WARP_READ) break;
                 if (!get_warp_is_read_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
-					hmfs_dbg("warp i:%llu idx:%llu\n",i,idx);
+					hmfs_dbg("warp read i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
-					wce = add_warp_candidate(sbi, ni);
-        			if (unlikely(!wce)) {
-						hmfs_dbg("add_warp_candidate failed.\n");
-        			}
+					if (!get_warp_is_write_candidate(summary)) {
+						wce = add_warp_candidate(sbi, ni);
+        				if (unlikely(!wce)) {
+							hmfs_dbg("add_warp_candidate failed.\n");
+        				}
+					}
 					// Why add_warp_pending inside switch?
 					// Because we rather having less pending entries than having too much
-					wce = add_warp_pending(sbi, ni);
+					if (ni->current_warp!=FLAG_WARP_WRITE) wce = add_warp_pending(sbi, ni);
         			// if (unlikely(!wce)) {
 					// 	break;
         			// }
@@ -107,13 +191,15 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
                 if (get_warp_write_pure(summary) && ni->current_warp==FLAG_WARP_WRITE) break;
                 if (!get_warp_is_write_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
-					hmfs_dbg("warp i:%llu idx:%llu\n",i,idx);
+					hmfs_dbg("warp write i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
-					wce = add_warp_candidate(sbi, ni);
-        			if (unlikely(!wce)) {
-						hmfs_dbg("add_warp_candidate failed.\n");
-        			}
-					wce = add_warp_pending(sbi, ni);
+					if (!get_warp_is_read_candidate(summary)) {
+						wce = add_warp_candidate(sbi, ni);
+						if (unlikely(!wce)) {
+							hmfs_dbg("add_warp_candidate failed.\n");
+						}
+					}
+					if (ni->current_warp!=FLAG_WARP_READ) wce = add_warp_pending(sbi, ni);
         			// if (unlikely(!wce)) {
 					// 	break;
         			// }
@@ -123,7 +209,8 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 				// set_warp_write_bit(summary);
 				break;
 		}
-		i+=ADDRS_PER_BLOCK;
+		i=add;
+		// i+=ADDRS_PER_BLOCK;
 	}
 	// Call warp-preparation after a range request
 	wake_up_warp(sbi);
@@ -160,90 +247,51 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 	struct hmfs_summary *summary = NULL;
     int current_type;
     int next_type;
+	struct node_info *ni;
     list_for_each_entry_safe(le, tmp, &nm_i->warp_candidate_list, list) {
         // hmfs_dbg("Dealing with nid:%d\n",le->nip->nid);
-		summary = get_summary_by_addr(sbi, le->nip->blk_addr);
+		ni = le->nip;
+		summary = get_summary_by_addr(sbi, ni->blk_addr);
+		// current_type here is about SUMMARY not NODE_INFO
         current_type = get_warp_current_type(summary);
         next_type = get_warp_next_type(summary);
-        print_update(le->nip->nid,current_type,next_type);
 		switch(next_type){
     		case FLAG_WARP_NORMAL:
+				hmfs_dbg("normal update nid:%u\n",ni->nid);
+				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
+				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
 				// hmfs_dbg("bt:%04X\n",le16_to_cpu(summary->bt));
+				set_node_info_this_version(sbi, ni);
         	    reset_warp_normal(summary);break;
 	    	case FLAG_WARP_READ:
+				hmfs_dbg("read update nid:%u\n",ni->nid);
+				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
+				if (current_type==FLAG_WARP_WRITE) set_node_info_this_version(sbi, ni);
+				warp_prepare_for_reading(sbi, ni);
         	    reset_warp_read(summary);break;
                 // if (get_warp_read_pure(summary)) hmfs_dbg("pure_read\n");
 				// else hmfs_dbg("not_pure_read\n");
 	    	case FLAG_WARP_WRITE:
+				hmfs_dbg("write update nid:%u\n",ni->nid);
+				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
+				if (current_type==FLAG_WARP_READ) set_node_info_this_version(sbi, ni);
+				warp_prepare_for_writing(sbi, ni);
         	    reset_warp_write(summary);break;
 	    	case FLAG_WARP_HYBRID:
+				hmfs_dbg("hybrid update nid:%u\n",ni->nid);
+				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
+				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
+				ni->current_warp = FLAG_WARP_NORMAL;
+				set_node_info_this_version(sbi, ni);
         	    reset_warp_normal(summary);break;
     	}
+        print_update(ni->nid,current_type,next_type);
         list_del(&le->list);
 		kfree(le);
 	}
     return 0;
 }
 
-inline void wake_up_warp(struct hmfs_sb_info *sbi) {
-	if (sbi->warp_thread) {
-		smp_wmb();
-		wake_up_process(sbi->warp_thread->hmfs_task);
-	}
-}
-
-int warp_clean_up_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	// FIXME
-	unmap_file_read_only_node_info(sbi, ni);
-	return 0;
-}
-
-int warp_clean_up_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	return 0;	
-}
-
-bool warp_is_new_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	if (sbi->cm_info->new_version > ni->begin_version + 1) return false;
-	else return true;
-}
-
-int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	int ret = 0;	
-	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
-	if (warp_is_new_node_info(sbi,ni)) {
-		hmfs_dbg("[WARP] new node info\n");
-		return ERR_WARP_TOO_NEW;
-	}
-	if (ni->current_warp == FLAG_WARP_WRITE)	{
-		warp_clean_up_writing(sbi,ni);
-		ni->current_warp = FLAG_WARP_NORMAL;
-	}
-	else {
-		ret = vmap_file_read_only_node_info(sbi, ni);
-		if (ret!=0) {
-			hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
-			return ret;
-		}
-		ni->current_warp = FLAG_WARP_READ;
-	}
-	return 0;
-}
-
-int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
-	if (warp_is_new_node_info(sbi,ni)) {
-		hmfs_dbg("[WARP] new node info\n");
-		return ERR_WARP_TOO_NEW;
-	}
-	if (ni->current_warp == FLAG_WARP_READ)	{
-		warp_clean_up_reading(sbi,ni);
-		ni->current_warp = FLAG_WARP_NORMAL;
-	}
-	else {
-		ni->current_warp = FLAG_WARP_WRITE;
-	}
-	return 0;	
-}
 
 int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct hmfs_summary *summary;

@@ -190,10 +190,13 @@ void *get_data_block(struct inode *inode, int64_t index)
 	struct db_info di;
 	block_t addr;
 	int err;
-	nid_t nid = inode->i_ino;
+	// nid_t nid = inode->i_ino;
 	// WARP-write
 	struct wp_data_page_entry *wdp = search_wp_data_block(sbi->nm_info,inode,index);
-	if (wdp) {hmfs_dbg("Get data blcok from wdg: inode:%u, index:%d.\n",nid,(int)index); return wdp->dp_addr;}
+	if (wdp) {
+		// hmfs_dbg("Get data block from wdg: inode:%u, index:%d.\n",nid,(int)index); 
+		return wdp->dp_addr;
+	}
 
 	di.inode = inode;
 	err = get_data_block_info(&di, index, LOOKUP);
@@ -253,9 +256,10 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 	struct db_info di;
 	const unsigned char seg_type = HMFS_I(inode)->i_blk_type;
 
-	if (mode==WRITEBACK) {
-		hmfs_dbg("inside\n");
-	}
+	// if (mode==WRITEBACK) {
+	// 	hmfs_dbg("inside WRITEBACK\n");
+	// }
+
 	di.inode = inode;
 	/*
 	 *	Normal write:	If wdp exists, write to wdp. (just return the in-DRAM address)
@@ -266,10 +270,13 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 		wdp = search_wp_data_block(sbi->nm_info, inode, block);
 		if (wdp!=NULL) {
 			wne = search_wp_inode_entry(sbi->nm_info, inode);
+			// hmfs_dbg("WARP write ino:%lu block:%d\n",inode->i_ino,block);
 			radix_tree_tag_set(&sbi->nm_info->wp_inode_root,wne->ino,1);
 			return wdp->dp_addr;
 		}
 	} 
+
+	// hmfs_dbg("PT write ino:%lu block:%d\n",inode->i_ino,block);
 
 	err = get_data_block_info(&di, block, ALLOC);
 	if (err)
@@ -311,12 +318,11 @@ void *pw_alloc_new_data_block(struct inode *inode, int block, unsigned long pw_s
 
 	if (mode==WRITEBACK) {
 		inode_write_lock(inode);
-		hmfs_dbg("dest %llx\n",(unsigned long long)dest);
+		// hmfs_dbg("dest %llx;src %llx\n",(unsigned long long)dest,(unsigned long long)src);
 		wdp = search_wp_data_block(sbi->nm_info, inode, block);
 		if (wdp!=NULL) {
 			src = wdp->dp_addr;
 		}
-		hmfs_dbg("src %llx\n",(unsigned long long)src);
 		// hmfs_dbg("%s\n",(char*)src);
 		memcpy(dest, src, HMFS_BLOCK_SIZE[seg_type]);
 		// hmfs_dbg("%s\n",(char*)dest);

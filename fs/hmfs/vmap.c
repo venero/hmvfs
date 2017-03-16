@@ -581,7 +581,7 @@ out:
 	fi->block_bitmap = NULL;
 	fi->bitmap_size = 0;
 	fi->nr_map_page = 0;
-	return 1;
+	return ERR_WARP_READ_PRE;
 }
 
 int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len) {
@@ -606,9 +606,15 @@ int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni
 	struct inode *ino = hmfs_iget(sbi->sb, ni->ino);
 	loff_t isize;
 	struct hmfs_inode_info *fi = HMFS_I(ino);
-	unsigned int count = ADDRS_PER_BLOCK;
+	unsigned int count = 0;
 	unsigned char seg_type = fi->i_blk_type;
 	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+
+	struct hmfs_summary *summary = NULL;
+	summary = get_summary_by_addr(sbi, ni->blk_addr);
+	if (get_summary_type(summary) == SUM_TYPE_DN) count = ADDRS_PER_BLOCK;
+	else if (get_summary_type(summary) == SUM_TYPE_INODE) count = NORMAL_ADDRS_PER_INODE;
+
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
@@ -650,7 +656,6 @@ int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *n
 	// FIXME: If the node is the last node of a file, just return.
 	// It should be unmapped properly!
 	// if (isize - pos < count) return 0;
-	return 0;
 	hmfs_dbg("unmap Addr:%p count:%u pos:%llu isize:%llu",fi->rw_addr,count,pos,isize);
 	pos = pos << block_size_bits;
 	// hmfs_dbg("[Before unmap] Addr:%p PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
