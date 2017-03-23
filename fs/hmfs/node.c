@@ -197,7 +197,7 @@ struct warp_candidate_entry *add_warp_candidate(struct hmfs_sb_info *sbi, struct
 struct warp_candidate_entry *add_warp_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct warp_candidate_entry *new;
 	struct hmfs_summary *summary = get_summary_by_addr(sbi, ni->blk_addr);
-	// Currently, WARP acceleration is only for direct node.
+	// Currently, WARP acceleration is only for direct node and inode.
 	if (get_summary_type(summary) != SUM_TYPE_DN && get_summary_type(summary) != SUM_TYPE_INODE) return NULL;
 	new = kmem_cache_alloc(warp_candidate_entry_slab, GFP_ATOMIC);
 	if (!new) return NULL;
@@ -713,6 +713,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	struct checkpoint_info *cp_i = CURCP_I(sbi);
 	struct hmfs_summary *summary = NULL;
 	unsigned int ofs_in_node = NID_TO_BLOCK_OFS(nid);
+	int warp=0;
 	// struct node_info *old_ni,*new_ni;
 
 	src = get_node(sbi, nid);
@@ -722,6 +723,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 	if (!IS_ERR(src)) {
 		src_addr = L_ADDR(sbi, src);
 		summary = get_summary_by_addr(sbi, src_addr);
+		warp = get_warp_all(summary);
 		if (get_summary_start_version(summary) == cp_i->version &&
 					!is_inode_flag_set(HMFS_I(inode), FI_CONVERT_INLINE))
 			return src;
@@ -755,8 +757,8 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, 0);
 		} else {
 			make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, e->ni.next_warp);	
+			/*
 			switch (nm_i->last_visited_type) {
-			// switch (FLAG_WARP_NORMAL) {
 			case FLAG_WARP_READ:
 				set_warp_read_bit(summary);
 				clear_warp_write_bit(summary);
@@ -770,9 +772,14 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 				clear_warp_read_bit(summary);
 				break;
 			}
+			*/
 		}
 	} else {
 		make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, 0);
+	}
+	if(warp!=0) {
+		hmfs_dbg("warpnid:%d,%u\n",warp,nid);
+		set_warp_all(summary, warp);
 	}
 	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr,	true);
 

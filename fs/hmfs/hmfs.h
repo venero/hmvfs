@@ -16,6 +16,8 @@
 
 #define HMFS_DEF_FILE_MODE	0664
 
+#define WARP_THREAD_SLEEP_TIME	10000	/* milliseconds */
+
 #define DEF_OP_SEGMENTS		6	/* default percentage of overprovision segments */
 
 #define SEG_NODE_INDEX			0
@@ -819,6 +821,17 @@ static inline void set_summary_valid_bit(struct hmfs_summary *summary)
  *	Candidate: when this node is experiencing an access pattern which does not fits the model of current type, we keep the record here.
  *	Meanwhile, |x3,x4| is also the enum for WARP type.
  */
+static inline int get_warp_all(struct hmfs_summary *summary)
+{
+	return le16_to_cpu(summary->bt)>>8 & 0x0f;
+}
+
+static inline void set_warp_all(struct hmfs_summary *summary, int bt)
+{
+	int warp = le16_to_cpu(summary->bt);
+	warp |= bt<<8;
+	hmfs_memcpy_atomic(&summary->bt, &warp, 2);
+}
 
 static inline unsigned char get_warp_read_candidate(struct hmfs_summary *summary)
 {
@@ -890,8 +903,9 @@ static inline int get_warp_current_type(struct hmfs_summary *summary)
 static inline int get_warp_next_type(struct hmfs_summary *summary)
 {
 	int ret = (int)le16_to_cpu(summary->bt)>>10 & 0x03;
-	if (ret<3) return ret;
-	else return 0;
+	return ret;
+	// if (ret<3) return ret;
+	// else return 0;
 }
 
 static inline void reset_warp_read(struct hmfs_summary *summary)
@@ -1098,6 +1112,7 @@ void remove_orphan_inode(struct hmfs_sb_info *sbi, nid_t);
 int check_orphan_space(struct hmfs_sb_info *);
 int create_checkpoint_caches(void);
 void destroy_checkpoint_caches(void);
+void display_warp(struct hmfs_sb_info *sbi);
 int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock);
 int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp);
 struct checkpoint_info *get_checkpoint_info(struct hmfs_sb_info *, ver_t version, bool);

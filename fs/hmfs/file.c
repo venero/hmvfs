@@ -419,15 +419,22 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct wp_nat_entry *wne;
 	struct wp_data_page_entry *wdp;
 	void *data;
+	void *src = NULL;
 	struct hmfs_inode_info *fi = HMFS_I(ino);
 	unsigned int count = 0;
 	unsigned char seg_type = fi->i_blk_type;
 	const unsigned int block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	struct db_info di;
+	struct hmfs_node *hn = NULL;
+	int err;
+	block_t src_addr = 0;
 
 	struct hmfs_summary *summary = NULL;
 	summary = get_summary_by_addr(sbi, ni->blk_addr);
 	if (get_summary_type(summary) == SUM_TYPE_DN) count = ADDRS_PER_BLOCK;
 	else if (get_summary_type(summary) == SUM_TYPE_INODE) count = NORMAL_ADDRS_PER_INODE;
+	
+	di.inode = ino;
 
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
@@ -438,12 +445,20 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	if (!wne) init_wp_inode_entry(sbi->nm_info,ino);
 
 	for (i=(unsigned long)ni->index;i<((unsigned long)ni->index) + count;++i) {
+		err = get_data_block_info(&di, i, LOOKUP);
+		if (err) continue;
+
+		hn = di.node_block;
+		src_addr = read_address(hn, di.ofs_in_node, di.local);
+
+		if (src_addr != 0) { src = ADDR(sbi, src_addr); }
+
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
- 		if (!wdp) add_wp_data_block(sbi->nm_info,ino,i,NULL);
+ 		if (!wdp) add_wp_data_block(sbi->nm_info,ino,i,src);
 		 
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
 		data = wdp->dp_addr;
-		hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		if(i<1000)hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		if (!data) return ERR_WARP_WRITE_PRE;
 	}
 	return 0;

@@ -149,8 +149,6 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
         }
         ni = &ne->ni;
 
-		
-
 		summary = get_summary_by_addr(sbi, L_ADDR(sbi,dn));
 
 		if (get_summary_type(summary) == SUM_TYPE_DN) add = ni->index + ADDRS_PER_BLOCK;
@@ -227,6 +225,8 @@ void print_update(int nid, int current_type, int next_type){
             cur = "read";break;
 	    case FLAG_WARP_WRITE:
             cur = "write";break;
+	    case FLAG_WARP_HYBRID:
+            cur = "hybrid";break;
     }
     switch(next_type){
     	case FLAG_WARP_NORMAL:
@@ -235,8 +235,34 @@ void print_update(int nid, int current_type, int next_type){
             nex = "read";break;
 	    case FLAG_WARP_WRITE:
             nex = "write";break;
+	    case FLAG_WARP_HYBRID:
+            nex = "hybrid";break;
     }
     hmfs_dbg("Dealing with nid:%d [%s]->[%s].\n",nid,cur,nex);
+}
+
+
+int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	struct hmfs_summary *summary;
+	int type;
+	int cur = ni->current_warp;
+	summary = get_summary_by_ni(sbi, ni);
+	// New direct node
+	hmfs_dbg("This %d %d\n", ni->begin_version, sbi->cm_info->new_version);
+	if (ni->begin_version == sbi->cm_info->new_version) return 0;
+	type = get_warp_current_type(summary);
+	// No need to modify
+	if (cur==type) return 0;
+	hmfs_dbg("[WARP] prepare ino:%d nid:%d type:%d\n",ni->ino,ni->nid,type);
+	switch (type) {
+		case FLAG_WARP_NORMAL:
+			return 0;
+		case FLAG_WARP_READ:
+			return warp_prepare_for_reading(sbi, ni);
+	    case FLAG_WARP_WRITE:
+			return warp_prepare_for_writing(sbi, ni);
+	}
+	return 0;
 }
 
 int hmfs_warp_update(struct hmfs_sb_info *sbi){
@@ -267,16 +293,20 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 				hmfs_dbg("read update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
 				if (current_type==FLAG_WARP_WRITE) set_node_info_this_version(sbi, ni);
-				warp_prepare_for_reading(sbi, ni);
-        	    reset_warp_read(summary);break;
+				// warp_prepare_for_reading(sbi, ni);
+        	    reset_warp_read(summary);
+				warp_prepare_node_info(sbi, ni);
+				break;
                 // if (get_warp_read_pure(summary)) hmfs_dbg("pure_read\n");
 				// else hmfs_dbg("not_pure_read\n");
 	    	case FLAG_WARP_WRITE:
 				hmfs_dbg("write update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
 				if (current_type==FLAG_WARP_READ) set_node_info_this_version(sbi, ni);
-				warp_prepare_for_writing(sbi, ni);
-        	    reset_warp_write(summary);break;
+				// warp_prepare_for_writing(sbi, ni);
+        	    reset_warp_write(summary);
+				warp_prepare_node_info(sbi, ni);
+				break;
 	    	case FLAG_WARP_HYBRID:
 				hmfs_dbg("hybrid update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
@@ -287,33 +317,12 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
     	}
         print_update(ni->nid,current_type,next_type);
         list_del(&le->list);
+		hmfs_dbg("nid:%u complete1.\n",ni->nid);
 		kfree(le);
+		hmfs_dbg("nid:%u complete2.\n",ni->nid);
 	}
+	hmfs_dbg("hmfs_warp_update complete.\n");
     return 0;
-}
-
-
-int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
-	struct hmfs_summary *summary;
-	int type;
-	int cur = ni->current_warp;
-	summary = get_summary_by_ni(sbi, ni);
-	// New direct node
-	hmfs_dbg("This %d %d\n", ni->begin_version, sbi->cm_info->new_version);
-	if (ni->begin_version == sbi->cm_info->new_version) return 0;
-	type = get_warp_current_type(summary);
-	// No need to modify
-	if (cur==type) return 0;
-	hmfs_dbg("[WARP] prepare ino:%d nid:%d\n",ni->ino,ni->nid);
-	switch (type) {
-		case FLAG_WARP_NORMAL:
-			return 0;
-		case FLAG_WARP_READ:
-			return warp_prepare_for_reading(sbi, ni);
-	    case FLAG_WARP_WRITE:
-			return warp_prepare_for_writing(sbi, ni);
-	}
-	return 0;
 }
 
 // Current strategy:
@@ -324,6 +333,7 @@ int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 int warp_deal_with_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret=0;
 	struct node_info *next = get_node_info_by_nid(sbi, ni->next_warp);
+	display_warp(sbi);
 	if (next) ret = warp_prepare_node_info(sbi, next);
 	ret = warp_prepare_node_info(sbi, ni);
 	return 0;
@@ -338,7 +348,9 @@ static int warp_thread_func(void *data) {
     do {
         // hmfs_dbg("warp_function: A %d times\n", ++time_count);  
 		set_current_state(TASK_UNINTERRUPTIBLE);
-		schedule();
+		// schedule();
+		schedule_timeout_interruptible(msecs_to_jiffies(WARP_THREAD_SLEEP_TIME));
+		// hmfs_dbg("[warping] warp_thread_func\n");
         // hmfs_dbg("warp_function: B %d times\n", ++time_count);  
 		while(!list_empty(&sbi->nm_info->warp_pending_list)) {
 			hmfs_dbg("[warping] In\n");

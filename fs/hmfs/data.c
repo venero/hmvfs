@@ -192,10 +192,16 @@ void *get_data_block(struct inode *inode, int64_t index)
 	int err;
 	// nid_t nid = inode->i_ino;
 	// WARP-write
-	struct wp_data_page_entry *wdp = search_wp_data_block(sbi->nm_info,inode,index);
-	if (wdp) {
-		// hmfs_dbg("Get data block from wdg: inode:%u, index:%d.\n",nid,(int)index); 
-		return wdp->dp_addr;
+
+	struct node_info *ni = hmfs_get_node_info(inode, index);
+	struct wp_data_page_entry *wdp;
+
+	if (ni->current_warp == FLAG_WARP_WRITE) {
+		wdp = search_wp_data_block(sbi->nm_info,inode,index);
+		if (likely(wdp)) {
+			// hmfs_dbg("Get data block from wdg: inode:%u, index:%d.\n",nid,(int)index); 
+			return wdp->dp_addr;
+		}
 	}
 
 	di.inode = inode;
