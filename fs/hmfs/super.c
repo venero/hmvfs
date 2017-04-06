@@ -323,11 +323,8 @@ fail:
 
 void exit_hmfs(void)
 {
-	hmfs_dbg("Exiting\n");
 	destroy_mmap_struct_cache();
-	hmfs_dbg("Exiting\n");
 	destroy_inodecache();
-	hmfs_dbg("Exiting\n");
 	destroy_node_manager_caches();
 	destroy_checkpoint_caches();
 	hmfs_destroy_root_stat();

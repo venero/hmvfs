@@ -508,10 +508,12 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 	
 	if (length==0) full = true;
 
+	/*
 	if (full) hmfs_dbg("[Before vmap][A] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 	else 
 		if (fi->rw_addr) hmfs_dbg("[Before vmap][B] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 		else hmfs_dbg("[Before vmap][C] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
+	*/
 
 	// Number of data blocks to be mapped (file size in block)
 	nr_pages = (size + HMFS_BLOCK_SIZE[blk_type] - 1) >> HMFS_BLOCK_SIZE_BITS(blk_type);
@@ -548,7 +550,7 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 
 	// PAGE_KERNEL_RO for read only access (AC)
 	if ( !is_partially_mapped_inode(inode) ) {
-	hmfs_dbg("nrp %llu\n",fi->nr_map_page);
+	// hmfs_dbg("nrp %llu\n",fi->nr_map_page);
 		fi->rw_addr = vm_map_ram(pages, fi->nr_map_page, 0, PAGE_KERNEL_RO);
 		if (!fi->rw_addr)
 			goto free_pages;
@@ -557,19 +559,19 @@ int vmap_file_read_only(struct inode *inode, pgoff_t index, pgoff_t length)
 		start = (void*)fi->rw_addr + index * HMFS_BLOCK_SIZE[blk_type];
 		end = (void*)fi->rw_addr + (index+length) * HMFS_BLOCK_SIZE[blk_type];
 		ret = pvmap_page_range((unsigned long)start, (unsigned long)end, PAGE_KERNEL_RO, pages);
-		hmfs_dbg("[vmaping][B] remapped %d pages\n",ret);
+		// hmfs_dbg("[vmaping][B] remapped %d pages\n",ret);
 	}
 
 	if (full) {
 		set_inode_flag(fi,FI_MAPPED_FULL);
-		hmfs_dbg("[After vmap][A] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
+		// hmfs_dbg("[After vmap][A] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 	}
 	else if ( !is_partially_mapped_inode(inode) ) {
 		set_inode_flag(fi,FI_MAPPED_PARTIAL);
-		hmfs_dbg("[After vmap][C] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
+		// hmfs_dbg("[After vmap][C] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 	}
 	else {
-		hmfs_dbg("[After vmap][B] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
+		// hmfs_dbg("[After vmap][B] Addr:%llx PageNumber:%llu\n", (unsigned long long)fi->rw_addr, (unsigned long long)fi->nr_map_page);
 	}
 	return 0;
 
@@ -618,7 +620,7 @@ int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
-	hmfs_dbg("vmap count:%u pos:%llu isize:%llu",count,pos,isize);
+	// hmfs_dbg("vmap count:%u pos:%llu isize:%llu",count,pos,isize);
 	return vmap_file_read_only(ino,(unsigned long)ni->index,count);
 }
 /*
@@ -656,7 +658,7 @@ int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *n
 	// FIXME: If the node is the last node of a file, just return.
 	// It should be unmapped properly!
 	// if (isize - pos < count) return 0;
-	hmfs_dbg("unmap Addr:%p count:%u pos:%llu isize:%llu",fi->rw_addr,count,pos,isize);
+	// hmfs_dbg("unmap Addr:%p count:%u pos:%llu isize:%llu",fi->rw_addr,count,pos,isize);
 	pos = pos << block_size_bits;
 	// hmfs_dbg("[Before unmap] Addr:%p PageNumber:%llu\n", fi->rw_addr, fi->nr_map_page);
 	// hmfs_dbg("pos:%lld, add:%d\n",pos,ADDRS_PER_BLOCK);

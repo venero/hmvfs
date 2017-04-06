@@ -439,7 +439,7 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
-	hmfs_dbg("addwp count:%u pos:%llu isize:%llu",count,pos,isize);
+	// hmfs_dbg("addwp count:%u pos:%llu isize:%llu",count,pos,isize);
 
 	wne = search_wp_inode_entry(sbi->nm_info,ino);
 	if (!wne) init_wp_inode_entry(sbi->nm_info,ino);
@@ -458,7 +458,7 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 		 
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
 		data = wdp->dp_addr;
-		if(i<1000)hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		// if(i<1000)hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		if (!data) return ERR_WARP_WRITE_PRE;
 	}
 	return 0;
@@ -482,7 +482,7 @@ int clean_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
-	hmfs_dbg("delwp count:%u pos:%llu isize:%llu",count,pos,isize);
+	// hmfs_dbg("delwp count:%u pos:%llu isize:%llu",count,pos,isize);
 
 	wne = search_wp_inode_entry(sbi->nm_info,ino);
 	if (!wne) return ERR_WARP_WRITE_POST;
@@ -544,7 +544,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
-	hmfs_dbg("Open inode:%lu\n", filp->f_inode->i_ino);
+	// hmfs_dbg("Open inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
 
 	nm_i->last_visited_type = FLAG_WARP_NORMAL;
@@ -584,7 +584,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
-	hmfs_dbg("Release inode:%lu\n", filp->f_inode->i_ino);
+	// hmfs_dbg("Release inode:%lu\n", filp->f_inode->i_ino);
 
 	/* FIXME: Is the value of i_count correct */
 	// To active long term mapping in kernel virtual address space, remove the code below
@@ -681,7 +681,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
 	
-	hmfs_dbg("[Read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
+	// hmfs_dbg("[Read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
 	ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 
 	if (false) 	ret = hmfs_file_fast_read(filp, buf, len, ppos);

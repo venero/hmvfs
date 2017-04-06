@@ -839,11 +839,11 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	/* Reset new_segmap */
 	reset_new_segmap(sbi);
 	reinit_gc_logs(sbi);
-
+	hmfs_dbg(" \n");
 	hmfs_dbg("Snapshot version: %u\n",store_version);
 	// WARP cp info
 	display_warp(sbi);
-	hmfs_dbg("Snapshot version: %u\n",store_version);
+	// hmfs_dbg("Snapshot version: %u\n",store_version);
 
 	return 0;
 }
@@ -861,15 +861,15 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 		ret = 0;
 		goto unlock;
 	}
-	hmfs_dbg("cp0\n");
-	display_warp(sbi);
+	// hmfs_dbg("cp0\n");
+	// display_warp(sbi);
 	cleanup_all_wp_inode_entry(sbi);
-	hmfs_dbg("write checkpoint\n");
+	// hmfs_dbg("write checkpoint\n");
 
 	hmfs_warp_update(sbi);
 	// You MUST make some changes in order to do_checkpoint().
 	ret = do_checkpoint(sbi);
-	hmfs_dbg("cp1\n");
+	// hmfs_dbg("cp1\n");
 
 unlock:
 	if (unlock) {

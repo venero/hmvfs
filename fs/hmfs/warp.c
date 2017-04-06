@@ -19,7 +19,7 @@ struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index) {
 	dn = (struct direct_node *)di.node_block;
 	ne = radix_tree_lookup(&nm_i->nat_root, di.nid);
     if (!ne) {
-    	hmfs_dbg("radix_tree_lookup misses.\n");
+    	// hmfs_dbg("radix_tree_lookup misses.\n");
 		return NULL;
    	}
     return ni = &ne->ni;
@@ -60,9 +60,9 @@ int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret = 0;	
 	struct hmfs_summary *summary = NULL;
 	summary = get_summary_by_addr(sbi, ni->blk_addr);
-	hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	// hmfs_dbg("[WARP] prepare reading ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
 	if (warp_is_new_node_info(sbi,ni)) {
-		hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
+		// hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
 		return ERR_WARP_TOO_NEW;
 	}
 	if (ni->current_warp == FLAG_WARP_WRITE || get_warp_is_write_candidate(summary))	{
@@ -72,7 +72,7 @@ int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	else {
 		ret = vmap_file_read_only_node_info(sbi, ni);
 		if (ret!=0) {
-			hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
+			// hmfs_dbg("[WARP] prepare reading for nid:%d failed.\n",ni->nid);
 			return ret;
 		}
 		ni->current_warp = FLAG_WARP_READ;
@@ -83,9 +83,9 @@ int warp_prepare_for_reading(struct hmfs_sb_info *sbi, struct node_info *ni) {
 int warp_prepare_for_writing(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	struct hmfs_summary *summary = NULL;
 	summary = get_summary_by_addr(sbi, ni->blk_addr);
-	hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
+	// hmfs_dbg("[WARP] prepare writing ino:%d nid:%d index:%llu\n",ni->ino,ni->nid,ni->index);
 	if (warp_is_new_node_info(sbi,ni)) {
-		hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
+		// hmfs_dbg("[WARP] ERR_WARP_TOO_NEW\n");
 		return ERR_WARP_TOO_NEW;
 	}
 	if (ni->current_warp == FLAG_WARP_READ || get_warp_is_read_candidate(summary))	{
@@ -139,7 +139,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		ne = radix_tree_lookup(&nm_i->nat_root, di.nid);
 		// hmfs_dbg("Updating %u.\n",di.nid);
         if (unlikely(!ne)) {
-            hmfs_dbg("radix_tree_lookup misses.\n");
+            // hmfs_dbg("radix_tree_lookup misses.\n");
             continue;
         }
         ni = &ne->ni;
@@ -161,12 +161,12 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
                 if (get_warp_read_pure(summary) && ni->current_warp==FLAG_WARP_READ) break;
                 if (!get_warp_is_read_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
-					hmfs_dbg("warp read i:%llu idx:%llu\n",i,idx);
+					// hmfs_dbg("warp read i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
 					if (!get_warp_is_write_candidate(summary)) {
 						wce = add_warp_candidate(sbi, ni);
         				if (unlikely(!wce)) {
-							hmfs_dbg("add_warp_candidate failed.\n");
+							// hmfs_dbg("add_warp_candidate failed.\n");
         				}
 					}
 					// Why add_warp_pending inside switch?
@@ -184,12 +184,12 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
                 if (get_warp_write_pure(summary) && ni->current_warp==FLAG_WARP_WRITE) break;
                 if (!get_warp_is_write_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
-					hmfs_dbg("warp write i:%llu idx:%llu\n",i,idx);
+					// hmfs_dbg("warp write i:%llu idx:%llu\n",i,idx);
 					ni->index = idx;
 					if (!get_warp_is_read_candidate(summary)) {
 						wce = add_warp_candidate(sbi, ni);
 						if (unlikely(!wce)) {
-							hmfs_dbg("add_warp_candidate failed.\n");
+							// hmfs_dbg("add_warp_candidate failed.\n");
 						}
 					}
 					if (ni->current_warp!=FLAG_WARP_READ) wce = add_warp_pending(sbi, ni);
@@ -233,7 +233,7 @@ void print_update(int nid, int current_type, int next_type){
 	    case FLAG_WARP_HYBRID:
             nex = "hybrid";break;
     }
-    hmfs_dbg("Dealing with nid:%d [%s]->[%s].\n",nid,cur,nex);
+    // hmfs_dbg("Dealing with nid:%d [%s]->[%s].\n",nid,cur,nex);
 }
 
 
@@ -243,12 +243,12 @@ int warp_prepare_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int cur = ni->current_warp;
 	summary = get_summary_by_ni(sbi, ni);
 	// New direct node
-	hmfs_dbg("This %d %d\n", ni->begin_version, sbi->cm_info->new_version);
+	// hmfs_dbg("This %d %d\n", ni->begin_version, sbi->cm_info->new_version);
 	if (ni->begin_version == sbi->cm_info->new_version) return 0;
 	type = get_warp_current_type(summary);
 	// No need to modify
 	if (cur==type) return 0;
-	hmfs_dbg("[WARP] prepare ino:%d nid:%d type:%d\n",ni->ino,ni->nid,type);
+	// hmfs_dbg("[WARP] prepare ino:%d nid:%d type:%d\n",ni->ino,ni->nid,type);
 	switch (type) {
 		case FLAG_WARP_NORMAL:
 			return 0;
@@ -278,14 +278,14 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
         next_type = get_warp_next_type(summary);
 		switch(next_type){
     		case FLAG_WARP_NORMAL:
-				hmfs_dbg("normal update nid:%u\n",ni->nid);
+				// hmfs_dbg("normal update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
 				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
 				// hmfs_dbg("bt:%04X\n",le16_to_cpu(summary->bt));
 				set_node_info_this_version(sbi, ni);
         	    reset_warp_normal(summary);break;
 	    	case FLAG_WARP_READ:
-				hmfs_dbg("read update nid:%u\n",ni->nid);
+				// hmfs_dbg("read update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
 				if (current_type==FLAG_WARP_WRITE) set_node_info_this_version(sbi, ni);
 				// warp_prepare_for_reading(sbi, ni);
@@ -295,7 +295,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
                 // if (get_warp_read_pure(summary)) hmfs_dbg("pure_read\n");
 				// else hmfs_dbg("not_pure_read\n");
 	    	case FLAG_WARP_WRITE:
-				hmfs_dbg("write update nid:%u\n",ni->nid);
+				// hmfs_dbg("write update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
 				if (current_type==FLAG_WARP_READ) set_node_info_this_version(sbi, ni);
 				// warp_prepare_for_writing(sbi, ni);
@@ -303,7 +303,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 				warp_prepare_node_info(sbi, ni);
 				break;
 	    	case FLAG_WARP_HYBRID:
-				hmfs_dbg("hybrid update nid:%u\n",ni->nid);
+				// hmfs_dbg("hybrid update nid:%u\n",ni->nid);
 				if (current_type==FLAG_WARP_WRITE) warp_clean_up_writing(sbi, ni);
 				if (current_type==FLAG_WARP_READ) warp_clean_up_reading(sbi, ni);
 				ni->current_warp = FLAG_WARP_NORMAL;
@@ -316,7 +316,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 		kfree(le);
 		// hmfs_dbg("nid:%u complete2.\n",ni->nid);
 	}
-	hmfs_dbg("hmfs_warp_update complete.\n");
+	// hmfs_dbg("hmfs_warp_update complete.\n");
     return 0;
 }
 
@@ -331,7 +331,7 @@ int warp_deal_with_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	// display_warp(sbi);
 	if (next) ret = warp_prepare_node_info(sbi, next);
 	ret = warp_prepare_node_info(sbi, ni);
-	display_warp(sbi);
+	// display_warp(sbi);
 	return 0;
 }
 
@@ -349,7 +349,7 @@ static int warp_thread_func(void *data) {
 		// hmfs_dbg("[warping] warp_thread_func\n");
         // hmfs_dbg("warp_function: B %d times\n", ++time_count);  
 		while(!list_empty(&sbi->nm_info->warp_pending_list)) {
-			hmfs_dbg("[warping] In\n");
+			// hmfs_dbg("[warping] In\n");
 			this = pop_one_warp_pending_entry(sbi->nm_info);
 			ret = warp_deal_with_pending(sbi, this);
 		}
