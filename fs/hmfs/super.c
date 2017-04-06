@@ -289,7 +289,6 @@ int init_hmfs(void)
 	int err;
 
 	hmfs_check_struct_size();
-	warp_test();
 	err = init_util_function();
 	if (err)
 		goto fail;

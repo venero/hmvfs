@@ -501,6 +501,7 @@ int clean_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	return 0;
 }
 
+/*
 int debug_test(struct inode *inode, struct file *filp) {
 	struct wp_nat_entry *wne;
 	struct wp_data_page_entry *wdp;
@@ -530,6 +531,7 @@ int debug_test(struct inode *inode, struct file *filp) {
 	hmfs_dbg("----------Leaving debug test----------\n");
 	return 0;
 }
+*/
 
 /* 
  * Open file for hmfs, if it's a read-only file, then remap it into 
@@ -547,7 +549,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 
 	nm_i->last_visited_type = FLAG_WARP_NORMAL;
 
-	debug_test(inode, filp);
+	// debug_test(inode, filp);
 	// vmap_file_read_only(inode,0,1);
 
 	if (ret || is_inline_inode(inode))

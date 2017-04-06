@@ -5,11 +5,6 @@
 #include "node.h"
 #include "segment.h"
 
-int warp_test() {
-    hmfs_dbg("this is shown.\n");
-    return 0;
-}
-
 struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index) {
 	struct db_info di;
 	int err = 0;
@@ -317,9 +312,9 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
     	}
         print_update(ni->nid,current_type,next_type);
         list_del(&le->list);
-		hmfs_dbg("nid:%u complete1.\n",ni->nid);
+		// hmfs_dbg("nid:%u complete1.\n",ni->nid);
 		kfree(le);
-		hmfs_dbg("nid:%u complete2.\n",ni->nid);
+		// hmfs_dbg("nid:%u complete2.\n",ni->nid);
 	}
 	hmfs_dbg("hmfs_warp_update complete.\n");
     return 0;
@@ -333,9 +328,10 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 int warp_deal_with_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret=0;
 	struct node_info *next = get_node_info_by_nid(sbi, ni->next_warp);
-	display_warp(sbi);
+	// display_warp(sbi);
 	if (next) ret = warp_prepare_node_info(sbi, next);
 	ret = warp_prepare_node_info(sbi, ni);
+	display_warp(sbi);
 	return 0;
 }
 

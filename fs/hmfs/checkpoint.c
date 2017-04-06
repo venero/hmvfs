@@ -752,6 +752,7 @@ void display_warp(struct hmfs_sb_info *sbi) {
 		}
 	}
 }
+
 static int do_checkpoint(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
