@@ -93,7 +93,7 @@ int get_data_block_info(struct db_info *di, int64_t index, int mode)
 	index -= NORMAL_ADDRS_PER_INODE;
 	if (!set_height)
 		set_height = 1;
-	while ((1 << (ADDRS_PER_BLOCK_BITS + (set_height - 1) * NIDS_PER_BLOCK_BITS)) < index)
+	while ((1 << (ADDRS_PER_BLOCK_BITS + (set_height - 1) * NIDS_PER_BLOCK_BITS)) <= index)
 		set_height++;
 
 

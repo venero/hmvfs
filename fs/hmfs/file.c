@@ -409,6 +409,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 	size_t copied = len;
 	unsigned long left;
 	int err = 0;
+	loff_t pos = *ppos;
 
 	if (*ppos + len > isize)
 		copied = isize - *ppos;
@@ -417,7 +418,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 		return 0;
 
 	inode_read_unlock(inode);
-	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr, copied);
+	left = __copy_to_user(buf, HMFS_I(inode)->rw_addr + pos, copied);
 	inode_read_lock(inode);
 
 	if (left == copied)
@@ -1010,7 +1011,7 @@ static int hmfs_get_mmap_block(struct inode *inode, pgoff_t index,
 	}
 */	data_block_addr = L_ADDR(sbi, data_block);
 	*pfn = (sbi->phys_addr + data_block_addr) >> PAGE_SHIFT;
-out:
+//out:
 	return 0;
 }
 
@@ -1109,7 +1110,7 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
-	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	//struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t offset = vmf->pgoff, size;
 	unsigned long pfn = 0;
 	int err = 0;
