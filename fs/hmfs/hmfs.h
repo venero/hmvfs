@@ -296,6 +296,13 @@ struct hmfs_sb_info {
 	spinlock_t dirty_inodes_lock;
 };
 
+struct hmfs_proc_info {
+       struct list_head list;
+       uint64_t proc_id;                  /*process directory ID*/
+       uint32_t proc_nid;                 /*next visited nid or ino*/
+       uint32_t proc_nt;                  /*start fetch node type*/
+};
+
 struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
@@ -319,6 +326,10 @@ struct hmfs_inode_info {
 	atomic_t nr_open;					/* Number of processes which opens this file */
 	struct hmfs_inode *i_node_block;	/* HMFS inode on NVM */
 	uint8_t i_height;					/* Height of this inode */
+        
+        /*proc infomation*/
+        struct hmfs_proc_info *i_proc_info;      /* process infomation*/
+        struct list_head proc_list;              /* list for all process infomation*/
 };
 
 struct hmfs_stat_info {

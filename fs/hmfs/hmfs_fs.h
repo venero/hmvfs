@@ -239,10 +239,10 @@ struct hmfs_inode {
 	__u8 i_height;		/* height of tree with i_nid */
 	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
         struct hmfs_proc{
-               __le64 proc_id;  /*prcess execute diretory after hash function*/
+               __le64 proc_id;  /*process execute diretory after hash function*/
                __le32 proc_nid; /*next_visited nid or ino*/
-               __le32 proc_nt;  /*start dnode or inode id */
-        }
+               __le32 proc_nt;  /*node type:start dnode or inode id */
+        } i_proc;
 	union {
 		struct {
 			__u8 i_pad[2];
