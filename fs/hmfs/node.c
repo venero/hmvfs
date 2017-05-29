@@ -132,6 +132,7 @@ static int init_node_manager(struct hmfs_sb_info *sbi)
 	INIT_RADIX_TREE(&nm_i->wp_inode_root, GFP_ATOMIC);
 	INIT_LIST_HEAD(&nm_i->warp_candidate_list);
 	INIT_LIST_HEAD(&nm_i->warp_pending_list);
+        INIT_LIST_HEAD(&nm_i->proc_list);   /*init process info list*/
 	INIT_RADIX_TREE(&nm_i->nat_root, GFP_ATOMIC);
 	rwlock_init(&nm_i->nat_tree_lock);
 	spin_lock_init(&nm_i->free_nid_list_lock);

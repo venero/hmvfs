@@ -182,7 +182,9 @@ struct hmfs_nm_info {
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
 	struct mutex build_lock;
 
-	unsigned int fcnt;	/* the number of free node id */
+        struct list_head proc_list;              /* list for all process infomation*/
+	
+        unsigned int fcnt;	/* the number of free node id */
 };
 
 struct wp_nat_entry {
@@ -299,8 +301,8 @@ struct hmfs_sb_info {
 struct hmfs_proc_info {
        struct list_head list;
        uint64_t proc_id;                  /*process directory ID*/
-       uint32_t proc_nid;                 /*next visited nid or ino*/
-       uint32_t proc_nt;                  /*start fetch node type*/
+       uint32_t next_nid;                 /*next visited nid or ino*/
+       uint32_t next_nt;                  /*start fetch node type*/
 };
 
 struct hmfs_inode_info {
@@ -329,7 +331,7 @@ struct hmfs_inode_info {
         
         /*proc infomation*/
         struct hmfs_proc_info *i_proc_info;      /* process infomation*/
-        struct list_head proc_list;              /* list for all process infomation*/
+       // struct list_head proc_list;              /* list for all process infomation*/
 };
 
 struct hmfs_stat_info {
