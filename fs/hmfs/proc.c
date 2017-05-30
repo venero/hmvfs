@@ -8,6 +8,9 @@
 
 static struct kmem_cache *proc_info_slab;
 
+/*
+* make process excutive path tobe uint64 number
+*/
 uint64_t proc_hash( const void *key, int len)  
 {  
             const uint64_t m = 0xc6a4a7935bd1e995;  
@@ -52,6 +55,9 @@ uint64_t proc_hash( const void *key, int len)
 }
 //static sturct kmem_cache *proc_info_slab;
 
+/*
+*get proceess executive directory when read or write in a file
+*/
 uint64_t getPpath(struct task_truct *cur_task){
 	char *path = NULL,*ptr = NULL;
 	char *read_buf = NULL;
@@ -163,7 +169,7 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 }
 
 /*
-*set process type
+*judge node type, and set nid in proc_info
 */
 uint32_t set_proc_nt(struct inode *inode,int64_t index){
 	struct node_info *ni;
@@ -185,6 +191,7 @@ uint32_t set_proc_nt(struct inode *inode,int64_t index){
 		return inode->i_ino;
 	
 }
+
 /*
 *update proc_info if file changed or node changed or proc_id changed
 *add list entry should be down in this function
