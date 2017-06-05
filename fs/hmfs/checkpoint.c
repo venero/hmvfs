@@ -861,7 +861,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 		goto unlock;
 	}
 	hmfs_dbg("[CP] : berfore do_checkpoint\n");
-	//display_warp(sbi);
+	display_warp(sbi);
 	cleanup_all_wp_inode_entry(sbi);
 	hmfs_dbg("[CP] : write checkpoint\n");
 
