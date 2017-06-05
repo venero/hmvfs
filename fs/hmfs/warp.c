@@ -116,7 +116,11 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	struct hmfs_summary *summary = NULL;
 	loff_t pos_start = *ppos >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
 	loff_t pos_end = (*ppos+ len) >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
+	unsigned long long range_start = *ppos;
+	unsigned long long range_end;
+	unsigned long long range_this;
 	di.inode = inode;
+
 	for (i=pos_start;i<pos_end;) {		
 		err = get_data_block_info(&di, (int64_t)i, LOOKUP);
 		// hmfs_dbg("warp type i:%lli oin:%u\n",i,(unsigned int)di.ofs_in_node);
@@ -149,6 +153,13 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		if (get_summary_type(summary) == SUM_TYPE_DN) add = ni->index + ADDRS_PER_BLOCK;
 		else if (get_summary_type(summary) == SUM_TYPE_INODE) add = ni->index + NORMAL_ADDRS_PER_INODE;
 
+		range_end = add << (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
+		if ( range_end > (*ppos+ len) ) range_end = *ppos + len;
+		range_this = range_end - range_start;
+		hmfs_dbg("s%llu,e%llu,this%llu\n",range_start,range_end,range_this);
+		if ( range_end < range_start ) range_this=0;
+		else range_start = range_end;
+
 		switch (type) {
 			case FLAG_WARP_NORMAL:
                 // This case doesn't exist for now, bacause there is no operation can be called as NORMAL operation.
@@ -158,6 +169,10 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 				clear_warp_write_bit(summary);
 				break;
 			case FLAG_WARP_READ:
+				if (range_this!=0) {
+					ni->nread+=(range_this >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type)))>1?(range_this >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type))):1;
+					ni->sread+=range_this;
+				}
                 if (get_warp_read_pure(summary) && ni->current_warp==FLAG_WARP_READ) break;
                 if (!get_warp_is_read_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
@@ -181,6 +196,10 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 				// clear_warp_write_bit(summary);
 				break;
 			case FLAG_WARP_WRITE:
+				if (range_this!=0) {
+					ni->nwrite+=(range_this >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type)))>1?(range_this >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type))):1;
+					ni->swrite+=range_this;
+				}
                 if (get_warp_write_pure(summary) && ni->current_warp==FLAG_WARP_WRITE) break;
                 if (!get_warp_is_write_candidate(summary)) {
 					idx = i-(unsigned long long)di.ofs_in_node;
@@ -270,6 +289,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
     int current_type;
     int next_type;
 	struct node_info *ni;
+	unsigned long long mnormal, mread, mwrite;
     list_for_each_entry_safe(le, tmp, &nm_i->warp_candidate_list, list) {
         // hmfs_dbg("Dealing with nid:%d\n",le->nip->nid);
 		ni = le->nip;
@@ -277,6 +297,15 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 		// current_type here is about SUMMARY not NODE_INFO
         current_type = get_warp_current_type(summary);
         next_type = get_warp_next_type(summary);
+
+		if ( next_type == FLAG_WARP_HYBRID ){
+			mnormal = ni->nread * WARP_NVM_LREAD + ( ni->sread >> WARP_NVM_SREAD ) + ni->nwrite * WARP_NVM_LWRITE + ( ni->swrite >> WARP_NVM_SWRITE );
+			mread = ( ni->sread >> WARP_NVM_SREAD ) + ni->nwrite * WARP_NVM_LWRITE + ( ni->swrite >> WARP_NVM_SWRITE );
+			mwrite = ni->nread * WARP_DRAM_LREAD + ( ni->sread >> WARP_DRAM_SREAD ) + ni->nwrite * WARP_DRAM_LWRITE + ( ni->swrite >> WARP_DRAM_SWRITE );
+			if (mread<mwrite && mread<mnormal) next_type = FLAG_WARP_READ;
+			if (mwrite<mread && mwrite<mnormal) next_type = FLAG_WARP_WRITE;
+		}
+
 		switch(next_type){
     		case FLAG_WARP_NORMAL:
 				// hmfs_dbg("[WARP] : normal update nid:%u\n",ni->nid);
@@ -311,6 +340,10 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 				set_node_info_this_version(sbi, ni);
         	    reset_warp_normal(summary);break;
     	}
+		ni->nread=0;
+		ni->nwrite=0;
+		ni->sread=0;
+		ni->swrite=0;
         print_update(ni->nid,current_type,next_type);
         list_del(&le->list);
 		// hmfs_dbg("nid:%u complete1.\n",ni->nid);

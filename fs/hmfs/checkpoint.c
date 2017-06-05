@@ -702,8 +702,9 @@ void display_warp(struct hmfs_sb_info *sbi) {
 	char *cur_warp_type_name="\0";
 	char *next_warp_type_name="\0";
 	struct nat_entry *ne;
+	unsigned long long mnormal, mread, mwrite;
 	ne = radix_tree_lookup(&nm_i->nat_root, 1);
-	for (i=1;i<30;++i) {
+	for (i=1;i<100;++i) {
 		ne = radix_tree_lookup(&nm_i->nat_root, i);
 		if (ne) {
 			if ((ne->ni.blk_addr)!=0) {
@@ -746,8 +747,13 @@ void display_warp(struct hmfs_sb_info *sbi) {
 					case FLAG_WARP_HYBRID:
 						cur_warp_type_name = "Hybr";break;
 				}
-
+				
 				hmfs_dbg("[WARP] nid:%d b:%u\t[%s] \tino:%d \tE[%s] Sum[%s][%s].\n",ne->ni.nid,ne->ni.begin_version,type_name,(int)ne->ni.ino,cur_warp_type_name,next_warp_type_name,warp_type_name);
+				hmfs_dbg("[WARP] nr=%lu sr=%llu nw=%lu sw=%llu\n", ne->ni.nread, ne->ni.sread, ne->ni.nwrite, ne->ni.swrite);
+				mnormal = ne->ni.nread * WARP_NVM_LREAD + ( ne->ni.sread >> WARP_NVM_SREAD ) + ne->ni.nwrite * WARP_NVM_LWRITE + ( ne->ni.swrite >> WARP_NVM_SWRITE );
+				mread = ( ne->ni.sread >> WARP_NVM_SREAD ) + ne->ni.nwrite * WARP_NVM_LWRITE + ( ne->ni.swrite >> WARP_NVM_SWRITE );
+				mwrite = ne->ni.nread * WARP_DRAM_LREAD + ( ne->ni.sread >> WARP_DRAM_SREAD ) + ne->ni.nwrite * WARP_DRAM_LWRITE + ( ne->ni.swrite >> WARP_DRAM_SWRITE );
+				hmfs_dbg("[WARP] normal=%llu read=%llu write=%llu\n",mnormal,mread,mwrite);
 			}
 		}
 	}
@@ -866,6 +872,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 	hmfs_dbg("[CP] : write checkpoint\n");
 
 	hmfs_warp_update(sbi);
+	display_warp(sbi);
 	// You MUST make some changes in order to do_checkpoint().
 	ret = do_checkpoint(sbi);
 	hmfs_dbg("[CP] : after do_checkpoint\n");

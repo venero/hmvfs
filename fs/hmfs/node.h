@@ -33,6 +33,8 @@ struct node_info {
 	nid_t next_warp;
 	int current_warp;
 	ver_t begin_version;
+	unsigned long nread, nwrite;
+	unsigned long long sread, swrite;
 };
 
 struct nat_entry {
@@ -75,6 +77,10 @@ static inline void node_info_from_raw_nat(struct hmfs_sb_info *sbi, struct node_
 	ni->blk_addr = le64_to_cpu(ne->block_addr);
 	ni->current_warp = FLAG_WARP_NORMAL;
 	ni->begin_version = sbi->cm_info->new_version;
+	ni->nread=0;
+	ni->nwrite=0;
+	ni->sread=0;
+	ni->swrite=0;
 	// hmfs_dbg("That %d %d\n", ni->begin_version, sbi->cm_info->new_version);
 }
 

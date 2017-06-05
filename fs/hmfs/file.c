@@ -259,7 +259,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 			goto normal;
 		}
 		nr = block_size*(index_hint-index+1);
-
+		
 		if (index > end_index) goto out;
 		if (index == end_index) {
 			nr = ((isize - 1) & block_ofs_mask) + 1;
@@ -465,7 +465,7 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
 		data = wdp->dp_addr;
 		if(i<1000)
-			//hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+			hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		if (!data) return ERR_WARP_WRITE_PRE;
 	}
 	return 0;

@@ -171,6 +171,15 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define NODE_IND2_BLOCK		(NORMAL_ADDRS_PER_INODE + 4)
 #define NODE_DIND_BLOCK		(NORMAL_ADDRS_PER_INODE + 5)
 
+#define WARP_DRAM_LREAD 	15
+#define WARP_DRAM_SREAD 	4
+#define WARP_DRAM_LWRITE 	15
+#define WARP_DRAM_SWRITE	4
+#define WARP_NVM_LREAD 		50
+#define WARP_NVM_SREAD 		4
+#define WARP_NVM_LWRITE 	300
+#define WARP_NVM_SWRITE		2
+
 /* SSA */
 #define SUM_TYPE_DATA		(0)		/* data block */
 #define SUM_TYPE_XDATA		(1) 	/* extended data block */
