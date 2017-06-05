@@ -21,6 +21,7 @@
 #include <linux/compat.h>
 #include <linux/xattr.h>
 #include <uapi/linux/magic.h>
+#include <linux/hrtimer.h>
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
@@ -185,6 +186,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
 	/* from do_XIP_mapping_read */
+	// hmfs_dbg("Time B %llu\n", ktime_get().tv64);
 	struct inode *inode = filp->f_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t index, end_index;
@@ -234,6 +236,8 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	 * index : start inner-file blk number this loop
 	 * copied : read length so far
 	 */
+
+	// hmfs_dbg("Time C %llu\n", ktime_get().tv64);
 	do {
 		unsigned long nr, left;
 		void *xip_mem;
@@ -306,6 +310,7 @@ normal:
 
 		/* copy to user space */
 copy:
+	// hmfs_dbg("Time D %llu\n", ktime_get().tv64);
 		if (!zero) {
 			left = __copy_to_user(buf + copied, xip_mem + offset, nr);
 			// if (index>460 && index<470)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
@@ -325,6 +330,7 @@ copy:
 		index += offset >> block_size_bits;
 		offset &= block_ofs_mask;
 
+	// hmfs_dbg("Time E %llu\n", ktime_get().tv64);
 		// hmfs_dbg("copied:%lu, nr:%lu, left:%lu\n",copied,nr,left);
 	} while (copied < len);
 
@@ -544,8 +550,13 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
+	// ktime_t kt = ktime_get();
+
 	hmfs_dbg("Open inode:%lu\n", filp->f_inode->i_ino);
 	ret = generic_file_open(inode, filp);
+
+	// hmfs_dbg("Time %llu\n", kt.tv64);
+	// hmfs_dbg("Time %llu\n", kt.tv64);
 
 	nm_i->last_visited_type = FLAG_WARP_NORMAL;
 
@@ -651,6 +662,7 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
+	// hmfs_dbg("Time A %llu\n", ktime_get().tv64);
 	int ret = 0;	
 
 	struct inode *inode = filp->f_inode;
@@ -703,6 +715,8 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
 out:
 	inode_read_unlock(filp->f_inode);
+
+	// hmfs_dbg("Time F %llu\n", ktime_get().tv64);
 	return ret;
 }
 
