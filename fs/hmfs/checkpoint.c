@@ -747,7 +747,7 @@ void display_warp(struct hmfs_sb_info *sbi) {
 						cur_warp_type_name = "Hybr";break;
 				}
 
-				hmfs_dbg("[w] nid:%d b:%u\t[%s] \tino:%d \tE[%s] Sum[%s][%s].\n",ne->ni.nid,ne->ni.begin_version,type_name,(int)ne->ni.ino,cur_warp_type_name,next_warp_type_name,warp_type_name);
+				hmfs_dbg("[WARP] nid:%d b:%u\t[%s] \tino:%d \tE[%s] Sum[%s][%s].\n",ne->ni.nid,ne->ni.begin_version,type_name,(int)ne->ni.ino,cur_warp_type_name,next_warp_type_name,warp_type_name);
 			}
 		}
 	}
@@ -840,10 +840,9 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	reset_new_segmap(sbi);
 	reinit_gc_logs(sbi);
 
-	hmfs_dbg("Snapshot version: %u\n",store_version);
 	// WARP cp info
-	display_warp(sbi);
-	hmfs_dbg("Snapshot version: %u\n",store_version);
+	//display_warp(sbi);
+	hmfs_dbg("[CP] : Snapshot version: %u\n",store_version);
 
 	return 0;
 }
@@ -861,15 +860,15 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 		ret = 0;
 		goto unlock;
 	}
-	hmfs_dbg("cp0\n");
-	display_warp(sbi);
+	hmfs_dbg("[CP] : berfore do_checkpoint\n");
+	//display_warp(sbi);
 	cleanup_all_wp_inode_entry(sbi);
-	hmfs_dbg("write checkpoint\n");
+	hmfs_dbg("[CP] : write checkpoint\n");
 
 	hmfs_warp_update(sbi);
 	// You MUST make some changes in order to do_checkpoint().
 	ret = do_checkpoint(sbi);
-	hmfs_dbg("cp1\n");
+	hmfs_dbg("[CP] : after do_checkpoint\n");
 
 unlock:
 	if (unlock) {
@@ -932,8 +931,23 @@ int redo_checkpoint(struct hmfs_sb_info *sbi, struct hmfs_checkpoint *prev_cp)
 static void invalidate_block(struct hmfs_sb_info *sbi, block_t addr,
 				struct hmfs_summary *summary)
 {
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct hmfs_cm_info *cm_i = CM_I(sbi);
+	seg_t segno = GET_SEGNO(sbi, addr);
+	int nr_free = HMFS_BLOCK_SIZE_4K[get_seg_entry(sbi, segno)->type];
+
 	clear_summary_valid_bit(summary);
-	update_sit_entry(sbi, GET_SEGNO(sbi, addr), -1);
+
+	lock_sentry(sit_i);
+	update_sit_entry(sbi, segno, -nr_free);
+	unlock_sentry(sit_i);
+
+	lock_cm(cm_i);
+	cm_i->valid_block_count -= nr_free;
+	unlock_cm(cm_i);
+
+	test_and_set_bit(segno, DIRTY_I(sbi)->dirty_segmap);
+	//hmfs_dbg("[HMFS] : invalidate block, segno = %llu, count = %d\n", segno, nr_free);
 }
 
 static int __delete_checkpoint(struct hmfs_sb_info *sbi, void *cur_node,
@@ -1120,7 +1134,7 @@ static int do_delete_checkpoint(struct hmfs_sb_info *sbi, block_t cur_addr)
 
 	if (cur_cp == last_cp) {
 		/* It is not allowed to delete the newest checkpoint */
-		hmfs_dbg("It's not allowed to delete the newest checkpoint\n");
+		hmfs_dbg("[CP] : It's not allowed to delete the newest checkpoint\n");
 		return -EINVAL;
 		// next_root = NULL;
 		// next_ver = HMFS_DEF_DEAD_VER;

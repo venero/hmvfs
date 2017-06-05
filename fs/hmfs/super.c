@@ -167,6 +167,7 @@ static void hmfs_put_super(struct super_block *sb)
 	if (sbi->virt_addr) {
 		hmfs_iounmap(sbi->virt_addr);
 	}
+	hmfs_dbg("[HMFS] : put super block done!\n");
 }
 
 static int hmfs_statfs(struct dentry *dentry, struct kstatfs *buf)
@@ -323,14 +324,17 @@ fail:
 
 void exit_hmfs(void)
 {
-	hmfs_dbg("Exiting\n");
+	hmfs_dbg("[HMFS] : destroy_mmap_struct_cache()\n");
 	destroy_mmap_struct_cache();
-	hmfs_dbg("Exiting\n");
+	hmfs_dbg("[HMFS] : destroy_inodecache()\n");
 	destroy_inodecache();
-	hmfs_dbg("Exiting\n");
+	hmfs_dbg("[HMFS] : destroy_node_manager_caches()\n");
 	destroy_node_manager_caches();
+	hmfs_dbg("[HMFS] : destroy_checkpoint_caches()\n");
 	destroy_checkpoint_caches();
+	hmfs_dbg("[HMFS] : hmfs_destroy_root_stat()\n");
 	hmfs_destroy_root_stat();
+	hmfs_dbg("[HMFS] : unregister_filesystem()\n");
 	unregister_filesystem(&hmfs_fs_type);
 }
 

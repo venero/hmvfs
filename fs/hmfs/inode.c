@@ -220,6 +220,7 @@ struct inode *hmfs_iget(struct super_block *sb, unsigned long ino)
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 	}
 	unlock_new_inode(inode);
+	//hmfs_dbg("[HMFS] : get inode #%lu\n", inode->i_ino);
 	return inode;
 bad_inode:
 	iget_failed(inode);

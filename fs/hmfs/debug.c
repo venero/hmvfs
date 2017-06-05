@@ -37,8 +37,7 @@
 			"   -- block summary in  segment[segno]\n"\
 			"=========================================\n"
 
-#define USAGE_SIT	"=============== SIT USAGE ==============\n" \
-			"=========================================\n"
+#define USAGE_SIT	"=============== SIT USAGE ==============\n" 
 
 #define USAGE_INODE	"=============== INODE USAGE ==============\n" \
 			"inode <ino>\n"
@@ -161,7 +160,7 @@ static int vb_show(struct seq_file *s, void *v)
 	struct hmfs_sb_info *sbi = si->sbi;
 	int i, j;
 
-	seq_printf(s, "# free\n* dirty\n^ prefree\n@ in use\n");
+	seq_printf(s, "# : free\n* : dirty\n^ prefree\n@ : in use\n\ntotal segments : %llu\n", TOTAL_SEGS(sbi));
 	for (i = 0, j = 0; i < TOTAL_SEGS(sbi); i++, j++) {
 		if (j == 79) {
 			seq_printf(s, "\n");
@@ -172,7 +171,7 @@ static int vb_show(struct seq_file *s, void *v)
 
 	seq_printf(s, "\n");
 	for (i = 0; i < TOTAL_SEGS(sbi); i++) {
-		seq_printf(s, "%d(%c):%d %lu\n", i, get_segment_state(sbi, i),
+		seq_printf(s, "%10d(%c):%10d %10lu\n", i, get_segment_state(sbi, i),
 				get_valid_blocks(sbi, i), get_seg_vblocks_in_summary(sbi, i));
 	}
 
@@ -319,7 +318,8 @@ int hmfs_build_stats(struct hmfs_sb_info *sbi)
 	if (ret)
 		goto free_info;
 
-	sprintf(name, "%ld", (unsigned long) sbi->phys_addr);
+	//sprintf(name, "%ld", (unsigned long) sbi->phys_addr);
+	sprintf(name, "%s", "debug_root");
 	root = debugfs_create_dir(name, debugfs_root);
 	if (root) {
 		si->root_dir = root;
@@ -510,7 +510,7 @@ static int hmfs_print_cp(struct hmfs_sb_info *sbi, int args, char argv[][MAX_ARG
 		else {
 			ver_t v = simple_strtoull((const char *)argv[2], NULL, 0);
 			detail = delete_checkpoint(sbi, v);
-			len = hmfs_print(si, 0, "Delete checkpoint %d: %d\n", v, detail);
+			len = hmfs_print(si, 0, "Delete checkpoint %3d: %d\n", v, detail);
 		}
 	} else {
 		unsigned long long n = simple_strtoull(opt, NULL, 0);
@@ -616,9 +616,9 @@ static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, char argv[][MAX_AR
 	int ssa_blk_cnt;
 	int blk_id = 0;
 	seg_t segno = 0;
-
+	unsigned long long nr_dirty_segs = 0, nr_valid_blocks = 0;
 	struct hmfs_summary *ssa_entry;
-
+	struct seg_entry *seg_entry;
 
 	for (segno = 0; segno < TOTAL_SEGS(sbi); ++segno) {
 		ssa_entry = get_summary_block(sbi, segno);
@@ -634,7 +634,19 @@ static int hmfs_print_sit(struct hmfs_sb_info *sbi, int args, char argv[][MAX_AR
 			len = print_error_segment(sbi, segno, sit_blk_cnt, ssa_blk_cnt);
 			break;
 		}
+
+		seg_entry = get_seg_entry(sbi, segno);
+		if (seg_entry->valid_blocks > 0) {
+			len += hmfs_print(STAT_I(sbi), 1, "segno = %llu, valid blocks = %llu\n", segno, seg_entry->valid_blocks);
+			++nr_dirty_segs;
+			nr_valid_blocks += seg_entry->valid_blocks;
+		}
+
 	}
+
+
+	len += hmfs_print(STAT_I(sbi), 1, "total dirty segments = %lu, total valid blocks = %lu, disk usage = %f %% \n",\
+		 nr_dirty_segs, nr_valid_blocks, (double)nr_valid_blocks / (nr_dirty_segs << 9) * 100);
 	if (segno == TOTAL_SEGS(sbi)){
 		len = hmfs_print(STAT_I(sbi), 1, "no error found in SIT check!\n");
 	}

@@ -611,6 +611,7 @@ static int build_manager(struct hmfs_sb_info *sbi)
 
 	if (test_opt(sbi, GC) && !hmfs_readonly(sbi->sb)) {
 		/* start gc kthread */
+		hmfs_dbg("[HMFS] : GC configed!\n");
 		retval = start_gc_thread(sbi);
 		if (retval)
 			goto free_segment_mgr;
@@ -688,8 +689,11 @@ static int obtain_init_mm_addr(struct hmfs_sb_info *sbi)
     }
     ret = kstrtou64(&buffer[0], 16, &addr);
 	sbi->init_mm_addr = addr;
-    if (ret!=0) {hmfs_dbg("Unsuccessful kstrtou64%d,%llx\n",ret,addr);return ret;}
-    hmfs_dbg("Successful kstrtou64 for init_mm:%llx\n",addr);
+    if (ret!=0) {
+		hmfs_dbg("[HMFS] : Unsuccessful kstrtou64%d,%llx\n",ret,addr);
+		return ret;
+	}
+    hmfs_dbg("[HMFS] : Successful kstrtou64 for init_mm:%llx\n",addr);
 	// hmfs_dbg("zero_page:%llx\n",sbi->map_zero_page);
 	return 0;
 }
