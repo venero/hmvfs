@@ -75,10 +75,10 @@ void destroy_node_manager(struct hmfs_sb_info *sbi)
 	nid_t nid = HMFS_ROOT_INO;
 	int found, i;
 
-	hmfs_dbg("Deleting wp inode 0\n");
+	//hmfs_dbg("[WARP] : Deleting wp inode 0\n");
 	// Skip delete for now
 	delete_all_wp_inode_entry(sbi);
-	hmfs_dbg("Deleting wp inode 1\n");
+	//hmfs_dbg("[WARP] : Deleting wp inode 1\n");
 
 	if (!nm_i)
 		return;
@@ -175,11 +175,15 @@ struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid){
 	struct node_info *nip;
 	ne = radix_tree_lookup(&sbi->nm_info->nat_root, nid);
     if (unlikely(!ne)) {
-        hmfs_dbg("radix_tree_lookup misses.\n");
+        //hmfs_dbg("[HMFS] : radix_tree_lookup misses.\n");
 		return NULL;
     }
     nip = &ne->ni;
 	return nip;
+}
+
+void destroy_warp_candidate(struct warp_candidate_entry* we) {
+	kmem_cache_free(warp_candidate_entry_slab, we);
 }
 
 // Add node to warp_candidate_list for read/write property adjustion
@@ -218,6 +222,7 @@ struct node_info *pop_one_warp_pending_entry(struct hmfs_nm_info *nm_i) {
 	mutex_lock(&nm_i->wpl_lock);
 	list_del(&this->list);
 	mutex_unlock(&nm_i->wpl_lock);
+	destroy_warp_candidate(this);
 	return that;
 }
 
@@ -275,7 +280,7 @@ struct hmfs_node *__get_node(struct hmfs_sb_info *sbi,
 		return NULL;
 
 	sum = get_summary_by_addr(sbi, L_ADDR(sbi, nat_entry));
-	if (get_summary_start_version(sum) == cp_i->version) {
+	if (get_summary_start_version(sum) == cp_i->version) { // MZX : why?
 		node_addr = le64_to_cpu(nat_entry->block_addr);
 	} else {
 		/* Address might be stored in journals */
@@ -559,7 +564,7 @@ int cleanup_wp_inode_entry(struct hmfs_sb_info *sbi, struct wp_nat_entry *wne) {
 	struct wp_data_page_entry *wdp;
 	struct rb_node *node;
 	void* ret;
-	hmfs_dbg("Entered data block entry cleanup.\n");
+	//hmfs_dbg("[HMFS] : Entered data block entry cleanup.\n");
   	for (node = rb_first(&wne->rr); node; node = rb_next(node)) {
 		wdp = rb_entry(node, struct wp_data_page_entry, node);
 		// hmfs_dbg("Cleanup index: %d.\n",wdp->index);
@@ -586,12 +591,12 @@ int cleanup_all_wp_inode_entry(struct hmfs_sb_info *sbi) {
 	unsigned int count=1;
 	int ret;
 	struct wp_nat_entry *wne[10];
-	hmfs_dbg("Entered inode entry cleanup.\n");
+	//hmfs_dbg("[HMFS] : Entered inode entry cleanup.\n");
 	while (count>0) {
 		count = radix_tree_gang_lookup_tag(&sbi->nm_info->wp_inode_root,(void **)&wne[0],0,10,1);
-		hmfs_dbg("There are %d dirty inode entries this round.\n",count);
+		//hmfs_dbg("[HMFS] : There are %d dirty inode entries this round.\n",count);
 		for (i=0;i<count;++i) {
-			hmfs_dbg("Cleanup inode: %u.\n",wne[i]->ino);
+			//hmfs_dbg("[HMFS] : Cleanup inode: %u.\n",wne[i]->ino);
 			ret = cleanup_wp_inode_entry(sbi, wne[i]);
 			if (ret!=0) return ret;
 			radix_tree_tag_clear(&sbi->nm_info->wp_inode_root,wne[i]->ino,1);
@@ -613,22 +618,26 @@ int delete_one_wp_inode_wdp_entry(struct hmfs_nm_info *nm_i, struct inode *inode
 int delete_all_wp_wdp_entry(struct wp_nat_entry *wne) {
 	struct wp_data_page_entry *wdp = NULL;
 	struct rb_node *node;
-	hmfs_dbg("Delete inode: %u.\n",wne->ino);
+	//hmfs_dbg("Delete inode: %u.\n",wne->ino);
   	for (node = rb_first(&wne->rr); node; node = rb_next(node)) {
-		if (wdp!=NULL) {hmfs_dbg("Release wdp:%llx\n",(unsigned long long)wdp);kfree(wdp);}
+		if (wdp!=NULL) {
+			//hmfs_dbg("[WARP] : Release wdp:%llx\n", (unsigned long long)wdp);
+			kfree(wdp);
+		}
 		wdp = rb_entry(node, struct wp_data_page_entry, node);
-		hmfs_dbg("Delete index: %d.\n",wdp->index);
+		//hmfs_dbg("[HMFS] : Delete index: %d.\n",wdp->index);
 		rb_erase(&wdp->node, &wne->rr);
-		hmfs_dbg("dbg1\n");
-		hmfs_dbg("Release dp_addr:%llx\n",(unsigned long long)wdp->dp_addr);
+		//hmfs_dbg("dbg1\n");
+		//hmfs_dbg("Release dp_addr:%llx\n",(unsigned long long)wdp->dp_addr);
 		kfree(wdp->dp_addr);
-		hmfs_dbg("dbg2\n");
+		//hmfs_dbg("dbg2\n");
 		// Perhaps kfree(node) here
 		// kfree(wdp);
 	}
-	hmfs_dbg("Last Release wdp:%llx\n",(unsigned long long)wdp);
-	if (wdp!=NULL) kfree(wdp);
-		hmfs_dbg("dbg3\n");
+	//hmfs_dbg("[HMFS] : Last Release wdp:%llx\n",(unsigned long long)wdp);
+	if (wdp!=NULL) 
+		kfree(wdp);
+	//hmfs_dbg("[WARP] : dbg3\n");
 	return 0;
 }
 
@@ -651,22 +660,22 @@ int delete_all_wp_inode_entry(struct hmfs_sb_info *sbi) {
 	int ret;
 	struct wp_nat_entry *wne[10];
 	if (cleanup_all_wp_inode_entry(sbi)!=0) {
-		hmfs_dbg("There are dirty inode entries after cleanup.\n");
+		//hmfs_dbg("[WARP] : here are dirty inode entries after cleanup.\n");
 		return 1;
 	} 
-	hmfs_dbg("Entered inode entry delete.\n");
+	//hmfs_dbg("[WARP] : Entered inode entry delete.\n");
 	while (count>0) {
 		count = radix_tree_gang_lookup(&sbi->nm_info->wp_inode_root,(void **)&wne[0],0,10);
-		hmfs_dbg("There are %d inode entries this round.\n",count);
+		//hmfs_dbg("[WARP] : There are %d inode entries this round.\n",count);
 		for (i=0;i<count;++i) {
-			hmfs_dbg("Deleting the %d th inode.\n",i);
+			//hmfs_dbg("[WARP] : Deleting the %d th inode.\n",i);
 			ret = delete_all_wp_wdp_entry(wne[i]);
 			if (ret!=0) {
-				hmfs_dbg("Delete error with return %d.\n",ret);
+				//hmfs_dbg("[WARP] : Delete error with return %d.\n",ret);
 				return ret;
 			}
 			radix_tree_delete(&sbi->nm_info->wp_inode_root, wne[i]->ino);
-			hmfs_dbg("Release wne:%llx\n",(unsigned long long)wne[i]);
+			//hmfs_dbg("[WARP] : Release wne:%llx\n",(unsigned long long)wne[i]);
 			kfree(wne[i]);
 		}
 	}
@@ -778,7 +787,7 @@ static struct hmfs_node *__alloc_new_node(struct hmfs_sb_info *sbi, nid_t nid,
 		make_summary_entry(summary, nid, CM_I(sbi)->new_version, ofs_in_node, sum_type, 0);
 	}
 	if(warp!=0) {
-		hmfs_dbg("warpnid:%d,%u\n",warp,nid);
+		//hmfs_dbg("warpnid:%d,%u\n",warp,nid);
 		set_warp_all(summary, warp);
 	}
 	update_nat_entry(nm_i, nid, inode->i_ino, blk_addr,	true);
@@ -1174,8 +1183,8 @@ static block_t __flush_nat_entries(struct hmfs_sb_info *sbi,
 	nid_t nid;
 	unsigned int cur_version, _ofs, new_blk_order;
 
-	/* preparation for summary update */
 	nid = MAKE_NAT_NODE_NID(height, blk_order);
+	/* preparation for summary update */
 	cur_version = CM_I(sbi)->new_version;
 	blk_type = ((height == 1) ? SUM_TYPE_NATD : SUM_TYPE_NATN);
 
@@ -1424,11 +1433,11 @@ retry:
 	cm_i->nr_nat_journals = 0;
 	entry = list_entry(nm_i->dirty_nat_entries.next, struct nat_entry, list);
 	old_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
-	list_for_each_entry(entry, &nm_i->dirty_nat_entries, list) {
+	list_for_each_entry(entry, &nm_i->dirty_nat_entries, list) { // MZX : nm_i->ditry_nat_entries are sorted in ascendent order!
 		new_blk_order = (entry->ni.nid) / NAT_ENTRY_PER_BLOCK;
 		if (new_blk_order != old_blk_order) {
 			update_nat_stat(sbi, nr_dirty_nat);
-			if (nr_dirty_nat && nr_dirty_nat <= nm_i->journaling_threshold) {
+			if (nr_dirty_nat && nr_dirty_nat <= nm_i->journaling_threshold) { // MZX : always true??
 				full = __flush_nat_journals(hmfs_cp, entry, nr_dirty_nat,
 								&cm_i->nr_nat_journals);
 				if (full) {
@@ -1442,14 +1451,14 @@ retry:
 			old_blk_order = new_blk_order;
 		}
 		if (nr_dirty_nat > nm_i->journaling_threshold)
-			nm_i->journaling_threshold++;
+			nm_i->journaling_threshold++; // MZX : ??
 		nr_dirty_nat++;
 	}
 	nm_i->journaling_threshold++;
 
 del_journal:
 
-	/* Delete journaling nat */
+	/* Delete journaled nat */
 	list_for_each_safe(this, next, &nm_i->dirty_nat_entries) {
 		entry = list_entry(this, struct nat_entry, list);
 		if (entry->ni.flag & NAT_FLAG_JOURNAL) {

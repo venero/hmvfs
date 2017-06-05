@@ -1070,6 +1070,7 @@ int migrate_mmap_block(struct hmfs_sb_info *sbi);
 void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, block_t blk_addr);
 
 /* write prediction in node.c */
+void destroy_warp_candidate(struct warp_candidate_entry* we);
 struct wp_nat_entry *init_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode);
 struct wp_nat_entry *search_wp_inode_entry_nid(struct hmfs_nm_info *nm_i, nid_t nid);
 struct wp_nat_entry *search_wp_inode_entry(struct hmfs_nm_info *nm_i, struct inode *inode);

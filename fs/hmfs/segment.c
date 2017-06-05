@@ -755,7 +755,7 @@ static void init_dirty_segmap(struct hmfs_sb_info *sbi)
 		offset = segno + 1;
 		valid_blocks = get_seg_entry(sbi, segno)->valid_blocks;
 		if (valid_blocks >= SM_I(sbi)->page_4k_per_seg || !valid_blocks)
-			continue;
+			continue; //MZX : a segment is not dirty <=> either all or none of the blocks in the segment is valid.
 		test_and_set_bit(segno, dirty_i->dirty_segmap);
 	}
 

@@ -40,7 +40,7 @@ enum FS_STATE {
 #define HMFS_MIN_PAGE_SIZE			4096
 #define HMFS_MIN_PAGE_SIZE_BITS		12
 #define HMFS_MIN_PAGE_MASK			(~(HMFS_MIN_PAGE_SIZE - 1))
-#define HMFS_MAX_PAGE_SIZE_BITS		27		/* 128M block */
+#define HMFS_MAX_PAGE_SIZE_BITS		12		/* 128M block */
 #define HMFS_MAX_PAGE_SIZE			(1 << HMFS_MAX_PAGE_SIZE_BITS)
 #define HMFS_PAGE_SIZE_BITS_INC		3
 #define HMFS_MIN_SEGMENT_SIZE_BITS	21
@@ -50,7 +50,8 @@ enum FS_STATE {
 
 #define HMFS_BLOCK_SIZE_BITS(i) (i == 0 ? 12 : (9 + 3 * i))
 
-static const unsigned long HMFS_BLOCK_SIZE[HMFS_MAX_CUR_SEG_COUNT] = {
+#define MAX_HMFS_MAX_CUR_SEG_COUNT 7
+static const unsigned long HMFS_BLOCK_SIZE[MAX_HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << HMFS_BLOCK_SIZE_BITS(0),
 	1 << HMFS_BLOCK_SIZE_BITS(1),
 	1 << HMFS_BLOCK_SIZE_BITS(2),
@@ -60,7 +61,7 @@ static const unsigned long HMFS_BLOCK_SIZE[HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << HMFS_BLOCK_SIZE_BITS(6),
 };
 
-const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
+const static unsigned long HMFS_BLOCK_SIZE_4K[MAX_HMFS_MAX_CUR_SEG_COUNT] = {
 	1,
 	1,
 	1 << 3,
@@ -70,7 +71,7 @@ const static unsigned long HMFS_BLOCK_SIZE_4K[HMFS_MAX_CUR_SEG_COUNT] = {
 	1 << 15,
 };
 
-const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
+const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[MAX_HMFS_MAX_CUR_SEG_COUNT] = {
 	0,
 	0,
 	3,

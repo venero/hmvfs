@@ -41,7 +41,7 @@ static int64_t start_block(int64_t i)
 }
 
 static int dec_valid_block_count(struct hmfs_sb_info *sbi,
-				struct inode *inode, int count)
+	struct inode *inode, int count)
 {
 	struct hmfs_cm_info *cm_i = CM_I(sbi);
 
@@ -439,7 +439,7 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
-	hmfs_dbg("addwp count:%u pos:%llu isize:%llu",count,pos,isize);
+	//hmfs_dbg("addwp count:%u pos:%llu isize:%llu",count,pos,isize);
 
 	wne = search_wp_inode_entry(sbi->nm_info,ino);
 	if (!wne) init_wp_inode_entry(sbi->nm_info,ino);
@@ -458,7 +458,8 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 		 
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
 		data = wdp->dp_addr;
-		if(i<1000)hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		if(i<1000)
+			//hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		if (!data) return ERR_WARP_WRITE_PRE;
 	}
 	return 0;
@@ -482,7 +483,7 @@ int clean_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	isize = i_size_read(ino);
 	isize = (( isize + ((1<<block_size_bits)-1) )>> block_size_bits);
 	if (isize - pos < count) count = isize - pos;
-	hmfs_dbg("delwp count:%u pos:%llu isize:%llu",count,pos,isize);
+	//hmfs_dbg("delwp count:%u pos:%llu isize:%llu",count,pos,isize);
 
 	wne = search_wp_inode_entry(sbi->nm_info,ino);
 	if (!wne) return ERR_WARP_WRITE_POST;
@@ -681,7 +682,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 
 	// if (likely(HMFS_I(filp->f_inode)->rw_addr) && !is_inline_inode(filp->f_inode)){
 	
-	hmfs_dbg("[Read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
+	//hmfs_dbg("[Read] Inode:%lu node No.%lu\n", filp->f_inode->i_ino, pgstart);
 	ret = __hmfs_xip_file_read(filp, buf, len, ppos);
 
 	if (false) 	ret = hmfs_file_fast_read(filp, buf, len, ppos);

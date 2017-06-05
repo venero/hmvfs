@@ -36,6 +36,7 @@ void prepare_move_argument(struct gc_move_arg *arg,	struct hmfs_sb_info *sbi, se
 		}
 	} else {
 		arg->dest = ADDR(sbi, __cal_page_addr(sbi, d_segno, d_off));
+		update_sit_entry(sbi, d_segno, HMFS_BLOCK_SIZE_4K[type]);
 	}
 	
 	hmfs_bug_on(sbi, IS_ERR(arg->dest));
@@ -62,12 +63,11 @@ static unsigned int get_gc_cost(struct hmfs_sb_info *sbi, unsigned int segno,
 		return get_seg_entry(sbi, segno)->mtime;
 	case GC_COMPACT:
 		mtime = get_seg_entry(sbi, segno)->mtime;
-		if (get_valid_blocks(sbi, segno) < NR_GC_MIN_BLOCK)
-			return 0;
-		if (mtime < SIT_I(sbi)->min_mtime)
+		
+		if (mtime < SIT_I(sbi)->min_mtime) // MZX : possible ?
 			SIT_I(sbi)->min_mtime = mtime;
 
-		return div64_u64(get_valid_blocks(sbi, segno), (mtime - SIT_I(sbi)->min_mtime)); 
+		return div64_u64(get_valid_blocks(sbi, segno), (mtime - SIT_I(sbi)->min_mtime)); // MZX : divide by 0?
 	default:
 		hmfs_bug_on(sbi, 1);
 		return 0;
@@ -101,7 +101,7 @@ static void set_victim_policy(struct hmfs_sb_info *sbi, struct victim_info *p, i
  * Because we could tolerate somewhat inconsistency of it. And we get buddy segment
  * for victim segment in GC_OLD mode here.
  */
-static int get_victim(struct hmfs_sb_info *sbi, struct victim_info *vi, int gc_type)
+static int get_victim(struct hmfs_sb_info *sbi, struct victim_info *vi, int gc_type) // MZX : unused parameter : gc_type!
 {
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	unsigned long cost;
@@ -118,8 +118,7 @@ static int get_victim(struct hmfs_sb_info *sbi, struct victim_info *vi, int gc_t
 		segno = find_next_bit(dirty_i->dirty_segmap, total_segs, vi->offset);
 
 		if (segno >= total_segs) {
-			if (sbi->last_victim[vi->gc_mode]) {
-				sbi->last_victim[vi->gc_mode] = 0;
+			if (!retry) {
 				vi->offset = 0;
 				retry = true;
 				continue;
@@ -134,7 +133,7 @@ static int get_victim(struct hmfs_sb_info *sbi, struct victim_info *vi, int gc_t
 
 		hmfs_bug_on(sbi, get_valid_blocks(sbi, segno) == SM_I(sbi)->page_4k_per_seg);
 		cost = get_gc_cost(sbi, segno, vi);
-
+		hmfs_dbg("[GC] : search victim segment # segno = %lu, gc_cost = %lu\n",(unsigned long)segno, cost);
 		if (vi->min_cost > cost) {
 			vi->min_segno = segno;
 			vi->min_cost = cost;
@@ -144,19 +143,16 @@ static int get_victim(struct hmfs_sb_info *sbi, struct victim_info *vi, int gc_t
 			break;
 
 		if (nsearched++ >= MAX_SEG_SEARCH) {
-			if (vi->gc_mode == GC_OLD && vi->buddy_segno == NULL_SEGNO && !retry && 
-					segno < sbi->last_victim[vi->gc_mode])
-				continue;
 			break;
 		}
 	}
 
-	sbi->last_victim[vi->gc_mode] = segno;
-	
 	if (vi->min_segno == NULL_SEGNO)
 		return 0;
 
-	hmfs_dbg("Select %d\n", vi->min_segno);
+	sbi->last_victim[vi->gc_mode] = vi->min_segno;
+	
+	hmfs_dbg("[GC] : Select victim : %d\n", vi->min_segno);
 	return 1;
 }
 
@@ -218,7 +214,7 @@ static void move_data_block(struct hmfs_sb_info *sbi, seg_t src_segno, unsigned 
 		 * now direct node or inode in laster checkpoint would never
 		 * refer to this data block
 		 */
-		if (addr_in_par != args.src_addr) 
+		if (addr_in_par != args.src_addr) // MZX : indicate the data block is COWed, so all later version will not refer to this data block!!
 			break;
 
 		/* 
@@ -479,30 +475,33 @@ static void move_checkpoint_block(struct hmfs_sb_info *sbi, seg_t src_segno,
 
 static void get_buddy_segment(struct hmfs_sb_info *sbi, struct victim_info *vi)
 {
-	struct hmfs_summary *v_sum = NULL;
-	int value, temp_value, best_value = INT_MAX;
-	seg_t segno, start_segno, best_segno = NULL_SEGNO;
+	//struct hmfs_summary *v_sum = NULL;
+	int value, temp_value, best_value = -1;
+	seg_t segno, best_segno = NULL_SEGNO;
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
 	bool retry = false;
 	uint8_t seg_type = -1;
+	int nr_searched = 0;
 
-	if (vi->gc_mode == GC_COMPACT) {
-		v_sum = get_summary_block(sbi, vi->min_segno);
-		seg_type = get_seg_entry(sbi, vi->min_segno)->type;
-		value = find_first_valid_version(v_sum, seg_type);
-		start_segno = vi->min_segno;
-		vi->buddy_segno = NULL_SEGNO;
-	} else {
-		value = get_seg_entry(sbi, vi->buddy_segno)->mtime;
-		seg_type = get_seg_entry(sbi, vi->buddy_segno)->type;
-		start_segno = vi->buddy_segno;
-		vi->min_segno = NULL_SEGNO;
-	}
-	segno = start_segno + 1;
+	// if (vi->gc_mode == GC_COMPACT) { // MZX : potential bug here!
+	// 	v_sum = get_summary_block(sbi, vi->min_segno);
+	// 	seg_type = get_seg_entry(sbi, vi->min_segno)->type;
+	// 	value = find_first_valid_version(v_sum, seg_type); // MZX : the victim segment contains at least one valid block.
+	// 	start_segno = vi->min_segno;
+	// 	vi->buddy_segno = NULL_SEGNO;
+	// } else {
+	// 	value = get_seg_entry(sbi, vi->buddy_segno)->mtime;
+	// 	seg_type = get_seg_entry(sbi, vi->buddy_segno)->type;
+	// 	start_segno = vi->buddy_segno;
+	// 	vi->min_segno = NULL_SEGNO;
+	// }
+	// segno = start_segno + 1;
+	
+	seg_type = get_seg_entry(sbi, vi->min_segno)->type;
+	value = get_gc_cost(sbi, vi->min_segno, vi);
 
-	if (segno >= TOTAL_SEGS(sbi))
-		segno = 0;
-
+	segno = vi->min_segno + 1;
+	
 	while (1) {
 		segno = find_next_bit(dirty_i->dirty_segmap, TOTAL_SEGS(sbi), segno);
 
@@ -515,40 +514,51 @@ static void get_buddy_segment(struct hmfs_sb_info *sbi, struct victim_info *vi)
 			break;
 		}
 
+		if (retry && segno >= vi->min_segno){
+			break;
+		}
+
 		if (get_seg_entry(sbi, segno)->type != seg_type)
 			goto next;
 
 		if (test_bit(segno, SIT_I(sbi)->new_segmap))
 			goto next;
 
-		if (retry && segno >= start_segno) {
-			break;
-		}
-
 		if (get_valid_blocks(sbi, segno) <= NR_GC_MIN_BLOCK)
 			goto next;
 
-		if (vi->gc_mode == GC_COMPACT) {
-			v_sum = get_summary_block(sbi, segno);
-			temp_value = find_first_valid_version(v_sum, seg_type);
-			if (temp_value == value) {
-				best_segno = segno;
-				break;
-			}
-		} else {
-			temp_value = get_seg_entry(sbi, segno)->mtime;
-		}
-		if (ABS(temp_value, value) < ABS(best_value, value)) {
+		// if (vi->gc_mode == GC_COMPACT) {
+		// 	v_sum = get_summary_block(sbi, segno);
+		// 	temp_value = find_first_valid_version(v_sum, seg_type);
+		// 	if (temp_value == value) {
+		// 		best_segno = segno;
+		// 		break;
+		// 	}
+		// } else {
+		// 	temp_value = get_seg_entry(sbi, segno)->mtime;
+		// }
+		temp_value = get_gc_cost(sbi, segno, vi);
+		hmfs_dbg("[GC] : search buddy segment # segno = %lu, gc_cost = %d\n", (unsigned long)segno, temp_value);
+		if (best_value == -1 || ABS(temp_value, value) < ABS(best_value, value)) {
 			best_value = temp_value;
 			best_segno = segno;
+		}
+		if (nr_searched++ >= MAX_SEG_SEARCH) {
+			break;
 		}
 next:
 		segno++;
 	}
-	if (vi->gc_mode == GC_COMPACT) {
-		vi->buddy_segno = best_segno;	
+	// if (vi->gc_mode == GC_COMPACT) {
+	// 	vi->buddy_segno = best_segno;	
+	// } else {
+	// 	vi->min_segno = best_segno;
+	// }
+	if (best_segno == NULL_SEGNO) {
+		get_new_segment(sbi, &vi->buddy_segno);
+		hmfs_dbg("[GC] : alloc a new segment as the buddy segment # segno = %lu\n", (unsigned long)vi->buddy_segno);
 	} else {
-		vi->min_segno = best_segno;
+		vi->buddy_segno = best_segno;
 	}
 }
 
@@ -561,63 +571,87 @@ static void garbage_collect(struct hmfs_sb_info *sbi, struct victim_info *vi)
 	bool none_valid;
 	uint8_t seg_type;
 
-	switch (vi->gc_mode) {
-	case GC_GREEDY:
-		d_segno = -1;
-	case GC_COMPACT:
-		s_sum = get_summary_block(sbi, vi->min_segno);
-		seg_type = get_seg_entry(sbi, vi->min_segno)->type;
-		none_valid = !get_valid_blocks(sbi, vi->min_segno);
-		s_segno = vi->min_segno;
-		d_sum = NULL; 
-		break;
-	case GC_OLD:
-		get_buddy_segment(sbi, vi);
-		s_sum = get_summary_block(sbi, vi->buddy_segno);
-		d_sum = get_summary_block(sbi, vi->min_segno);
-		seg_type = get_seg_entry(sbi, vi->buddy_segno)->type;
-		none_valid = !get_valid_blocks(sbi, vi->buddy_segno);
-		d_segno = vi->min_segno;
-		s_segno = vi->buddy_segno;
-		break;
-	default:
-		return;
-	}
-
+	// switch (vi->gc_mode) {
+	// case GC_GREEDY:
+	// 	d_segno = -1;
+	// case GC_COMPACT: // MZX : case GC_OLD ?
+	// 	s_sum = get_summary_block(sbi, vi->min_segno);
+	// 	seg_type = get_seg_entry(sbi, vi->min_segno)->type;
+	// 	none_valid = !get_valid_blocks(sbi, vi->min_segno);
+	// 	s_segno = vi->min_segno;
+	// 	d_sum = NULL; 
+	// 	break;
+	// case GC_OLD: // MZX : case GC_COMPACT ?
+	// 	get_buddy_segment(sbi, vi); // MZX : bug !
+	// 	s_sum = get_summary_block(sbi, vi->buddy_segno);
+	// 	d_sum = get_summary_block(sbi, vi->min_segno);
+	// 	seg_type = get_seg_entry(sbi, vi->buddy_segno)->type;
+	// 	none_valid = !get_valid_blocks(sbi, vi->buddy_segno);
+	// 	d_segno = vi->min_segno;
+	// 	s_segno = vi->buddy_segno;
+	// 	break;
+	// default:
+	// 	return;
+	// }
+	none_valid = !get_valid_blocks(sbi, vi->min_segno);
 	if (none_valid)
 		goto recycle;
+
+	seg_type = get_seg_entry(sbi, vi->min_segno)->type;
+	s_segno = vi->min_segno;
+	s_sum = get_summary_block(sbi, s_segno);
+	if (vi->gc_mode == GC_GREEDY) {
+		d_segno = -1;
+		d_off = -1;
+		d_sum = NULL;
+	} else {
+		get_buddy_segment(sbi, vi);
+		hmfs_bug_on(sbi, vi->buddy_segno == NULL_SEGNO);
+		d_segno = vi->buddy_segno;
+		hmfs_dbg("[GC] : found buddy segment : segno = %lu\n", (unsigned long)d_segno);
+		d_sum = get_summary_block(sbi, d_segno);
+	}
 
 	for (s_off = 0; s_off < SM_I(sbi)->page_4k_per_seg; s_off += HMFS_BLOCK_SIZE_4K[seg_type],
 			s_sum += HMFS_BLOCK_SIZE_4K[seg_type]) {
 		if (!get_summary_valid_bit(s_sum))
 			continue;
 
-		if (vi->gc_mode == GC_COMPACT && d_sum == NULL) {
-			get_buddy_segment(sbi, vi);
-			if (vi->buddy_segno != NULL_SEGNO) {
-				d_sum = get_summary_block(sbi, vi->buddy_segno);
-				d_segno = vi->buddy_segno;
-			} else
-				break;
-		}
+		// if (vi->gc_mode == GC_COMPACT && d_sum == NULL) {
+		// 	get_buddy_segment(sbi, vi);
+		// 	if (vi->buddy_segno != NULL_SEGNO) {
+		// 		d_sum = get_summary_block(sbi, vi->buddy_segno);
+		// 		d_segno = vi->buddy_segno;
+		// 	} else
+		// 		break;
+		// }
 
 		if (vi->gc_mode != GC_GREEDY) {
-			while (d_off < SM_I(sbi)->page_4k_per_seg) {
-				if (!get_summary_valid_bit(d_sum))
-					break;
+			// while (d_off < SM_I(sbi)->page_4k_per_seg) {
+			// 	if (!get_summary_valid_bit(d_sum))
+			// 		break;
+			// 	d_sum += HMFS_BLOCK_SIZE_4K[seg_type];
+			// 	d_off += HMFS_BLOCK_SIZE_4K[seg_type];
+			// }
+			// if (d_off == SM_I(sbi)->page_4k_per_seg) {
+			// 	if (vi->gc_mode == GC_OLD)
+			// 		break;
+			// 	d_sum = NULL;
+			// }
+			while (get_summary_valid_bit(d_sum)) {
 				d_sum += HMFS_BLOCK_SIZE_4K[seg_type];
 				d_off += HMFS_BLOCK_SIZE_4K[seg_type];
+				if (d_off == SM_I(sbi)->page_4k_per_seg) {
+					get_buddy_segment(sbi, vi);
+					hmfs_bug_on(sbi, vi->buddy_segno == NULL_SEGNO);
+					d_segno = vi->buddy_segno;
+					hmfs_dbg("[GC] : found buddy segment : segno = %lu\n", (unsigned long)d_segno);
+					d_sum = get_summary_block(sbi, d_segno);
+					d_off = 0;
+				}
 			}
-			if (d_off == SM_I(sbi)->page_4k_per_seg) {
-				if (vi->gc_mode == GC_OLD)
-					break;
-				d_sum = NULL;
-			}
-		} else {
-			d_segno = -1;
-			d_off = -1;
-		}
-
+		} 
+		hmfs_dbg("[GC] : move block from (%lu, %d) to (%lu, %d)\n", (unsigned long)s_segno, s_off, (unsigned long)d_segno, d_off);
 		switch (get_summary_type(s_sum)) {
 		case SUM_TYPE_DATA:
 			move_data_block(sbi, s_segno, s_off, d_segno, d_off);
@@ -648,18 +682,21 @@ static void garbage_collect(struct hmfs_sb_info *sbi, struct victim_info *vi)
 	if (s_off < SM_I(sbi)->page_4k_per_seg)
 		return;
 recycle:
-	if (vi->gc_mode == GC_OLD) {
-		recycle_segment(sbi, vi->buddy_segno, none_valid);
-		COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
-				get_valid_blocks(sbi, vi->buddy_segno));
-	} else {
-		recycle_segment(sbi, vi->min_segno, none_valid);
-		COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
-				get_valid_blocks(sbi, vi->min_segno));
-	}
+	// if (vi->gc_mode == GC_OLD) {
+	// 	recycle_segment(sbi, vi->buddy_segno, none_valid);
+	// 	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
+	// 			get_valid_blocks(sbi, vi->buddy_segno));
+	// } else {
+	// 	recycle_segment(sbi, vi->min_segno, none_valid);
+	// 	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
+	// 			get_valid_blocks(sbi, vi->min_segno));
+	// }
+	recycle_segment(sbi, vi->min_segno, none_valid);
+	COUNT_GC_BLOCKS(STAT_I(sbi), SM_I(sbi)->page_4k_per_seg - 
+			get_valid_blocks(sbi, vi->min_segno));
 }
 
-int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
+int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type) // MZX : gc_type : BG_GC or FG_GC
 {
 	int ret = -1;
 	seg_t start_segno = NULL_SEGNO;
@@ -670,24 +707,24 @@ int hmfs_gc(struct hmfs_sb_info *sbi, int gc_type)
 	int max_retry = div64_u64((total_segs + MAX_SEG_SEARCH - 1), MAX_SEG_SEARCH);
 	struct victim_info vi;
 
-	hmfs_dbg("Enter GC\n");
+	hmfs_dbg("[GC] : Enter GC, gc_type = %s\n", gc_type == BG_GC ? "BG_GC" : "FG_GC");
 	INC_GC_TRY(STAT_I(sbi));
 	if (!(sbi->sb->s_flags & MS_ACTIVE) || !test_opt(sbi, GC))
 		goto out;
 
-	if (hmfs_cp->state == HMFS_NONE)
+	if (hmfs_cp->state == HMFS_NONE) // MZX : else ?
 		set_fs_state(hmfs_cp, HMFS_GC);
 
 	set_victim_policy(sbi, &vi, gc_type);
 gc_more:
-	hmfs_dbg("Before get victim:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+	hmfs_dbg("[GC] : Before get victim:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
 			(unsigned long)CM_I(sbi)->valid_block_count);
 	if (!get_victim(sbi, &vi, gc_type))
 		goto out;
 	ret = 0;
 
-	hmfs_dbg("GC Victim:%d %d\n", (int)vi.min_segno, get_valid_blocks(sbi, vi.min_segno));
+	hmfs_dbg("[GC] : GC Victim: segno = %d, valid blocks = %d\n", (int)vi.min_segno, get_valid_blocks(sbi, vi.min_segno));
 	//FIXME: the statistic is not true in GC_COMPACT and GC_OLD
 	INC_GC_REAL(STAT_I(sbi));
 
@@ -707,7 +744,7 @@ gc_more:
 	hmfs_bug_on(sbi, total_valid_blocks(sbi) != CM_I(sbi)->valid_block_count);
 	garbage_collect(sbi, &vi);
 
-	hmfs_dbg("GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+	hmfs_dbg("[GC] : GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
 			(unsigned long)CM_I(sbi)->valid_block_count);
 	hmfs_bug_on(sbi, total_valid_blocks(sbi) != CM_I(sbi)->valid_block_count);
@@ -732,11 +769,11 @@ out:
 	if (do_cp) {
 		ret= write_checkpoint(sbi, true);
 		hmfs_bug_on(sbi, ret);
-		hmfs_dbg("Write checkpoint done\n");
+		hmfs_dbg("[GC] : Write checkpoint done\n");
 	}
 
 	unlock_gc(sbi);
-	hmfs_dbg("Exit GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
+	hmfs_dbg("[GC] : Exit GC:%ld %ld %ld\n", (unsigned long)total_valid_blocks(sbi),
 			(unsigned long)CM_I(sbi)->alloc_block_count, 
 			(unsigned long)CM_I(sbi)->valid_block_count);
 	return ret;
@@ -764,7 +801,7 @@ void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 	struct allocator *allocator;
 	uint16_t read, write, block_index = 0;
 
-	hmfs_dbg("Start BC:%llu\n", CM_I(sbi)->alloc_block_count);
+	hmfs_dbg("[GC] : Start Collect Blocks # allocated blocks : %llu\n", CM_I(sbi)->alloc_block_count);
 
 	while (1) {
 		segno = find_next_bit(sit_i->new_segmap, total_segs, segno);
@@ -783,14 +820,14 @@ void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 		if (!seg_entry->invalid_bitmap)
 			goto next_seg;
 
-		vb = get_valid_blocks(sbi, segno);
+		vb = get_valid_blocks(sbi, segno); // MZX : vb = seg_entry->valid_blocks ??
 		type = seg_entry->type;
 		allocator = ALLOCATOR(sbi, type);
 
 		/* Collect the whole segments directly */
 		if (!vb) {
 			block_index = find_next_zero_bit(seg_entry->invalid_bitmap, 
-								allocator->nr_pages, 0);
+								allocator->nr_pages, 0); // MZX : valid blocks in the segments is already 0, why check invalid bitmap again?
 			if (block_index >= allocator->nr_pages) {
 				struct free_segmap_info *free_i = FREE_I(sbi);
 				void *ssa = get_summary_block(sbi, segno);
@@ -819,7 +856,7 @@ void hmfs_collect_blocks(struct hmfs_sb_info *sbi)
 		if (write - read == allocator->buffer_index_mask)
 			goto next_seg;
 
-		hmfs_dbg("Collect %d\n", segno);
+		hmfs_dbg("[GC] : Collect Gabage in Segment %d\n", segno);
 		hmfs_bug_on(sbi, write - read > allocator->buffer_index_mask);
 			
 		for (; write - read < allocator->buffer_index_mask; write++, block_index++) {
@@ -842,28 +879,25 @@ next_seg:
 	CM_I(sbi)->alloc_block_count -= nr_bc;
 	spin_unlock(&CM_I(sbi)->cm_lock);
 
-	hmfs_dbg("Stop BC:%llu\n", CM_I(sbi)->alloc_block_count);
+	hmfs_dbg("[GC] : Finish Collect Blocks # allocated blocks : %llu\n", CM_I(sbi)->alloc_block_count);
 }
 
 static int gc_thread_func(void *data)
 {
 	struct hmfs_sb_info *sbi = data;
+	wait_queue_head_t *wq = &sbi->gc_thread->wait_queue_head;
 	long wait_ms = 0;
-	long jiffies = 0;
-
+	hmfs_dbg("[GC] : gc thread started!\n");
 	wait_ms = sbi->gc_thread_min_sleep_time;
 
 	do {
+		hmfs_dbg("[GC] : befored timeout # wait_ms = %ld\n", wait_ms);
 		if (try_to_freeze())
 			continue;
-
-		set_current_state(TASK_INTERRUPTIBLE);
-
-		if (jiffies)
-			jiffies = schedule_timeout_interruptible(jiffies);
 		else
-			jiffies = schedule_timeout_interruptible(msecs_to_jiffies(wait_ms));
-
+			wait_event_interruptible_timeout(*wq,
+						kthread_should_stop(),
+						msecs_to_jiffies(wait_ms));
 		if (kthread_should_stop())
 			break;
 
@@ -871,17 +905,11 @@ static int gc_thread_func(void *data)
 			wait_ms = sbi->gc_thread_max_sleep_time;
 			continue;
 		}
-
-		continue;
+		
 		if (!trylock_gc(sbi))
 			continue;
 
 		hmfs_collect_blocks(sbi);
-
-		if (jiffies) {
-			unlock_gc(sbi);
-			continue;
-		}
 
 		if (has_enough_invalid_blocks(sbi))
 			wait_ms = decrease_sleep_time(sbi, wait_ms);
@@ -893,6 +921,7 @@ static int gc_thread_func(void *data)
 				wait_ms = GC_THREAD_NOGC_SLEEP_TIME;
 		}
 	} while (!kthread_should_stop());
+	hmfs_dbg("[GC] : gc thread stoped!");
 	return 0;
 }
 

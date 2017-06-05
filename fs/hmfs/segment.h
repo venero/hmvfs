@@ -265,7 +265,7 @@ static inline bool has_enough_invalid_blocks(struct hmfs_sb_info *sbi)
 		int count = 0;
 		for (i = 0; i < TOTAL_SEGS(sbi); ++i) {
 			count += get_valid_blocks(sbi, i);
-		}
+		} // MZX : unused variable count !
 	}
 	hmfs_bug_on(sbi, cm_i->alloc_block_count < cm_i->valid_block_count);
 
