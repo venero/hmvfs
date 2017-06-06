@@ -21,6 +21,8 @@
 #include <linux/compat.h>
 #include <linux/xattr.h>
 #include <uapi/linux/magic.h>
+#include <linux/hrtimer.h>
+#include <linux/delay.h>
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
@@ -184,6 +186,9 @@ found:
 static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
 {
+	unsigned long long t1=0,t2=0,t3=0,t4=0,t5=0;
+	t1=ktime_get().tv64;
+	//hmfs_dbg("time:%llu\n",t1);
 	/* from do_XIP_mapping_read */
 	struct inode *inode = filp->f_inode;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -235,6 +240,7 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 	 * copied : read length so far
 	 */
 	do {
+	t2=ktime_get().tv64;
 		unsigned long nr, left;
 		void *xip_mem;
 		int zero = 0;
@@ -275,6 +281,8 @@ static ssize_t __hmfs_xip_file_read(struct file *filp, char __user *buf,
 			nr = len - copied;
 
 		xip_mem = HMFS_I(inode)->rw_addr + index * block_size;
+
+	t3=ktime_get().tv64;
 		goto copy;
 		
 
@@ -304,6 +312,8 @@ normal:
 				goto out;
 		}
 
+	t4=ktime_get().tv64;
+
 		/* copy to user space */
 copy:
 		if (!zero) {
@@ -325,14 +335,15 @@ copy:
 		index += offset >> block_size_bits;
 		offset &= block_ofs_mask;
 
+	t5=ktime_get().tv64;
 		// hmfs_dbg("copied:%lu, nr:%lu, left:%lu\n",copied,nr,left);
+	//hmfs_dbg("time:%llu,%llu,%llu,%llu,%llu\n",len,t2-t1,t3-t1,t4-t1,t5-t1);
 	} while (copied < len);
 
 out:
 	*ppos = pos + copied;
 	if (filp)
 		file_accessed(filp);
-
 	return (copied ? copied : error);
 }
 
@@ -552,6 +563,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	// debug_test(inode, filp);
 	// vmap_file_read_only(inode,0,1);
 
+	// hmfs_dbg("timeA:%llu\n",ktime_get().tv64);
 	if (ret || is_inline_inode(inode))
 		return ret;
 
@@ -617,6 +629,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		ret = sync_hmfs_inode_size(inode, false);
 
 
+	// hmfs_dbg("timeB:%llu\n",ktime_get().tv64);
 	return ret;
 }
 
@@ -650,7 +663,8 @@ static ssize_t hmfs_file_fast_read(struct file *filp, char __user *buf,
 
 static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 				size_t len, loff_t *ppos)
-{
+{	
+	//hmfs_dbg("timeA:%llu\n",ktime_get().tv64);
 	int ret = 0;	
 
 	struct inode *inode = filp->f_inode;
@@ -703,12 +717,16 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
 out:
 	inode_read_unlock(filp->f_inode);
+	//hmfs_dbg("timeB:%llu\n",ktime_get().tv64);
 	return ret;
 }
 
 static ssize_t __hmfs_xip_file_write(struct inode *inode, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
+	unsigned long long t1=0,t2=0,t3=0,t4=0,t5=0;
+	t1=ktime_get().tv64;
+
 	// struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	loff_t pos = *ppos;
 	long status = 0;
@@ -762,6 +780,7 @@ normal_write:
 	 *	Write back:		Commence full write procedure, use the page of wdg instead of buf.
 	 */
 	do {
+	//t2=ktime_get().tv64;
 		unsigned long index;
 		unsigned long offset;
 
@@ -782,9 +801,11 @@ normal_write:
 			break;
 		}
 
+	//t3=ktime_get().tv64;
 		/* To avoid deadlock between fi->i_lock and mm->mmap_sem in mmap */
 		inode_write_unlock(inode);
 		copied = bytes - __copy_from_user_nocache(xip_mem + offset,	buf, bytes);
+		ndelay(300);
 		// if (index>460 && index<470)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
 		// if (index>972 && index<982)hmfs_dbg("index:%ld offset:%ld buf:%p\n",index,offset,xip_mem + offset);
 		inode_write_lock(inode);
@@ -804,6 +825,8 @@ normal_write:
 				status = -EFAULT;
 		if (status < 0)
 			break;
+	//t4=ktime_get().tv64;
+	//hmfs_dbg("time:%llu,%llu,%llu\n",t2-t1,t3-t1,t4-t1);
 	} while (count);
 out:
 	*ppos = pos;

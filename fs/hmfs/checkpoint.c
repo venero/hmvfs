@@ -703,7 +703,7 @@ void display_warp(struct hmfs_sb_info *sbi) {
 	char *next_warp_type_name="\0";
 	struct nat_entry *ne;
 	ne = radix_tree_lookup(&nm_i->nat_root, 1);
-	for (i=1;i<30;++i) {
+	for (i=1;i<100;++i) {
 		ne = radix_tree_lookup(&nm_i->nat_root, i);
 		if (ne) {
 			if ((ne->ni.blk_addr)!=0) {
