@@ -464,8 +464,8 @@ int add_wp_node_info(struct hmfs_sb_info *sbi, struct node_info *ni) {
 		 
 		wdp = search_wp_data_block(sbi->nm_info,ino,i);
 		data = wdp->dp_addr;
-		if(i<1000)
-			hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
+		// if(i<1000)
+			// hmfs_dbg("data [%d] in %llx: len:%u\n",i,(unsigned long long)(char*)data,(unsigned int)strlen((char*)data));
 		if (!data) return ERR_WARP_WRITE_PRE;
 	}
 	return 0;
@@ -596,7 +596,7 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 	int ret = 0;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
 
-	hmfs_dbg("Release inode:%lu\n", filp->f_inode->i_ino);
+	// hmfs_dbg("Release inode:%lu\n", filp->f_inode->i_ino);
 
 	/* FIXME: Is the value of i_count correct */
 	// To active long term mapping in kernel virtual address space, remove the code below

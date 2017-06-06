@@ -156,7 +156,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 		range_end = add << (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
 		if ( range_end > (*ppos+ len) ) range_end = *ppos + len;
 		range_this = range_end - range_start;
-		hmfs_dbg("s%llu,e%llu,this%llu\n",range_start,range_end,range_this);
+		// hmfs_dbg("s%llu,e%llu,this%llu\n",range_start,range_end,range_this);
 		if ( range_end < range_start ) range_this=0;
 		else range_start = range_end;
 
