@@ -1,6 +1,6 @@
 #include <linux/sched.h>
 #include <linux/string.h>
-
+#include <linux/radix-tree.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
 #include "node.h"
@@ -127,13 +127,13 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 		return -ENOMEM;
    	}
 	new_proc->proc_id = proc_id;
-	new_proc->next_nid =  fi->i_ino;
+	new_proc->next_ino =  fi->i_ino;
 	if(is_inline_inode(inode)){
 		nid = inode->i_ino;
 	}
 	else
 		nid = set_proc_nt(inode, index);
-  	new_proc->next_nt =nid;
+  	new_proc->next_nid =nid;
 	ret = update_proc_info(nm_i);
 	if(ret)
 		kmem_cache_free(proc_info_slab,new_proc);
@@ -192,10 +192,11 @@ uint32_t set_proc_nt(struct inode *inode,int64_t index){
 	
 }
 
+
 /*
 *update proc_info if file changed or node changed or proc_id changed
 *add list entry should be down in this function
-*/
+//
 static int update_proc_info(struct hmfs_nm_info *nm_i, struct hmfs_proc_info *c_proc){
 	struct list_head *head, *this, *next;
 	struct hmfs_proc_info *proc=NULL, *l_proc = NULL, *n_proc = NULL;
@@ -218,12 +219,12 @@ static int update_proc_info(struct hmfs_nm_info *nm_i, struct hmfs_proc_info *c_
 						proc = NULL;
 						break;
 					}
-					/*
+					//
 					else{
 						list_add_tail(&c_proc->list, head);
 						break;
 					}
-					*/
+					//
 		}
 	}
 	if(proc)
@@ -232,12 +233,76 @@ static int update_proc_info(struct hmfs_nm_info *nm_i, struct hmfs_proc_info *c_
 		list_add_tail(&c_proc->list, next);
 	return ret;
 }
+*/
+
+static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
+	
+	uint64_t proc_id = proc->proc_id;
+	nid_t last_visit_ino;
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_nm_info nm_i = sbi->nm_info;
+	struct hmfs_proc_info *cur_proc;
+	int ret = 0, i = 0;
+	
+	//get last_visited inode if proc exists
+	last_visit_ino = radix_tree_lookup(&nm_i->p_pid_root,proc_id);
+	if(!last_visit_ino){
+		radix_tree_insert(&nm_i->p_pid_root, proc_id, inode->i_ino);
+		goto end;
+	}
+	//generally it is impossible to find last_ino not in the tree 
+	cur_proc= radix_tree_lookup(&nm_i->p_ino_root, last_visit_ino);
+	for(i;i<4;i++,cur_proc++){
+		if(cur_proc->proc_id==0){
+			cur_proc->proc_id=proc->proc_id;
+			cur_proc->next_ino=proc->next_ino;
+			cur_proc->next_nid=proc->next_nid;
+			break;
+		}
+		else if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
+			cur_proc->next_nid==proc->next_nid){
+			ret=1;
+			goto end;
+		}
+	}
+	if(i<3)
+		cur_proc++;
+	else{
+		cur_proc-=3;
+	}
+	cur_proc->proc_id=0;
+	cur_proc->next_ino=0;
+	cur_proc->next_nid=0;
+end:
+	return ret;
+	
+}
 
 /*
 *fetch process information
+*if inode doesn't exist, then insert it;
+*we need to justify whether the proc_info is null,when use this function
 */
-int fetch_proc(){
-
+struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id){
+	
+	int i;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_nm_info *nm_i = sbi->nm_info;
+	struct hmfs_proc_info *proc = NULL;
+	nid_t ino = inode->i_ino;
+	
+	proc = radix_tree_lookup(&nm_i->p_ino_root,ino);
+	if(!proc){
+		radix_tree_insert(&nm_i->p_ino_root,ino,fi->i_proc_info);
+		proc = fi->i_proc_info;
+	}
+	for(i=0;i<4;i++,proc++){
+		if(proc->proc_id==proc_id){
+			break;
+		}
+	}
+	return proc;
 }
 
 /*

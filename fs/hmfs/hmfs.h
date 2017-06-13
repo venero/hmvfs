@@ -182,7 +182,9 @@ struct hmfs_nm_info {
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
 	struct mutex build_lock;
 
-        struct list_head proc_list;              /* list for all process infomation*/
+        //struct list_head proc_list;              /* list for all process infomation*/
+	struct radix_tree_root p_ino_root;       /* to track next_node and record cur_inode*/
+	struct radix_tree_root p_pid_root;	 /* to find inode related to this proc*/
 	
         unsigned int fcnt;	/* the number of free node id */
 };
@@ -299,10 +301,10 @@ struct hmfs_sb_info {
 };
 
 struct hmfs_proc_info {
-       struct list_head list;
+       //struct list_head list;
        uint64_t proc_id;                  /*process directory ID*/
-       uint32_t next_nid;                 /*next visited nid or ino*/
-       uint32_t next_nt;                  /*start fetch node type*/
+       uint32_t next_ino;                 /*next visited nid or ino*/
+       uint32_t next_nid;                  /*start fetch node type*/
 };
 
 struct hmfs_inode_info {
@@ -330,7 +332,7 @@ struct hmfs_inode_info {
 	uint8_t i_height;					/* Height of this inode */
         
         /*proc infomation*/
-        struct hmfs_proc_info *i_proc_info;      /* process infomation*/
+        struct hmfs_proc_info i_proc_info[4];      /* process infomation*/
        // struct list_head proc_list;              /* list for all process infomation*/
 };
 
