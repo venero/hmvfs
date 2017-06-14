@@ -171,7 +171,7 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 /*
 *judge node type, and set nid in proc_info
 */
-uint32_t set_proc_nt(struct inode *inode,int64_t index){
+uint32_t set_proc_nid(struct inode *inode,int64_t index){
 	struct node_info *ni;
 	struct nat_entry *ne;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -241,7 +241,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	nid_t last_visit_ino;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_nm_info nm_i = sbi->nm_info;
-	struct hmfs_proc_info *cur_proc;
+	struct hmfs_proc_info *cur_proc, *pproc;
 	int ret = 0, i = 0;
 	
 	//get last_visited inode if proc exists
@@ -252,27 +252,39 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	}
 	//generally it is impossible to find last_ino not in the tree 
 	cur_proc= radix_tree_lookup(&nm_i->p_ino_root, last_visit_ino);
+	pproc=cur_proc;
 	for(i;i<4;i++,cur_proc++){
 		if(cur_proc->proc_id==0){
-			cur_proc->proc_id=proc->proc_id;
-			cur_proc->next_ino=proc->next_ino;
-			cur_proc->next_nid=proc->next_nid;
-			break;
+			//cur_proc->proc_id=proc->proc_id;
+			//cur_proc->next_ino=proc->next_ino;
+			//cur_proc->next_nid=proc->next_nid;
+			//break;
+			continue;
 		}
-		else if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
+		if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
 			cur_proc->next_nid==proc->next_nid){
 			ret=1;
 			goto end;
 		}
 	}
-	if(i<3)
-		cur_proc++;
-	else{
-		cur_proc-=3;
+	for(i=0;i<4;i++;pproc++){
+		if(pproc->proc_id=0){
+			pproc->proc_id=proc->proc_id;
+			pproc->next_ino=proc->next_ino;
+			pproc->next_nid=proc->next_nid;
+			break;
+		}
 	}
-	cur_proc->proc_id=0;
-	cur_proc->next_ino=0;
-	cur_proc->next_nid=0;
+	if(i<3)
+		pproc++;
+	else{
+		pproc-=3;
+	}
+	pproc->proc_id=0;
+	pproc->next_ino=0;
+	pproc->next_nid=0;
+	//set dirty tags
+	radix_tree_tags_set(&nm_i->p_ino_root,last_visit_ino,1);
 end:
 	return ret;
 	
