@@ -240,9 +240,9 @@ struct hmfs_inode {
 	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
         struct hmfs_proc{
                __le64 proc_id;  /*process execute diretory after hash function*/
-               __le32 proc_nid; /*next_visited nid or ino*/
-               __le32 proc_nt;  /*node type:start dnode or inode id */
-        } i_proc;
+               __le32 next_ino; /*next_visited nid or ino*/
+               __le32 next_nid; /*node type:start dnode or inode id */
+        } i_proc[4];
 	union {
 		struct {
 			__u8 i_pad[2];
