@@ -834,6 +834,7 @@ static int do_checkpoint(struct hmfs_sb_info *sbi)
 	//FIXME:
 	migrate_mmap_block(sbi);
 	move_to_next_cp(sbi, cur_cp);
+	after_migrate_mmap_block(sbi);
 
 	free_prefree_segments(sbi);
 	/* Reset new_segmap */
@@ -865,7 +866,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 	cleanup_all_wp_inode_entry(sbi);
 	hmfs_dbg("[CP] : write checkpoint\n");
 
-	hmfs_warp_update(sbi);
+	//hmfs_warp_update(sbi);
 	// You MUST make some changes in order to do_checkpoint().
 	ret = do_checkpoint(sbi);
 	hmfs_dbg("[CP] : after do_checkpoint\n");

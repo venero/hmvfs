@@ -21,6 +21,7 @@
 #include <linux/compat.h>
 #include <linux/xattr.h>
 #include <uapi/linux/magic.h>
+#include <asm/tlbflush.h>
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
@@ -28,6 +29,7 @@
 #include "segment.h"
 #include "util.h"
 #include "gc.h"
+#include "xip_mmap.h"
 
 static struct kmem_cache *mmap_block_slab;
 
@@ -1330,6 +1332,9 @@ static void hmfs_filemap_close(struct vm_area_struct *vma)
 	unsigned long pg_start, pg_end;
 	unsigned long vm_start, vm_end;
 
+	if (!(vma->vm_flags & VM_SHARED))
+		return;
+
 	vm_start = vma->vm_start & PAGE_MASK;
 	vm_end = vma->vm_end & PAGE_MASK;
 	if (vm_end < vm_start)
@@ -1339,12 +1344,12 @@ static void hmfs_filemap_close(struct vm_area_struct *vma)
 
 
 	while (pg_start <= pg_end) {
-		remove_mmap_block(sbi, vma->vm_mm, pg_start);
+		remove_mmap_block(sbi, vma, pg_start);
 		pg_start++;
 	}
 }
 
-int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+int add_mmap_block(struct hmfs_sb_info *sbi, struct vm_area_struct *vma,
 				unsigned long vaddr, unsigned long pgoff)
 {
 	struct hmfs_mmap_block *entry;
@@ -1354,7 +1359,7 @@ int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 		return -ENOMEM;
 	}
 
-	entry->mm = mm;
+	entry->vma = vma;
 	entry->vaddr = vaddr;
 	entry->pgoff = pgoff;
 	INIT_LIST_HEAD(&entry->list);
@@ -1362,10 +1367,12 @@ int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 	lock_mmap(sbi);
 	list_add_tail(&entry->list, &sbi->mmap_block_list);
 	unlock_mmap(sbi);
+	hmfs_dbg("[MMAP] : add mmap block : (vma = 0x%lx, vaddr = 0x%lx (page addr = 0x%lx), pgoff = %lu)\n",
+		 vma, vaddr, vaddr >> PAGE_SHIFT, pgoff);
 	return 0;
 }
 
-int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
+int remove_mmap_block(struct hmfs_sb_info *sbi, struct vm_area_struct *vma,
 				unsigned long pgoff)
 {
 	struct hmfs_mmap_block *entry;
@@ -1375,16 +1382,17 @@ int remove_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
 	lock_mmap(sbi);
 	list_for_each_safe(this, next, head) {
 		entry = list_entry(this, struct hmfs_mmap_block, list);
-		if (entry->mm == mm && entry->pgoff == pgoff) {
+		if (entry->vma == vma && entry->pgoff == pgoff) {
 			list_del(&entry->list);
 			kmem_cache_free(mmap_block_slab, entry);
+			hmfs_dbg("[MMAP] : remove mmap block : (vma = 0x%lx, pgoff = %lu)\n", vma, pgoff);
 		}
 	}
 	unlock_mmap(sbi);
 	return 0;
 }
 
-int migrate_mmap_block(struct hmfs_sb_info *sbi)
+int __migrate_mmap_block(struct hmfs_sb_info *sbi)
 {
 	struct hmfs_mmap_block *entry;
 	struct list_head *head, *this, *next;
@@ -1396,18 +1404,20 @@ int migrate_mmap_block(struct hmfs_sb_info *sbi)
 	list_for_each_safe(this, next, head) {
 		entry = list_entry(this, struct hmfs_mmap_block, list);
 
-		__cond_lock(ptl, pte = (*hmfs_get_locked_pte) (entry->mm, entry->vaddr,
+		__cond_lock(ptl, pte = (*hmfs_get_locked_pte) (entry->vma->vm_mm, entry->vaddr,
 									&ptl));
-
 		if (!pte)
 			goto free;
 		if (pte_none(*pte))
 			goto next;
 		pte->pte = 0;
+		__flush_tlb_one(entry->vaddr);
+		hmfs_dbg("[MMAP] : invalidate mapping : pte entry = %lu (%lu)\n", entry->vaddr, entry->vaddr >> PAGE_SHIFT);
 next:
 		pte_unmap_unlock(pte, ptl);
 free:
 		list_del(&entry->list);
+		kmem_cache_free(mmap_block_slab, entry);
 	}
 	unlock_mmap(sbi);
 	return 0;
@@ -1417,34 +1427,43 @@ static int hmfs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
-	// struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	pgoff_t offset = vmf->pgoff, size;
 	unsigned long pfn = 0;
 	int err = 0;
 
-	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
-	if (offset >= size) {
-		return VM_FAULT_SIGBUS;
-	}
+	size = round_up(i_size_read(inode), PAGE_SIZE);
+	if (offset >= size >> PAGE_SHIFT)
+		return VM_FAULT_SIGBUS;;
+
+	hmfs_dbg("[MMAP] : start process filemap_fault : inode = %lu, size = %lu, blk_type = %d, block_size = %llu, pgoff = %lu\n", 
+		inode->i_ino,  size >> PAGE_SHIFT, HMFS_I(inode)->i_blk_type, HMFS_BLOCK_SIZE[HMFS_I(inode)->i_blk_type], (unsigned long)offset);
+
+	hmfs_dbg("[MMAP] : vm_start = %lu (%lu), vm_end = %lu (%lu), SHARE = %d, W = %d, R = %d\n", 
+		vma->vm_start, vma->vm_start >> PAGE_SHIFT, vma->vm_end, vma->vm_end >> PAGE_SHIFT,  
+		vma->vm_flags & VM_SHARED, vma->vm_flags & VM_WRITE, vma->vm_flags & VM_READ);
 
 	inode_write_lock(inode);
 	err = hmfs_get_mmap_block(inode, offset, &pfn, vma->vm_flags);
 	inode_write_unlock(inode);
 	if (unlikely(err)) {
+		hmfs_dbg("[MMAP-ERR] : fail to get pfn of offset %lu\n", (unsigned long)offset);
 		return VM_FAULT_SIGBUS;
 	}
+	
+	if (vma->vm_flags & VM_SHARED) {
+		err = add_mmap_block(sbi, vma, (unsigned long)vmf->virtual_address, vmf->pgoff);
+		if (err)
+			return VM_FAULT_SIGBUS;
+	}
 
-/*
-	err = add_mmap_block(sbi, vma->vm_mm, (unsigned long)vmf->virtual_address,
-				vmf->pgoff);
-	if (err)
-		return VM_FAULT_SIGBUS;
-*/
 	err = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address, pfn);
 
 	if (err == -ENOMEM) {
 		return VM_FAULT_SIGBUS;
 	}
+	hmfs_dbg("[MMAP] : add mapping to page table : %lu -> %lu\n", 
+		(unsigned long)vmf->virtual_address >> PAGE_SHIFT, pfn);
 
 	if (err != -EBUSY) {
 		hmfs_bug_on(HMFS_I_SB(inode), err);
@@ -1622,7 +1641,11 @@ const struct file_operations hmfs_file_operations = {
 	//.aio_write      = xip_file_aio_write,
 	.open = hmfs_file_open,
 	.release = hmfs_release_file,
+#ifdef HMFS_XIP_MMAP
+	.mmap = hmfs_xip_file_mmap,
+#else
 	.mmap = hmfs_file_mmap,
+#endif
 	.fsync = hmfs_sync_file,
 	.fallocate = hmfs_fallocate,
 	.unlocked_ioctl = hmfs_ioctl,
@@ -1642,7 +1665,7 @@ const struct inode_operations hmfs_file_inode_operations = {
 #endif 
 };
 
-int create_mmap_struct_cache(void)
+int __create_mmap_struct_cache(void)
 {
 	mmap_block_slab = hmfs_kmem_cache_create("hmfs_mmap_block",
 							sizeof(struct hmfs_mmap_block), NULL);
@@ -1651,7 +1674,42 @@ int create_mmap_struct_cache(void)
 	return 0;
 }
 
-void destroy_mmap_struct_cache(void)
+void __destroy_mmap_struct_cache(void)
 {
 	kmem_cache_destroy(mmap_block_slab);
+}
+
+int create_mmap_struct_cache(void)
+{
+#ifdef HMFS_XIP_MMAP
+	return create_xip_mmap_struct_cache();
+#else
+	return __create_mmap_struct_cache();
+#endif
+}
+
+void destroy_mmap_struct_cache(void)
+{
+#ifdef HMFS_XIP_MMAP
+	destroy_xip_mmap_struct_cache();
+#else
+	__destroy_mmap_struct_cache();
+#endif
+}
+
+int migrate_mmap_block(struct hmfs_sb_info *sbi) {
+#ifdef HMFS_XIP_MMAP
+	return migrate_mmaped_pages(sbi);
+#else
+	return __migrate_mmap_block(sbi);
+#endif
+}
+
+int after_migrate_mmap_block(struct hmfs_sb_info *sbi)
+{
+	#ifdef HMFS_XIP_MMAP
+		return after_migrate_mmaped_pages(sbi);
+	#else
+		return 0;
+	#endif
 }

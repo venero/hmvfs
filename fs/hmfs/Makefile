@@ -11,6 +11,7 @@ hmfs-objs := super.o node.o inode.o checkpoint.o file.o data.o namei.o segment.o
 hmfs-objs += debug.o
 hmfs-objs += xattr.o
 hmfs-objs += acl.o
+hmfs-objs += xip_mmap.o
 
 all:
 	make -C /lib/modules/`uname -r`/build M=`pwd` modules

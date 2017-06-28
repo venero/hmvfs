@@ -68,6 +68,7 @@ int main(int argc, char* argv[]) {
     int i;
     for (i = 0; i < NR_CPS; ++i) {
         if (modify_file(argv[1])) return 1;
+        printf("round %d\n", i);
         sync();
     }
     printf("\n");

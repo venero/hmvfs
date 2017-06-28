@@ -109,7 +109,7 @@ struct free_nid;
 struct hmfs_mmap_block {
 	unsigned long pgoff;
 	unsigned long vaddr;
-	struct mm_struct *mm;
+	struct vm_area_struct *vma;
 	struct list_head list;
 };
 
@@ -1026,6 +1026,7 @@ int get_file_page_struct(struct inode *inode, struct page **pages, int64_t index
 void truncate_file_block_bitmap(struct inode *inode, loff_t from);
 int create_mmap_struct_cache(void);
 void destroy_mmap_struct_cache(void);
+int after_migrate_mmap_block(struct hmfs_sb_info *sbi);
 
 /* debug.c */
 #ifdef CONFIG_HMFS_DEBUG
@@ -1063,9 +1064,8 @@ struct hmfs_nat_block *get_nat_entry_block(struct hmfs_sb_info *, ver_t, nid_t);
 struct hmfs_nat_entry *get_nat_entry(struct hmfs_sb_info *, ver_t, nid_t);
 struct hmfs_nat_node *get_nat_node(struct hmfs_sb_info *, ver_t, unsigned int);
 void mark_block_valid(struct hmfs_sb_info *, struct hmfs_nat_node *, struct hmfs_checkpoint *);
-int add_mmap_block(struct hmfs_sb_info *sbi, struct mm_struct *mm,
-				unsigned long vaddr, unsigned long pgoff);
-int remove_mmap_block(struct hmfs_sb_info *, struct mm_struct *, unsigned long);
+int add_mmap_block(struct hmfs_sb_info *sbi, struct vm_area_struct *mm, unsigned long vaddr, unsigned long pgoff);
+int remove_mmap_block(struct hmfs_sb_info *, struct vm_area_struct *, unsigned long);
 int migrate_mmap_block(struct hmfs_sb_info *sbi);
 void gc_update_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid, block_t blk_addr);
 

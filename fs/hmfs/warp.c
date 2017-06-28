@@ -273,6 +273,7 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
     list_for_each_entry_safe(le, tmp, &nm_i->warp_candidate_list, list) {
         // hmfs_dbg("Dealing with nid:%d\n",le->nip->nid);
 		ni = le->nip;
+		//if (le->blk_addr == 0) continue;
 		summary = get_summary_by_addr(sbi, ni->blk_addr);
 		// current_type here is about SUMMARY not NODE_INFO
         current_type = get_warp_current_type(summary);
