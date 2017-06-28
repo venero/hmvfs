@@ -646,6 +646,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
 		ret = sync_hmfs_inode_size(inode, false);
+	else if (is_inode_flag_set(fi, FI_DIRTY_PROC))
+		ret = sync_hmfs_inode_proc(inode, false);
 
 
 	return ret;
@@ -1513,6 +1515,8 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode, false);
+	else if (is_inode_flag_set(fi, FI_DIRTY_PROC))
 		ret = sync_hmfs_inode_size(inode, false);
 
 	inode_write_unlock(inode);

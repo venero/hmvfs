@@ -275,6 +275,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 			break;
 		}
 	}
+	//make sure there is one empty
 	if(i<3)
 		pproc++;
 	else{
@@ -321,5 +322,4 @@ struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id){
 *flush proc to nvm
 */
 int flush_proc(){
-
 }

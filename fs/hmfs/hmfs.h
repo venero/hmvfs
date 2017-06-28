@@ -67,6 +67,7 @@ enum {
 	FI_NEW_INODE,		/* indicate newly allocated inode */
 	FI_DIRTY_SIZE,
 	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+	FI_DIRTY_PROC		/* indicate inode proc info firty or not*/
 	FI_INC_LINK,		/* need to increment i_nlink */
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
