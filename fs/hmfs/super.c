@@ -71,6 +71,8 @@ int __hmfs_write_inode(struct inode *inode, bool force)
 		err = sync_hmfs_inode(inode, force);
 	else if(is_inode_flag_set(HMFS_I(inode), FI_DIRTY_SIZE))
 		err = sync_hmfs_inode_size(inode, force);
+	else if(is_inode_flag_set(HMFS_I(inode),FI_DIRTY_PROC))
+		err = sync_hmfs_inode_proc(inode, force);
 	else 
 		hmfs_bug_on(sbi, 1);
 	inode_write_unlock(inode);
@@ -87,7 +89,8 @@ static int hmfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	if (inode->i_ino < HMFS_ROOT_INO)
 		return 0;
 
-	if (!is_inode_flag_set(fi, FI_DIRTY_INODE) && !is_inode_flag_set(fi, FI_DIRTY_SIZE))
+	if (!is_inode_flag_set(fi, FI_DIRTY_INODE) && !is_inode_flag_set(fi, FI_DIRTY_SIZE) &&
+		!is_inode_flag_set(fi, FI_DIRTY_INODE))
 		return 0;
 
 	return __hmfs_write_inode(inode, false);

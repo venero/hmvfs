@@ -67,6 +67,7 @@ enum {
 	FI_NEW_INODE,		/* indicate newly allocated inode */
 	FI_DIRTY_SIZE,
 	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+	FI_DIRTY_PROC		/* indicate inode proc info firty or not*/
 	FI_INC_LINK,		/* need to increment i_nlink */
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
@@ -182,7 +183,11 @@ struct hmfs_nm_info {
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
 	struct mutex build_lock;
 
-	unsigned int fcnt;	/* the number of free node id */
+        //struct list_head proc_list;              /* list for all process infomation*/
+	struct radix_tree_root p_ino_root;       /* to track next_node and record cur_inode*/
+	struct radix_tree_root p_pid_root;	 /* to find inode related to this proc*/
+	
+        unsigned int fcnt;	/* the number of free node id */
 };
 
 struct wp_nat_entry {
@@ -296,6 +301,13 @@ struct hmfs_sb_info {
 	spinlock_t dirty_inodes_lock;
 };
 
+struct hmfs_proc_info {
+       //struct list_head list;
+       uint64_t proc_id;                  /*process directory ID*/
+       uint32_t next_ino;                 /*next visited nid or ino*/
+       uint32_t next_nid;                  /*start fetch node type*/
+};
+
 struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
@@ -319,6 +331,10 @@ struct hmfs_inode_info {
 	atomic_t nr_open;					/* Number of processes which opens this file */
 	struct hmfs_inode *i_node_block;	/* HMFS inode on NVM */
 	uint8_t i_height;					/* Height of this inode */
+        
+        /*proc infomation*/
+        struct hmfs_proc_info i_proc_info[4];      /* process infomation*/
+       // struct list_head proc_list;              /* list for all process infomation*/
 };
 
 struct hmfs_stat_info {
