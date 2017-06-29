@@ -1247,5 +1247,8 @@ static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 	inode_write_unlock(dir);
 	return ret;
 }
-
+/*proc.c */
+uint64_t getPpath(struct task_struct *cur_task);
+int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos);
+struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id);
 #endif

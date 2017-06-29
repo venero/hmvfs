@@ -30,7 +30,8 @@
 #include "util.h"
 #include "gc.h"
 
-int getPpath(struct task_truct *cur_task){
+/*
+int getPpath(struct task_struct *cur_task){
     char *path = NULL,*ptr = NULL;
     char *read_buf = NULL;
     read_buf = kmalloc(PAGE_SIZE,GFP_KERNEL);
@@ -52,13 +53,13 @@ int getPpath(struct task_truct *cur_task){
     }
     
     printk("ProcName:%s PID: %d\n",cur_task->comm, cur_task->pid);
-    printk("ProcPath:%s ptr");
+    printk("ProcPath:%s \n",ptr);
 error1:
     kfree(read_buf);
 error2:
     kfree(path);
     return 0;
-}
+}*/
 
 static struct kmem_cache *mmap_block_slab;
 

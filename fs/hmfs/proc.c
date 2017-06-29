@@ -11,7 +11,7 @@ static struct kmem_cache *proc_info_slab;
 /*
 * make process excutive path tobe uint64 number
 */
-uint64_t proc_hash( const void *key, int len)  
+static int64_t proc_hash( const void *key, int len)  
 {  
             const uint64_t m = 0xc6a4a7935bd1e995;  
             const int r = 47;  
@@ -58,7 +58,7 @@ uint64_t proc_hash( const void *key, int len)
 /*
 *get proceess executive directory when read or write in a file
 */
-uint64_t getPpath(struct task_truct *cur_task){
+uint64_t getPpath(struct task_struct *cur_task){
 	char *path = NULL,*ptr = NULL;
 	char *read_buf = NULL;
 	int len = 0;
@@ -171,7 +171,7 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 /*
 *judge node type, and set nid in proc_info
 */
-uint32_t set_proc_nid(struct inode *inode,int64_t index){
+static int32_t set_proc_nid(struct inode *inode,int64_t index){
 	struct node_info *ni;
 	struct nat_entry *ne;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
@@ -285,7 +285,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	pproc->next_ino=0;
 	pproc->next_nid=0;
 	//set dirty tags
-	radix_tree_tags_set(&nm_i->p_ino_root,last_visit_ino,1);
+	radix_tree_tag_set(&nm_i->p_ino_root,last_visit_ino,1);
 end:
 	return ret;
 	
@@ -321,5 +321,5 @@ struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id){
 /*
 *flush proc to nvm
 */
-int flush_proc(){
-}
+//int flush_proc(){
+//}

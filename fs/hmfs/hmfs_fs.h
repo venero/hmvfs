@@ -141,7 +141,7 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define HMFS_JOURNALING_THRESHOLD	4
 
 /* number of all sit logs in checkpoint */
-#define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
+#define NORMAL_ADDRS_PER_INODE	459		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK			512			/* # of address stored in direct node  */
 #define ADDRS_PER_BLOCK_BITS	9			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK			1024		/* # of nid stored in indirect node */

@@ -1,5 +1,6 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
+#include <asm-generic/current.h>
 #include "hmfs.h"
 #include "hmfs_fs.h"
 #include "node.h"
@@ -112,6 +113,8 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	unsigned long long i;
 	unsigned long long add=0;
 	unsigned long long idx;
+	uint64_t p_hash;
+	int ret_proc;
     struct hmfs_nm_info *nm_i = sbi->nm_info;
 	struct hmfs_summary *summary = NULL;
 	loff_t pos_start = *ppos >> (HMFS_BLOCK_SIZE_BITS(HMFS_I(inode)->i_blk_type));
@@ -207,6 +210,8 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	}
 	// Call warp-preparation after a range request
 	wake_up_warp(sbi);
+	p_hash= getPpath(current);
+	ret_proc= set_proc_info(p_hash, inode, ppos);
 	return 0;
 }
 
