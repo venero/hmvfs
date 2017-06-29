@@ -1019,7 +1019,7 @@ int hmfs_sync_fs(struct super_block *sb, int sync);
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode, bool force);
 void mark_size_dirty(struct inode *inode, loff_t size);
-void make_proc_dirty(struct inode *inode);
+void mark_proc_dirty(struct inode *inode);
 int sync_hmfs_inode_proc(struct inode *inode, bool force);
 int sync_hmfs_inode_size(struct inode *inode, bool force);
 void hmfs_set_inode_flags(struct inode *inode);
