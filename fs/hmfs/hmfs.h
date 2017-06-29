@@ -67,7 +67,7 @@ enum {
 	FI_NEW_INODE,		/* indicate newly allocated inode */
 	FI_DIRTY_SIZE,
 	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
-	FI_DIRTY_PROC		/* indicate inode proc info firty or not*/
+	FI_DIRTY_PROC,		/* indicate inode proc info firty or not*/
 	FI_INC_LINK,		/* need to increment i_nlink */
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
@@ -1019,6 +1019,8 @@ int hmfs_sync_fs(struct super_block *sb, int sync);
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode, bool force);
 void mark_size_dirty(struct inode *inode, loff_t size);
+void make_proc_dirty(struct inode *inode);
+int sync_hmfs_inode_proc(struct inode *inode, bool force);
 int sync_hmfs_inode_size(struct inode *inode, bool force);
 void hmfs_set_inode_flags(struct inode *inode);
 int hmfs_convert_inline_inode(struct inode *inode);
