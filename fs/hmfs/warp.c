@@ -215,7 +215,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	ret_tag= radix_tree_tag_get(&nm_i->p_ino_root, inode->i_ino, 1);
 	if(ret_tag==1){
 		mark_proc_dirty(inode);
-		radix_tree_tag_clear(&nm_i->p_ino_root, inode->ino, 1);
+		radix_tree_tag_clear(&nm_i->p_ino_root, inode->i_ino, 1);
 	}
 	return 0;
 }

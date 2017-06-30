@@ -1184,6 +1184,11 @@ int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni
 int unmap_file_read_only(struct inode *inode);
 int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
 
+/*proc.c */
+uint64_t getPpath(struct task_struct *cur_task);
+int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos);
+struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id);
+
 /* warp.c */
 struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index);
 int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, unsigned long type);
@@ -1247,8 +1252,5 @@ static inline int hmfs_add_link(struct dentry *dentry, struct inode *inode)
 	inode_write_unlock(dir);
 	return ret;
 }
-/*proc.c */
-uint64_t getPpath(struct task_struct *cur_task);
-int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos);
-struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id);
+
 #endif
