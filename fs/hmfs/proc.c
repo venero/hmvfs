@@ -6,7 +6,9 @@
 #include "node.h"
 
 
-static struct kmem_cache *proc_info_slab;
+//static struct kmem_cache *proc_info_slab;
+static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc);
+static uint32_t set_proc_nid(struct inode *inode, pgoff_t index);
 
 /*
 * make process excutive path tobe uint64 number
@@ -20,7 +22,8 @@ static int64_t proc_hash( const void *key, int len)
       
             const uint64_t * data = (const uint64_t *)key;  
             const uint64_t * end = data + (len/8);  
-      
+     	    const unsigned char * data2;	
+	     
             while(data != end)  
             {  
                     uint64_t k = *data++;  
@@ -33,7 +36,7 @@ static int64_t proc_hash( const void *key, int len)
                     h *= m;   
             }  
       
-            const unsigned char * data2 = (const unsigned char*)data;  
+           data2 = (const unsigned char*)data;  
       
             switch(len & 7)  
             {  
@@ -62,7 +65,7 @@ uint64_t getPpath(struct task_struct *cur_task){
 	char *path = NULL,*ptr = NULL;
 	char *read_buf = NULL;
 	int len = 0;
-	uint64_t p_hash;
+	uint64_t p_hash=0;
 	
 
 	read_buf = kmalloc(PAGE_SIZE,GFP_KERNEL);
@@ -98,9 +101,9 @@ error2:
 /*
 *init process information for a specific process
 */
-int init_proc_info(){
+/*int init_proc_info(){
 	return 0;
-}
+}*/
 
 /*
 * set process infomation in dram from file operations
@@ -108,35 +111,43 @@ int init_proc_info(){
 */
 int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
    
-	struct list_head *this, *head;
-	//loff_t pos;
+	//struct list_head *this, *head;
+	loff_t pos;
 	pgoff_t index;
 	int ret;
 	uint32_t nid;
-   	struct hmfs_proc_info *new_proc = NULL, *proc = NULL;
-   	struct hmfs_inode_info *fi = HMFS_I(inode);
-   	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-   	struct hmfs_nm_info *nm_i = NM_I(sbi);    
-
-    	// index = ppos >> block_size_bits;
+   	struct hmfs_proc_info *new_proc;// *proc = NULL;
+   	//struct hmfs_inode_info *fi = HMFS_I(inode);
+   	//struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+   	//struct hmfs_nm_info *nm_i = NM_I(sbi);    
+	unsigned char seg_type = HMFS_I(inode)->i_blk_type;
+	//const unsigned int block_size = HMFS_BLOCK_SIZE[seg_type];
+	const unsigned long long block_size_bits = HMFS_BLOCK_SIZE_BITS(seg_type);
+	pos= *ppos;
+    	index = pos >> block_size_bits;
 	/*
 	*set new process information if read a file
 	*/
-   	new_proc = kmem_cache_alloc(proc_info_slab,GFP_KERNEL);
+   	//new_proc = kmem_cache_alloc(proc_info_slab,GFP_KERNEL);
+	new_proc = (struct hmfs_proc_info *)kzalloc(sizeof(struct hmfs_proc_info), GFP_KERNEL);
+	printk("get in setpproc function\n");
+	
    	if(!new_proc){
+		printk("kazalloc erro");
 		return -ENOMEM;
    	}
 	new_proc->proc_id = proc_id;
-	new_proc->next_ino =  fi->i_ino;
+	new_proc->next_ino =  inode->i_ino;
 	if(is_inline_inode(inode)){
 		nid = inode->i_ino;
 	}
 	else
-		nid = set_proc_nt(inode, index);
+		nid = set_proc_nid(inode, index);
   	new_proc->next_nid =nid;
-	ret = update_proc_info(nm_i);
-	if(ret)
-		kmem_cache_free(proc_info_slab,new_proc);
+	printk("proc_ino: %lu proc_nid: %lu\n", new_proc->next_ino, new_proc->next_nid);
+	ret = update_proc_info(inode, new_proc);
+	/*if(ret)
+		kmem_cache_free(proc_info_slab, new_proc);*/
    //	head = &nm_i->proc_list;
     /*
     if(proc_id != fi->i_proc_info->proc_id){
@@ -171,13 +182,14 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 /*
 *judge node type, and set nid in proc_info
 */
-static int32_t set_proc_nid(struct inode *inode,int64_t index){
+static uint32_t set_proc_nid(struct inode *inode, pgoff_t index){
 	struct node_info *ni;
-	struct nat_entry *ne;
+	//struct nat_entry *ne;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct firct_node *dn;
-	struct hmfs_nm_info *nm_i = sbi->nm_info;
+	//struct firct_node *dn;
+	//struct hmfs_nm_info *nm_i = sbi->nm_info;
 	struct hmfs_summary *summary;
+	uint32_t ret = 0;
 
 	ni = hmfs_get_node_info(inode,(int64_t)index);
 	
@@ -186,10 +198,10 @@ static int32_t set_proc_nid(struct inode *inode,int64_t index){
    	summary = get_summary_by_addr(sbi,ni->blk_addr);
 	
 	if(get_summary_type(summary)==SUM_TYPE_DN)
-		return summary->nid;
+		return ni->nid;
 	else if(get_summary_type(summary)==SUM_TYPE_INODE)
 		return inode->i_ino;
-	
+	return ret;
 }
 
 
@@ -238,27 +250,38 @@ static int update_proc_info(struct hmfs_nm_info *nm_i, struct hmfs_proc_info *c_
 static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	
 	uint64_t proc_id = proc->proc_id;
-	nid_t last_visit_ino;
+	struct inode *last_visit_ino;
+	//nid_t *i_ino = inode->i_ino;
+	struct hmfs_inode_info *fi = HMFS_I(inode);
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
-	struct hmfs_nm_info nm_i = sbi->nm_info;
+	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_proc_info *cur_proc, *pproc;
 	int ret = 0, i = 0;
-	
+	int ret_tag = 0;
+
+	printk("get into update proc\n");	
 	//get last_visited inode if proc exists
 	last_visit_ino = radix_tree_lookup(&nm_i->p_pid_root,proc_id);
 	if(!last_visit_ino){
-		radix_tree_insert(&nm_i->p_pid_root, proc_id, inode->i_ino);
+		printk("get in tree insert");
+		radix_tree_insert(&nm_i->p_pid_root, proc_id, inode);
 		goto end;
 	}
 	//generally it is impossible to find last_ino not in the tree 
-	cur_proc= radix_tree_lookup(&nm_i->p_ino_root, last_visit_ino);
+	cur_proc= radix_tree_lookup(&nm_i->p_ino_root, last_visit_ino->i_ino);
+	if(!cur_proc){
+		printk("get into ino tree insert\n");
+		radix_tree_insert(&nm_i->p_ino_root, inode->i_ino,fi->i_proc_info);
+		goto end;
+	}
 	pproc=cur_proc;
-	for(i;i<4;i++,cur_proc++){
+	for(;i<4;i++,cur_proc++){
 		if(cur_proc->proc_id==0){
 			//cur_proc->proc_id=proc->proc_id;
 			//cur_proc->next_ino=proc->next_ino;
 			//cur_proc->next_nid=proc->next_nid;
 			//break;
+			printk("proc_id=0\n");
 			continue;
 		}
 		if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
@@ -267,11 +290,12 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 			goto end;
 		}
 	}
-	for(i=0;i<4;i++;pproc++){
-		if(pproc->proc_id=0){
+	for(i=0;i<4;i++,pproc++){
+		if(pproc->proc_id==0){
 			pproc->proc_id=proc->proc_id;
 			pproc->next_ino=proc->next_ino;
 			pproc->next_nid=proc->next_nid;
+			fi->i_proc_info[i]= pproc;
 			break;
 		}
 	}
@@ -284,8 +308,12 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	pproc->proc_id=0;
 	pproc->next_ino=0;
 	pproc->next_nid=0;
+	fi->i_proc_info[i]= pproc;
 	//set dirty tags
-	radix_tree_tag_set(&nm_i->p_ino_root,last_visit_ino,1);
+	printk("set tag\n");
+	radix_tree_tag_set(&nm_i->p_ino_root,last_visit_ino->i_ino,1);
+	ret_tag= radix_tree_tag_get(&nm_i->p_ino_root, last_visit_ino->i_ino,1);
+	printk("ret_tag in update is %d\n",ret)
 end:
 	return ret;
 	

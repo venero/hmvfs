@@ -26,6 +26,7 @@ static void init_once(void *foo)
 static struct inode *hmfs_alloc_inode(struct super_block *sb)
 {
 	struct hmfs_inode_info *fi;
+	int i;
 
 	fi = (struct hmfs_inode_info *)kmem_cache_alloc(hmfs_inode_cachep,
 				GFP_NOFS | __GFP_ZERO);
@@ -41,6 +42,11 @@ static struct inode *hmfs_alloc_inode(struct super_block *sb)
 	fi->block_bitmap = NULL;
 	fi->nr_map_page = 0;
 	fi->i_height = 0;
+	for(i=0;i<4;i++){
+		fi->i_proc_info[i].proc_id=0;
+		fi->i_proc_info[i].next_ino=0;
+		fi->i_proc_info[i].next_nid=0;
+	}
 	atomic_set(&fi->nr_open, 0);
 	init_rwsem(&fi->i_lock);
 	set_inode_flag(fi, FI_NEW_INODE);

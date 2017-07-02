@@ -211,10 +211,13 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	// Call warp-preparation after a range request
 	wake_up_warp(sbi);
 	p_hash= getPpath(current);
+	printk("\nthe process exe path hash value is: %llu\n",p_hash);
 	ret_proc= set_proc_info(p_hash, inode, ppos);
 	ret_tag= radix_tree_tag_get(&nm_i->p_ino_root, inode->i_ino, 1);
+	printk("ret_tag is:%d \n",ret_tag);
 	if(ret_tag==1){
 		mark_proc_dirty(inode);
+		printk("find dirty inode proc\n");
 		radix_tree_tag_clear(&nm_i->p_ino_root, inode->i_ino, 1);
 	}
 	return 0;

@@ -333,7 +333,7 @@ struct hmfs_inode_info {
 	uint8_t i_height;					/* Height of this inode */
         
         /*proc infomation*/
-        struct hmfs_proc_info i_proc_info[4];      /* process infomation*/
+        struct hmfs_proc_info *i_proc_info[4];      /* process infomation*/
        // struct list_head proc_list;              /* list for all process infomation*/
 };
 
