@@ -119,6 +119,22 @@ void mark_size_dirty(struct inode *inode, loff_t size)
 	spin_unlock(&sbi->dirty_inodes_lock);
 }
 
+/*
+*mark proc information has been changed
+*/
+void mark_proc_dirty(struct inode *inode)
+{
+	struct hmfs_inode_info *hi = HMFS_I(inode);
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	
+	set_inode_flag(hi, FI_DIRTY_PROC);
+	spin_lock(&sbi->dirty_inodes_lock);
+	list_del(&hi->list);
+	INIT_LIST_HEAD(&hi->list);
+	list_add_tail(&hi->list,&sbi->dirty_inodes_list);
+	spin_unlock(&sbi->dirty_inodes_lock);
+}
+
 int sync_hmfs_inode_size(struct inode *inode, bool force)
 {
 	struct hmfs_inode_info *inode_i = HMFS_I(inode);
@@ -135,6 +151,37 @@ int sync_hmfs_inode_size(struct inode *inode, bool force)
 
 	clear_inode_flag(inode_i, FI_DIRTY_SIZE);
 	if (!is_inode_flag_set(inode_i, FI_DIRTY_INODE)) {
+		spin_lock(&sbi->dirty_inodes_lock);
+		list_del(&inode_i->list);
+		spin_unlock(&sbi->dirty_inodes_lock);
+		INIT_LIST_HEAD(&inode_i->list);
+	}
+	return 0;
+}
+
+int sync_hmfs_inode_proc(struct inode *inode, bool force)
+{
+	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
+	struct hmfs_inode_info *inode_i = HMFS_I(inode);
+	//struct hmfs_proc_info *proc= NULL;
+	struct hmfs_node *hn;
+	struct hmfs_inode *hi;
+	int i = 0;
+
+	hn = alloc_new_node(sbi,inode->i_ino, inode, SUM_TYPE_INODE, force);
+	if(IS_ERR(hn)){
+		return PTR_ERR(hn);
+	} 
+	hi= &hn->i;
+	//proc= inode_i->i_proc_info;
+	for(i=0;i<4;i++){
+		hi->i_proc[i].proc_id= cpu_to_le64(inode_i->i_proc_info[i].proc_id);
+		hi->i_proc[i].next_ino= cpu_to_le64(inode_i->i_proc_info[i].next_ino);
+		hi->i_proc[i].next_nid= cpu_to_le64(inode_i->i_proc_info[i].next_nid);
+	}
+
+	clear_inode_flag(inode_i, FI_DIRTY_PROC);
+	if(!is_inode_flag_set(inode_i,FI_DIRTY_PROC)){
 		spin_lock(&sbi->dirty_inodes_lock);
 		list_del(&inode_i->list);
 		spin_unlock(&sbi->dirty_inodes_lock);

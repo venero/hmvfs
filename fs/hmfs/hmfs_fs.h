@@ -141,7 +141,7 @@ const static uint32_t HMFS_BLOCK_SIZE_4K_BITS[HMFS_MAX_CUR_SEG_COUNT] = {
 #define HMFS_JOURNALING_THRESHOLD	4
 
 /* number of all sit logs in checkpoint */
-#define NORMAL_ADDRS_PER_INODE	467		/* # of address stored in inode */
+#define NORMAL_ADDRS_PER_INODE	459		/* # of address stored in inode */
 #define ADDRS_PER_BLOCK			512			/* # of address stored in direct node  */
 #define ADDRS_PER_BLOCK_BITS	9			/* # of address stored in direct node  */
 #define NIDS_PER_BLOCK			1024		/* # of nid stored in indirect node */
@@ -247,7 +247,11 @@ struct hmfs_inode {
 	__u8 i_blk_type;	/* data block type */
 	__u8 i_height;		/* height of tree with i_nid */
 	__u8 i_name[HMFS_NAME_LEN];	/* file name for SPOR */
-
+        struct hmfs_proc{
+               __le64 proc_id;  /*process execute diretory after hash function*/
+               __le32 next_ino; /*next_visited nid or ino*/
+               __le32 next_nid; /*node type:start dnode or inode id */
+        } i_proc[4];
 	union {
 		struct {
 			__u8 i_pad[2];

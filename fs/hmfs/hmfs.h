@@ -67,6 +67,7 @@ enum {
 	FI_NEW_INODE,		/* indicate newly allocated inode */
 	FI_DIRTY_SIZE,
 	FI_DIRTY_INODE,		/* indicate inode is dirty or not */
+	FI_DIRTY_PROC,		/* indicate inode proc info firty or not*/
 	FI_INC_LINK,		/* need to increment i_nlink */
 	FI_NO_ALLOC,		/* should not allocate any blocks */
 	FI_UPDATE_DIR,		/* should update inode block for consistency */
@@ -182,7 +183,11 @@ struct hmfs_nm_info {
 	spinlock_t free_nid_list_lock;	/* protect free nid list */
 	struct mutex build_lock;
 
-	unsigned int fcnt;	/* the number of free node id */
+        //struct list_head proc_list;              /* list for all process infomation*/
+	struct radix_tree_root p_ino_root;       /* to track next_node and record cur_inode*/
+	struct radix_tree_root p_pid_root;	 /* to find inode related to this proc*/
+	
+        unsigned int fcnt;	/* the number of free node id */
 };
 
 struct wp_nat_entry {
@@ -296,6 +301,13 @@ struct hmfs_sb_info {
 	spinlock_t dirty_inodes_lock;
 };
 
+struct hmfs_proc_info {
+       //struct list_head list;
+       uint64_t proc_id;                  /*process directory ID*/
+       uint32_t next_ino;                 /*next visited nid or ino*/
+       uint32_t next_nid;                  /*start fetch node type*/
+};
+
 struct hmfs_inode_info {
 	struct inode vfs_inode;				/* vfs inode */
 	unsigned long i_flags;				/* keep an inode flags for ioctl */
@@ -319,6 +331,10 @@ struct hmfs_inode_info {
 	atomic_t nr_open;					/* Number of processes which opens this file */
 	struct hmfs_inode *i_node_block;	/* HMFS inode on NVM */
 	uint8_t i_height;					/* Height of this inode */
+        
+        /*proc infomation*/
+        struct hmfs_proc_info i_proc_info[4];      /* process infomation*/
+       // struct list_head proc_list;              /* list for all process infomation*/
 };
 
 struct hmfs_stat_info {
@@ -1003,6 +1019,8 @@ int hmfs_sync_fs(struct super_block *sb, int sync);
 struct inode *hmfs_iget(struct super_block *sb, unsigned long ino);
 int sync_hmfs_inode(struct inode *inode, bool force);
 void mark_size_dirty(struct inode *inode, loff_t size);
+void mark_proc_dirty(struct inode *inode);
+int sync_hmfs_inode_proc(struct inode *inode, bool force);
 int sync_hmfs_inode_size(struct inode *inode, bool force);
 void hmfs_set_inode_flags(struct inode *inode);
 int hmfs_convert_inline_inode(struct inode *inode);
@@ -1166,6 +1184,11 @@ int vmap_file_read_only_byte(struct inode *inode, loff_t ppos, size_t len);
 int vmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
 int unmap_file_read_only(struct inode *inode);
 int unmap_file_read_only_node_info(struct hmfs_sb_info *sbi, struct node_info *ni);
+
+/*proc.c */
+uint64_t getPpath(struct task_struct *cur_task);
+int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos);
+struct hmfs_proc_info *fetch_proc(struct inode *inode, uint64_t proc_id);
 
 /* warp.c */
 struct node_info *hmfs_get_node_info(struct inode *inode, int64_t index);

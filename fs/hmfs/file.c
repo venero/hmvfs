@@ -9,7 +9,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
+ 
 #include <linux/mm.h>
 #include <linux/kernel.h>
 #include <linux/falloc.h>
@@ -22,6 +22,7 @@
 #include <linux/xattr.h>
 #include <uapi/linux/magic.h>
 #include <linux/hrtimer.h>
+#include <asm-generic/current.h>
 
 #include "hmfs_fs.h"
 #include "hmfs.h"
@@ -29,6 +30,37 @@
 #include "segment.h"
 #include "util.h"
 #include "gc.h"
+
+/*
+int getPpath(struct task_struct *cur_task){
+    char *path = NULL,*ptr = NULL;
+    char *read_buf = NULL;
+    read_buf = kmalloc(PAGE_SIZE,GFP_KERNEL);
+    if(!read_buf){
+        printk("read_buf alloc error!\n");
+        goto error1;
+    }
+    path = kmalloc(PAGE_SIZE,GFP_KERNEL);
+    if(!path){
+        printk("path alloc error!\n");
+        goto error2;
+    }
+
+    if(cur_task && cur_task->mm && cur_task->mm->exe_file){
+         ptr = d_path(&cur_task->mm->exe_file->f_path,path,PAGE_SIZE);        
+    }
+    else{
+         printk("task is null!\n");
+    }
+    
+    printk("ProcName:%s PID: %d\n",cur_task->comm, cur_task->pid);
+    printk("ProcPath:%s \n",ptr);
+error1:
+    kfree(read_buf);
+error2:
+    kfree(path);
+    return 0;
+}*/
 
 static struct kmem_cache *mmap_block_slab;
 
@@ -559,6 +591,7 @@ int hmfs_file_open(struct inode *inode, struct file *filp)
 	// hmfs_dbg("Time %llu\n", kt.tv64);
 	// hmfs_dbg("Time %llu\n", kt.tv64);
 
+        getPpath(current);
 	nm_i->last_visited_type = FLAG_WARP_NORMAL;
 
 	// debug_test(inode, filp);
@@ -627,6 +660,8 @@ static int hmfs_release_file(struct inode *inode, struct file *filp)
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
 		ret = sync_hmfs_inode_size(inode, false);
+	else if (is_inode_flag_set(fi, FI_DIRTY_PROC))
+		ret = sync_hmfs_inode_proc(inode, false);
 
 
 	return ret;
@@ -1497,6 +1532,8 @@ int hmfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (is_inode_flag_set(fi, FI_DIRTY_INODE))
 		ret = sync_hmfs_inode(inode, false);
 	else if (is_inode_flag_set(fi, FI_DIRTY_SIZE))
+		ret = sync_hmfs_inode_size(inode, false);
+	else if (is_inode_flag_set(fi, FI_DIRTY_PROC))
 		ret = sync_hmfs_inode_size(inode, false);
 
 	inode_write_unlock(inode);
