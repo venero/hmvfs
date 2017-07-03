@@ -272,6 +272,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	if(!cur_proc){
 		printk("get into ino tree insert\n");
 		radix_tree_insert(&nm_i->p_ino_root, inode->i_ino,fi->i_proc_info);
+		printk("the first proc info is: %llu\n", fi->i_proc_info[0].proc_id);
 		goto end;
 	}
 	pproc=cur_proc;
@@ -286,6 +287,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 		}
 		if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
 			cur_proc->next_nid==proc->next_nid){
+			printk("find the right proc_info\n");
 			ret=1;
 			goto end;
 		}
@@ -295,7 +297,8 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 			pproc->proc_id=proc->proc_id;
 			pproc->next_ino=proc->next_ino;
 			pproc->next_nid=proc->next_nid;
-			fi->i_proc_info[i]= pproc;
+			//fi->i_proc_info[i]= pproc;
+			printk("get dirty value\n");
 			break;
 		}
 	}
@@ -308,12 +311,12 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	pproc->proc_id=0;
 	pproc->next_ino=0;
 	pproc->next_nid=0;
-	fi->i_proc_info[i]= pproc;
+	//fi->i_proc_info[i]= pproc;
 	//set dirty tags
 	printk("set tag\n");
 	radix_tree_tag_set(&nm_i->p_ino_root,last_visit_ino->i_ino,1);
 	ret_tag= radix_tree_tag_get(&nm_i->p_ino_root, last_visit_ino->i_ino,1);
-	printk("ret_tag in update is %d\n",ret)
+	printk("ret_tag in update is %d\n",ret_tag);
 end:
 	return ret;
 	
