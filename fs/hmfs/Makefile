@@ -1,1 +1,1 @@
-Makefile.goku
+Makefile.kernel
