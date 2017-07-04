@@ -137,14 +137,14 @@ int set_proc_info(uint64_t proc_id, struct inode *inode, loff_t *ppos){
 		return -ENOMEM;
    	}
 	new_proc->proc_id = proc_id;
-	new_proc->next_ino =  inode->i_ino;
+	new_proc->next_ino = inode->i_ino;
 	if(is_inline_inode(inode)){
 		nid = inode->i_ino;
 	}
 	else
 		nid = set_proc_nid(inode, index);
   	new_proc->next_nid =nid;
-	printk("proc_ino: %lu proc_nid: %lu\n", new_proc->next_ino, new_proc->next_nid);
+	printk("proc_ino: %lu proc_nid: %lu\n", (unsigned long) new_proc->next_ino, (unsigned long) new_proc->next_nid);
 	ret = update_proc_info(inode, new_proc);
 	/*if(ret)
 		kmem_cache_free(proc_info_slab, new_proc);*/
@@ -253,6 +253,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 	struct inode *last_visit_ino;
 	//nid_t *i_ino = inode->i_ino;
 	struct hmfs_inode_info *fi = HMFS_I(inode);
+	struct hmfs_inode_info *lfi = NULL;
 	struct hmfs_sb_info *sbi = HMFS_I_SB(inode);
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_proc_info *cur_proc, *pproc;
@@ -261,22 +262,32 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 
 	printk("get into update proc\n");	
 	//get last_visited inode if proc exists
-	last_visit_ino = radix_tree_lookup(&nm_i->p_pid_root,proc_id);
+	last_visit_ino = radix_tree_lookup(&nm_i->p_pid_root, proc_id);
 	if(!last_visit_ino){
 		printk("get in tree insert");
 		radix_tree_insert(&nm_i->p_pid_root, proc_id, inode);
 		goto end;
 	}
+	else {
+		radix_tree_delete(&nm_i->p_pid_root, proc_id);
+		radix_tree_insert(&nm_i->p_pid_root, proc_id, inode);
+	}	
+	lfi = HMFS_I(last_visit_ino);
+	hmfs_dbg("Insert proc id:%llu ino:%lu last:%lu\n",(unsigned long long)proc_id,inode->i_ino,last_visit_ino->i_ino);
+
 	//generally it is impossible to find last_ino not in the tree 
+	// zsa: It is actually possible, though. Otherwise, how to initialize?
 	cur_proc= radix_tree_lookup(&nm_i->p_ino_root, last_visit_ino->i_ino);
 	if(!cur_proc){
 		printk("get into ino tree insert\n");
+		radix_tree_insert(&nm_i->p_ino_root, last_visit_ino->i_ino,lfi->i_proc_info);
+		cur_proc= lfi->i_proc_info;
 		radix_tree_insert(&nm_i->p_ino_root, inode->i_ino,fi->i_proc_info);
 		printk("the first proc info is: %llu\n", fi->i_proc_info[0].proc_id);
-		goto end;
+		// goto end;
 	}
 	pproc=cur_proc;
-	for(;i<4;i++,cur_proc++){
+	for(i=0;i<4;i++,cur_proc++){
 		if(cur_proc->proc_id==0){
 			//cur_proc->proc_id=proc->proc_id;
 			//cur_proc->next_ino=proc->next_ino;
@@ -287,7 +298,7 @@ static int update_proc_info(struct inode *inode, struct hmfs_proc_info *proc){
 		}
 		if(cur_proc->proc_id==proc->proc_id&&cur_proc->next_ino==proc->next_ino&&
 			cur_proc->next_nid==proc->next_nid){
-			printk("find the right proc_info\n");
+			printk("Found the right proc_info\n");
 			ret=1;
 			goto end;
 		}

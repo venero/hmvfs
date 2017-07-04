@@ -1197,6 +1197,8 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi);
 inline void wake_up_warp(struct hmfs_sb_info *sbi);
 int start_warp_thread(struct hmfs_sb_info *sbi);
 void stop_warp_thread(struct hmfs_sb_info *sbi);
+struct node_info *find_next_warp_inter(struct hmfs_sb_info *sbi, struct node_info *ni);
+inline struct node_info *find_next_warp_inner(struct hmfs_sb_info *sbi, struct node_info *ni);
 
 /* gc.c */
 inline void start_bc(struct hmfs_sb_info *);

@@ -108,7 +108,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	struct direct_node *dn;
 	int err;
 	struct nat_entry *ne;
-    	struct warp_candidate_entry *wce;
+	struct warp_candidate_entry *wce;
 	struct node_info *ni;
 	unsigned long long i;
 	unsigned long long add=0;
@@ -367,6 +367,40 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
     return 0;
 }
 
+struct node_info *find_next_warp_inter(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	struct hmfs_nm_info *nm_i = sbi->nm_info;
+	struct inode *inode = NULL;
+	// struct hmfs_inode_info *fi = HMFS_I(inode);
+	//struct hmfs_proc_info *proc = radix_tree_lookup(&nm_i->p_ino_root,ni->ino);
+	struct hmfs_proc_info *proc = NULL;
+	struct node_info *ret = NULL;
+	int i;
+	if (ni==NULL) return NULL;
+	inode = hmfs_iget(sbi->sb, ni->ino);
+	proc = radix_tree_lookup(&nm_i->p_ino_root, ni->ino);
+	if (!proc) return NULL;
+
+	// hmfs_dbg("search nid %lu ino %lu\n", (unsigned long) ni->nid, (unsigned long) ni->ino);
+	// if(!proc)
+	// if(!proc){
+	// 	radix_tree_insert(&nm_i->p_ino_root,ni->ino,fi->i_proc_info);
+	// 	proc = fi->i_proc_info;
+	// }
+	for(i=0;i<4;i++,proc++){
+		if(proc->proc_id!=0){
+			break;
+		}
+	}
+	ret = get_node_info_by_nid(sbi, proc->next_nid);
+	// if (ret!=NULL) hmfs_dbg("This is %lu, next is %lu\n", (unsigned long) ni->nid ,(unsigned long) ret->nid);
+	return ret;
+}
+
+inline struct node_info *find_next_warp_inner(struct hmfs_sb_info *sbi, struct node_info *ni) {
+	struct node_info *next = get_node_info_by_nid(sbi, ni->next_warp);
+	return next;
+}
+
 // Current strategy:
 // When called, prepare 'this' and the successor of 'this' with pre-read/pre-write.
 // Check whether they have been prepared or not.
@@ -374,8 +408,11 @@ int hmfs_warp_update(struct hmfs_sb_info *sbi){
 // If not prepared, warp them
 int warp_deal_with_pending(struct hmfs_sb_info *sbi, struct node_info *ni) {
 	int ret=0;
-	struct node_info *next = get_node_info_by_nid(sbi, ni->next_warp);
+	struct node_info *next;
 	// display_warp(sbi);
+	next = find_next_warp_inner(sbi, ni);
+	if (next) ret = warp_prepare_node_info(sbi, next);
+	next = find_next_warp_inter(sbi, ni);
 	if (next) ret = warp_prepare_node_info(sbi, next);
 	ret = warp_prepare_node_info(sbi, ni);
 	//display_warp(sbi);

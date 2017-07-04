@@ -694,7 +694,7 @@ int recover_orphan_inodes(struct hmfs_sb_info *sbi)
 }
 
 void display_warp(struct hmfs_sb_info *sbi) {
-	int i=0;
+	int i=0,j=0;
 	struct hmfs_nm_info *nm_i = NM_I(sbi);
 	struct hmfs_summary *summary;
 	char *type_name="\0";
@@ -703,6 +703,10 @@ void display_warp(struct hmfs_sb_info *sbi) {
 	char *next_warp_type_name="\0";
 	struct nat_entry *ne;
 	unsigned long long mnormal, mread, mwrite;
+	struct inode *inode = NULL;
+	struct hmfs_inode_info *fi = NULL;
+	//struct hmfs_proc_info *proc = NULL;
+	struct node_info *this;
 	ne = radix_tree_lookup(&nm_i->nat_root, 1);
 	for (i=1;i<100;++i) {
 		ne = radix_tree_lookup(&nm_i->nat_root, i);
@@ -747,13 +751,21 @@ void display_warp(struct hmfs_sb_info *sbi) {
 					case FLAG_WARP_HYBRID:
 						cur_warp_type_name = "Hybr";break;
 				}
-				
-				hmfs_dbg("[WARP] nid:%d b:%u\t[%s] \tino:%d \tE[%s] Sum[%s][%s].\n",ne->ni.nid,ne->ni.begin_version,type_name,(int)ne->ni.ino,cur_warp_type_name,next_warp_type_name,warp_type_name);
+				hmfs_dbg("-------- NID: %d --------\n",i);
+				hmfs_dbg("[WARP] nid:%d b:%u [%s] \tino:%d \tE[%s] Sum[%s][%s].\n",ne->ni.nid,ne->ni.begin_version,type_name,(int)ne->ni.ino,cur_warp_type_name,next_warp_type_name,warp_type_name);
 				hmfs_dbg("[WARP] nr=%lu sr=%llu nw=%lu sw=%llu\n", ne->ni.nread, ne->ni.sread, ne->ni.nwrite, ne->ni.swrite);
 				mnormal = ne->ni.nread * WARP_NVM_LREAD + ( ne->ni.sread >> WARP_NVM_SREAD ) + ne->ni.nwrite * WARP_NVM_LWRITE + ( ne->ni.swrite >> WARP_NVM_SWRITE );
 				mread = ( ne->ni.sread >> WARP_NVM_SREAD ) + ne->ni.nwrite * WARP_NVM_LWRITE + ( ne->ni.swrite >> WARP_NVM_SWRITE );
 				mwrite = ne->ni.nread * WARP_DRAM_LREAD + ( ne->ni.sread >> WARP_DRAM_SREAD ) + ne->ni.nwrite * WARP_DRAM_LWRITE + ( ne->ni.swrite >> WARP_DRAM_SWRITE );
 				hmfs_dbg("[WARP] normal=%llu read=%llu write=%llu\n",mnormal,mread,mwrite);
+				inode = hmfs_iget(sbi->sb, ne->ni.ino);
+				fi = HMFS_I(inode);
+				for(j=0;j<4;++j){
+					hmfs_dbg("[PROC] pid:%llu \t ino:%lu \t nid:%lu\n", fi->i_proc_info[j].proc_id, (unsigned long)fi->i_proc_info[j].next_ino, (unsigned long)fi->i_proc_info[j].next_nid);
+				}
+				this = find_next_warp_inter(sbi, &ne->ni);
+				// if (this) hmfs_dbg("[PROC] next ino:%d \t next nid:%d\n", this->ino, this->nid);
+				hmfs_dbg("-------- NID: %d --------\n",i);
 			}
 		}
 	}
@@ -867,7 +879,7 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 		goto unlock;
 	}
 	hmfs_dbg("[CP] : berfore do_checkpoint\n");
-	display_warp(sbi);
+	// display_warp(sbi);
 	cleanup_all_wp_inode_entry(sbi);
 	hmfs_dbg("[CP] : write checkpoint\n");
 

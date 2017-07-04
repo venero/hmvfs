@@ -176,6 +176,7 @@ static struct nat_entry *grab_nat_entry(struct hmfs_nm_info *nm_i, nid_t nid)
 struct node_info *get_node_info_by_nid(struct hmfs_sb_info *sbi, nid_t nid){
 	struct nat_entry *ne;
 	struct node_info *nip;
+	if (nid==0) return NULL;
 	ne = radix_tree_lookup(&sbi->nm_info->nat_root, nid);
     if (unlikely(!ne)) {
         //hmfs_dbg("[HMFS] : radix_tree_lookup misses.\n");
