@@ -748,7 +748,7 @@ static ssize_t hmfs_xip_file_read(struct file *filp, char __user *buf,
 	}
 	*/
 
-	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
+	if(!sbi->turn_off_warp) hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_READ);
 out:
 	inode_read_unlock(filp->f_inode);
 
@@ -1071,7 +1071,7 @@ ssize_t hmfs_xip_file_write(struct file *filp, const char __user *buf, size_t le
 	inode_write_unlock(inode);
 	mutex_unlock_op(sbi, ilock);
 
-	hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_WRITE);
+	if(!sbi->turn_off_warp) hmfs_warp_type_range_update(filp, len, ppos, FLAG_WARP_WRITE);
 out_backing:
 	current->backing_dev_info = NULL;
 out_up:

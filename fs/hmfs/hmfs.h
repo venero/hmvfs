@@ -293,6 +293,7 @@ struct hmfs_sb_info {
 	u64 map_zero_page_number; 					/* pfn of above empty page */
 
 	/* WARP */
+	bool turn_off_warp;
     unsigned long long init_mm_addr;
 	struct hmfs_kthread *warp_thread;	
 

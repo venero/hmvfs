@@ -229,6 +229,7 @@ int hmfs_warp_type_range_update(struct file *filp, size_t len, loff_t *ppos, uns
 	}
 	// Call warp-preparation after a range request
 	wake_up_warp(sbi);
+
 	p_hash= getPpath(current);
 	printk("\nthe process exe path hash value is: %llu\n",p_hash);
 	ret_proc= set_proc_info(p_hash, inode, ppos);
@@ -375,6 +376,7 @@ struct node_info *find_next_warp_inter(struct hmfs_sb_info *sbi, struct node_inf
 	struct hmfs_proc_info *proc = NULL;
 	struct node_info *ret = NULL;
 	int i;
+	uint64_t p_hash = getPpath(current);
 	if (ni==NULL) return NULL;
 	inode = hmfs_iget(sbi->sb, ni->ino);
 	proc = radix_tree_lookup(&nm_i->p_ino_root, ni->ino);
@@ -387,11 +389,10 @@ struct node_info *find_next_warp_inter(struct hmfs_sb_info *sbi, struct node_inf
 	// 	proc = fi->i_proc_info;
 	// }
 	for(i=0;i<4;i++,proc++){
-		if(proc->proc_id!=0){
-			break;
+		if(proc->proc_id==p_hash){
+			ret = get_node_info_by_nid(sbi, proc->next_nid);
 		}
 	}
-	ret = get_node_info_by_nid(sbi, proc->next_nid);
 	// if (ret!=NULL) hmfs_dbg("This is %lu, next is %lu\n", (unsigned long) ni->nid ,(unsigned long) ret->nid);
 	return ret;
 }

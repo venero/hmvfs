@@ -880,10 +880,10 @@ int write_checkpoint(struct hmfs_sb_info *sbi, bool unlock)
 	}
 	hmfs_dbg("[CP] : berfore do_checkpoint\n");
 	// display_warp(sbi);
-	cleanup_all_wp_inode_entry(sbi);
+	if(!sbi->turn_off_warp) cleanup_all_wp_inode_entry(sbi);
 	hmfs_dbg("[CP] : write checkpoint\n");
 
-	hmfs_warp_update(sbi);
+	if(!sbi->turn_off_warp) hmfs_warp_update(sbi);
 	display_warp(sbi);
 	// You MUST make some changes in order to do_checkpoint().
 	ret = do_checkpoint(sbi);

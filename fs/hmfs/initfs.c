@@ -268,6 +268,7 @@ enum {
 	Opt_mode,
 	Opt_uid,
 	Opt_gid,
+	Opt_warp,
 	Opt_gc,
 	Opt_gc_min_time,
 	Opt_gc_max_time,
@@ -286,6 +287,7 @@ static const match_table_t tokens = {
 	{Opt_mode, "mode=%o"},
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
+	{Opt_warp, "turn_off_warp=%u"},
 	{Opt_gc, "gc=%u"},
 	{Opt_gc_min_time, "gc_min_time=%u"},
 	{Opt_gc_max_time, "gc_max_time=%u"},
@@ -358,6 +360,12 @@ static int hmfs_parse_options(char *options, struct hmfs_sb_info *sbi, bool remo
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			sbi->gid = make_kgid(current_user_ns(), option);
+			break;
+		case Opt_warp:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if (option)
+				sbi->turn_off_warp = true;
 			break;
 		case Opt_inline_data:
 			if (match_int(&args[0], &option))
@@ -716,6 +724,7 @@ int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
 	sbi->s_mount_opt = 0;
+	sbi->turn_off_warp = false;
 	if (hmfs_parse_options((char *)data, sbi, 0)) {
 		retval = -EINVAL;
 		goto out;
@@ -738,9 +747,12 @@ int hmfs_fill_super(struct super_block *sb, void *data, int slient)
 	if (retval)
 		goto out;
 
-	retval = start_warp_thread(sbi);
-	if (retval)
-		goto out;
+	if(!sbi->turn_off_warp) {
+		retval = start_warp_thread(sbi);
+		if (retval)
+			goto out;
+	}
+
 
 	return 0;
 out:
